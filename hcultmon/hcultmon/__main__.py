@@ -2,7 +2,7 @@ import asyncio
 import logging
 import sqlite3
 from bleak import BleakScanner, BleakClient
-from bleak.exc import BleakDeviceNotFoundError
+from bleak.exc import BleakDeviceNotFoundError, BleakDBusError
 
 logging.basicConfig(
     format="%(asctime)s %(message)s",
@@ -67,10 +67,32 @@ async def _main():
                     continue
                 logging.info("Connected to ESP32 device.")
 
-                await client.start_notify(CHARACTERISTIC_UUID, lambda sender, data: notification_handler(sender, data, db_con))
-                await client.write_gatt_char(CHARACTERISTIC_UUID, "a_message_here".encode('utf-8'))
-                await client.stop_notify(CHARACTERISTIC_UUID)
-        except bleak.exc.BleakDeviceNotFoundError as e:
+                # await client.start_notify(...) only waits for the subscription to be set up 
+                # (i.e., CCCD written / notifications enabled).
+                # It does not wait for any notification data. The _handler runs
+                # later, asynchronously, whenever a notification arrives.
+                notify_event = asyncio.Event()
+
+                def _handler(sender, data):
+                    notification_handler(sender, data, db_con)
+                    notify_event.set()
+
+                await client.start_notify(CHARACTERISTIC_UUID, _handler)
+                try:
+                    await client.write_gatt_char(
+                        CHARACTERISTIC_UUID,
+                        "a_message_here".encode("utf-8"),
+                        response=False,
+                    )
+                except BleakDBusError as e:
+                    logging.error(f"Failed to write to characteristic: {e}")
+                try:
+                    await asyncio.wait_for(notify_event.wait(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    logging.warning("Timed out waiting for sensor notification.")
+                if client.is_connected:
+                    await client.stop_notify(CHARACTERISTIC_UUID)
+        except BleakDeviceNotFoundError as e:
             logging.error(f"Device not found error: {e} (device probably went to sleep)")
 
 def main():
@@ -78,4 +100,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

@@ -122,6 +122,7 @@ static uint8_t g_ble_addr_type;
 // A: It tells the compiler the variable can change outside the current context.
 // A: It prevents some optimizations, but it is not a full thread-safety mechanism.
 static volatile bool g_request_sleep;
+static volatile bool g_sent_payload;
 
 /* Forward declaration: used before definition by the advertising function. */
 // Q: what is a gap event?
@@ -169,8 +170,11 @@ static int gatt_svr_chr_access(uint16_t conn_handle, uint16_t attr_handle,
       ESP_LOGW(TAG, "Notify failed: %d", rc);
     } else {
       ESP_LOGI(TAG, "Client wrote request; notified payload");
-      // Exit early once we've delivered the readings.
-      g_request_sleep = true;
+      g_sent_payload = true;
+      int dc = ble_gap_terminate(conn_handle, BLE_ERR_REM_USER_CONN_TERM);
+      if (dc != 0) {
+        ESP_LOGW(TAG, "Disconnect request failed: %d", dc);
+      }
     }
     return 0;
   }
@@ -189,6 +193,7 @@ static struct ble_gatt_chr_def gatt_chr_defs[] = {
         nullptr,
         nullptr,
         static_cast<ble_gatt_chr_flags>(BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE |
+                                        BLE_GATT_CHR_F_WRITE_NO_RSP |
                                         BLE_GATT_CHR_F_NOTIFY),
         0,
         &gatt_chr_handle,
@@ -289,8 +294,13 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg) {
       return 0;
     case BLE_GAP_EVENT_DISCONNECT:
       ESP_LOGI(TAG, "Client disconnected");
-      // Restart advertising so the next client can fetch the one-shot data.
-      start_advertising();
+      if (g_sent_payload) {
+        ESP_LOGI(TAG, "Payload delivered; sleeping");
+        g_request_sleep = true;
+      } else {
+        // Restart advertising so the next client can fetch the one-shot data.
+        start_advertising();
+      }
       return 0;
     default:
       return 0;
