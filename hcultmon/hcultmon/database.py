@@ -1,0 +1,60 @@
+import sqlite3
+
+
+def setup_db(db_path):
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS devices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT,
+            address TEXT UNIQUE,
+            first_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
+            last_seen DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sensor_readings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id INTEGER NOT NULL,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            sensor TEXT NOT NULL,
+            measurement INTEGER NOT NULL,
+            FOREIGN KEY (device_id) REFERENCES devices(id)
+        )
+        """
+    )
+    conn.commit()
+    return conn
+
+
+def register_device(conn, name, address):
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM devices WHERE address = ?", (address,))
+    row = cursor.fetchone()
+    if row:
+        device_id = row[0]
+        cursor.execute(
+            "UPDATE devices SET name = ?, last_seen = CURRENT_TIMESTAMP WHERE id = ?",
+            (name, device_id),
+        )
+    else:
+        cursor.execute(
+            "INSERT INTO devices (name, address) VALUES (?, ?)",
+            (name, address),
+        )
+        device_id = cursor.lastrowid
+    conn.commit()
+    return device_id
+
+
+def write_sensor_readings(conn, device_id, readings):
+    cursor = conn.cursor()
+    cursor.executemany(
+        "INSERT INTO sensor_readings (device_id, sensor, measurement) VALUES (?, ?, ?)",
+        [(device_id, key, value) for key, value in readings.items()],
+    )
+    conn.commit()
