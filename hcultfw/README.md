@@ -65,8 +65,8 @@ idf.py -p /dev/ttyUSB0 flash
 - Power pins:
   - Sensor power: GPIO5 and GPIO18
 - Status LED: GPIO4
-- BLE service UUID: `12345678-1234-1234-1234-1234567890ab`
-- BLE characteristic UUID: `abcdefab-1234-5678-1234-abcdefabcdef`
+- BLE service UUID: set in `openhcult.conf` as `service_uuid`
+- BLE characteristic UUID: set in `openhcult.conf` as `characteristic_uuid`
 - Advertising window: 45s, then deep sleep for 60s.
 
 ## Glossary

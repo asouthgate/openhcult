@@ -70,11 +70,15 @@
 #include "services/gap/ble_svc_gap.h"
 /* GATT service helper (standard GATT service). */
 #include "services/gatt/ble_svc_gatt.h"
+/* UUID parsing helpers for loading config at runtime. */
+#include "host/ble_uuid.h"
 /* Simple NVS-backed storage helpers for NimBLE. */
 // Q: NVS?
 // A: Non-Volatile Storage in flash; NimBLE uses it to persist BLE state.
 #include "host/ble_store.h"
 
+/* Build-time generated config with BLE UUID strings. */
+#include "ble_config.h"
 
 // Q: should these be #defines?
 // A: They can be macros or constexprs. In C++ I'd prefer constexpr, but ESP-IDF
@@ -95,16 +99,11 @@
 static const char *TAG = "hcultfw";
 
 
-// Q: What are these hex vals? 
-// A: These are the 128-bit BLE UUID bytes for the custom service and characteristic.
-// A: BLE_UUID128_INIT expects them in little-endian byte order.
-static const ble_uuid128_t kServiceUuid = BLE_UUID128_INIT(
-    0xab, 0x90, 0x78, 0x56, 0x34, 0x12, 0x34, 0x12,
-    0x34, 0x12, 0x34, 0x12, 0x78, 0x56, 0x34, 0x12);
-
-static const ble_uuid128_t kCharacteristicUuid = BLE_UUID128_INIT(
-    0xef, 0xcd, 0xab, 0xef, 0xcd, 0xab, 0x34, 0x12,
-    0x78, 0x56, 0x34, 0x12, 0xab, 0xef, 0xcd, 0xab);
+// Q: What are these?
+// A: These are the 128-bit BLE UUIDs loaded from the repo config at boot.
+static ble_uuid128_t g_service_uuid;
+static ble_uuid128_t g_characteristic_uuid;
+static bool g_ble_uuid_ok;
 
 // Q: what are each of these?
 // A: gatt_chr_handle: runtime handle to the characteristic value.
@@ -188,7 +187,7 @@ static int gatt_svr_chr_access(uint16_t conn_handle, uint16_t attr_handle,
 // A: GATT server knows what attributes to expose.
 static struct ble_gatt_chr_def gatt_chr_defs[] = {
     {
-        &kCharacteristicUuid.u,
+        &g_characteristic_uuid.u,
         gatt_svr_chr_access,
         nullptr,
         nullptr,
@@ -217,7 +216,7 @@ static struct ble_gatt_chr_def gatt_chr_defs[] = {
 static const struct ble_gatt_svc_def gatt_svcs[] = {
     {
         BLE_GATT_SVC_TYPE_PRIMARY,
-        &kServiceUuid.u,
+        &g_service_uuid.u,
         nullptr,
         gatt_chr_defs,
     },
@@ -249,7 +248,7 @@ static void start_advertising(void) {
   fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
   fields.tx_pwr_lvl_is_present = 1;
   fields.tx_pwr_lvl = BLE_HS_ADV_TX_PWR_LVL_AUTO;
-  fields.uuids128 = &kServiceUuid;
+  fields.uuids128 = &g_service_uuid;
   fields.num_uuids128 = 1;
   fields.uuids128_is_complete = 1;
 
@@ -333,6 +332,28 @@ static void ble_on_sync(void) {
 
   ble_svc_gap_device_name_set("ESP32_Sensor");
   start_advertising();
+}
+
+/*
+ * Loads BLE UUIDs from build-time config and validates their format.
+ * This keeps firmware and monitor UUIDs in sync via the shared repo config.
+ */
+static void load_ble_uuids(void) {
+  ble_uuid_any_t uuid_any;
+  int rc = ble_uuid_from_str(&uuid_any, BLE_SERVICE_UUID_STR);
+  if (rc != 0 || uuid_any.u.type != BLE_UUID_TYPE_128) {
+    ESP_LOGE(TAG, "Invalid BLE service UUID: %s", BLE_SERVICE_UUID_STR);
+    return;
+  }
+  g_service_uuid = *BLE_UUID128(&uuid_any.u);
+
+  rc = ble_uuid_from_str(&uuid_any, BLE_CHARACTERISTIC_UUID_STR);
+  if (rc != 0 || uuid_any.u.type != BLE_UUID_TYPE_128) {
+    ESP_LOGE(TAG, "Invalid BLE characteristic UUID: %s", BLE_CHARACTERISTIC_UUID_STR);
+    return;
+  }
+  g_characteristic_uuid = *BLE_UUID128(&uuid_any.u);
+  g_ble_uuid_ok = true;
 }
 
 /*
@@ -463,6 +484,12 @@ extern "C" void app_main(void) {
 
   ESP_LOGI(TAG, "Sensor value 1: %d", g_sensor_value_1);
   ESP_LOGI(TAG, "Sensor value 2: %d", g_sensor_value_2);
+
+  load_ble_uuids();
+  if (!g_ble_uuid_ok) {
+    ESP_LOGE(TAG, "BLE UUIDs not configured; aborting");
+    return;
+  }
 
   nimble_port_init();
 

@@ -1,17 +1,34 @@
+"""BLE monitor loop and notification handling for hcultmon."""
+
 import asyncio
 import logging
+from configparser import ConfigParser
+from pathlib import Path
 
 from bleak import BleakScanner, BleakClient
 from bleak.exc import BleakDeviceNotFoundError, BleakDBusError
 
 from . import database
 
-# Use the TX characteristic (the one actually created on ESP32)
-CHARACTERISTIC_UUID = "abcdefab-1234-5678-1234-abcdefabcdef"
+DEFAULT_CONFIG_NAME = "openhcult.conf"
 DEVICE_NAME_HINT = "ESP32_Sensor"
 
 
+def _load_characteristic_uuid():
+    """Load the characteristic UUID from the repo-level config file."""
+    repo_root = Path(__file__).resolve().parents[2]
+    config_path = repo_root / DEFAULT_CONFIG_NAME
+    parser = ConfigParser()
+    if not config_path.exists():
+        raise FileNotFoundError(f"Missing BLE config: {config_path}")
+    parser.read(config_path)
+    if "ble" not in parser or "characteristic_uuid" not in parser["ble"]:
+        raise ValueError(f"Missing ble.characteristic_uuid in {config_path}")
+    return parser["ble"]["characteristic_uuid"].strip()
+
+
 def _notification_handler(sender, data, dbcon, device_id):
+    """Decode the payload and persist readings for a device."""
     sensor1 = int.from_bytes(data[0:2], byteorder="little")
     sensor2 = int.from_bytes(data[2:4], byteorder="little")
     logging.info(f"Received data from {sender}: Sensor 1: {sensor1}, Sensor 2: {sensor2}")
@@ -19,7 +36,10 @@ def _notification_handler(sender, data, dbcon, device_id):
     database.write_sensor_readings(dbcon, device_id, readings)
 
 
-async def run_monitor(db_con, characteristic_uuid=CHARACTERISTIC_UUID):
+async def run_monitor(db_con, characteristic_uuid=None):
+    """Continuously scan, connect, request data, and store notifications."""
+    if characteristic_uuid is None:
+        characteristic_uuid = _load_characteristic_uuid()
     while True:
         logging.info("Starting BLE scan")
         devices = await BleakScanner.discover(timeout=10.0)

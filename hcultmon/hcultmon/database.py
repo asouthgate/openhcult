@@ -1,7 +1,10 @@
+"""SQLite helpers for device registry and sensor readings."""
+
 import sqlite3
 
 
 def setup_db(db_path):
+    """Create or migrate the database schema and return an open connection."""
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute(
@@ -32,6 +35,7 @@ def setup_db(db_path):
 
 
 def register_device(conn, name, address):
+    """Insert or update a device row and return its device_id."""
     cursor = conn.cursor()
     cursor.execute("SELECT id FROM devices WHERE address = ?", (address,))
     row = cursor.fetchone()
@@ -52,6 +56,7 @@ def register_device(conn, name, address):
 
 
 def write_sensor_readings(conn, device_id, readings):
+    """Insert one row per sensor reading for the given device."""
     cursor = conn.cursor()
     cursor.executemany(
         "INSERT INTO sensor_readings (device_id, sensor, measurement) VALUES (?, ?, ?)",
