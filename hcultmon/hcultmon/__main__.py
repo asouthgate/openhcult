@@ -2,6 +2,7 @@ import asyncio
 import logging
 
 from . import ble
+from . import config
 from . import database
 
 logging.basicConfig(
@@ -11,8 +12,8 @@ logging.basicConfig(
 )
 
 async def _main():
-    db_name = "sensor_readings.db"
-    db_con = database.setup_db(db_name)
+    db_path = config.get_db_path()
+    db_con = database.setup_db(str(db_path))
     await ble.run_monitor(db_con)
 
 def main():
