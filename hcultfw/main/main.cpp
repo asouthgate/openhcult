@@ -131,13 +131,13 @@ extern "C" void app_main(void) {
   // Q: does this actually keep anything predictable?
   // A: It keeps runtime and power usage predictable (single read per boot).
   // A: It does not make the sensor values themselves predictable.
-  state.sensor_value_1 = read_sensor(&state, ADC_CHANNEL_6);
-  state.sensor_value_2 = read_sensor(&state, ADC_CHANNEL_7);
+  state.sensor_value_1 = read_sensor(state, ADC_CHANNEL_6);
+  state.sensor_value_2 = read_sensor(state, ADC_CHANNEL_7);
 
   ESP_LOGI(TAG, "Sensor value 1: %d", state.sensor_value_1);
   ESP_LOGI(TAG, "Sensor value 2: %d", state.sensor_value_2);
 
-  load_ble_uuids(&state);
+  load_ble_uuids(state);
   if (!state.ble_uuid_ok) {
     ESP_LOGE(TAG, "BLE UUIDs not configured; aborting");
     return;
@@ -147,7 +147,7 @@ extern "C" void app_main(void) {
 
   ble_svc_gap_init();
   ble_svc_gatt_init();
-  ble_init(&state);
+  ble_init(state);
 
   // Q: what is gatts_count?
   // A: It counts how many GATT attributes are needed so NimBLE can allocate them

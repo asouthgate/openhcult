@@ -119,11 +119,11 @@ struct ble_gatt_svc_def gatt_svcs[] = {
     },
 };
 
-void ble_init(FirmwareState *state) {
-  s_state = state;
-  gatt_chr_defs[0].uuid = &state->characteristic_uuid.u;
-  gatt_chr_defs[0].val_handle = &state->gatt_chr_handle;
-  gatt_svcs[0].uuid = &state->service_uuid.u;
+void ble_init(FirmwareState &state) {
+  s_state = &state;
+  gatt_chr_defs[0].uuid = &state.characteristic_uuid.u;
+  gatt_chr_defs[0].val_handle = &state.gatt_chr_handle;
+  gatt_svcs[0].uuid = &state.service_uuid.u;
 }
 
 /*
@@ -236,22 +236,22 @@ void ble_on_sync(void) {
  * Loads BLE UUIDs from build-time config and validates their format.
  * This keeps firmware and monitor UUIDs in sync via the shared repo config.
  */
-void load_ble_uuids(FirmwareState *state) {
+void load_ble_uuids(FirmwareState &state) {
   ble_uuid_any_t uuid_any;
   int rc = ble_uuid_from_str(&uuid_any, BLE_SERVICE_UUID_STR);
   if (rc != 0 || uuid_any.u.type != BLE_UUID_TYPE_128) {
     ESP_LOGE(TAG, "Invalid BLE service UUID: %s", BLE_SERVICE_UUID_STR);
     return;
   }
-  state->service_uuid = *BLE_UUID128(&uuid_any.u);
+  state.service_uuid = *BLE_UUID128(&uuid_any.u);
 
   rc = ble_uuid_from_str(&uuid_any, BLE_CHARACTERISTIC_UUID_STR);
   if (rc != 0 || uuid_any.u.type != BLE_UUID_TYPE_128) {
     ESP_LOGE(TAG, "Invalid BLE characteristic UUID: %s", BLE_CHARACTERISTIC_UUID_STR);
     return;
   }
-  state->characteristic_uuid = *BLE_UUID128(&uuid_any.u);
-  state->ble_uuid_ok = true;
+  state.characteristic_uuid = *BLE_UUID128(&uuid_any.u);
+  state.ble_uuid_ok = true;
 }
 
 /*

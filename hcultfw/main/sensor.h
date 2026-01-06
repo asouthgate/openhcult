@@ -4,4 +4,4 @@
 
 #include "state.h"
 
-int read_sensor(FirmwareState *state, adc_channel_t channel);
+int read_sensor(FirmwareState &state, adc_channel_t channel);
