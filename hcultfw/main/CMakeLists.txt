@@ -33,6 +33,11 @@ configure_file(
 )
 
 idf_component_register(
-    SRCS "main.cpp"
+    SRCS
+        "main.cpp"
+        "ble.cpp"
+        "sensor.cpp"
+        "sleep.cpp"
+        "globals.cpp"
     INCLUDE_DIRS "${CMAKE_CURRENT_BINARY_DIR}"
 )
