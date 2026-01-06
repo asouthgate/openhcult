@@ -9,6 +9,7 @@
 #include "host/ble_hs_id.h"
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
+#include "payload.h"
 #include "services/gap/ble_svc_gap.h"
 
 static const char *TAG = "hcultfw";
@@ -29,13 +30,15 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg);
 static int gatt_svr_chr_access(uint16_t conn_handle, uint16_t attr_handle,
                                struct ble_gatt_access_ctxt *ctxt, void *arg) {
   uint16_t payload[2];
-  payload[0] = static_cast<uint16_t>(s_state->sensor_value_1);
-  payload[1] = static_cast<uint16_t>(s_state->sensor_value_2);
+  size_t payload_count = build_sensor_payload(
+      s_state->sensor_values, s_state->sensor_value_count,
+      payload, sizeof(payload) / sizeof(payload[0]));
 
   // Q: what is this condition for?
   // A: It checks whether the client is doing a GATT read on the characteristic.
   if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
-    return os_mbuf_append(ctxt->om, payload, sizeof(payload));
+    return os_mbuf_append(ctxt->om, payload,
+                          payload_count * sizeof(payload[0]));
   }
 
   // Q: what is this condition for?
@@ -47,7 +50,8 @@ static int gatt_svr_chr_access(uint16_t conn_handle, uint16_t attr_handle,
     // Q: why do we define a struct in this way? we define the os_mbfu struct? What about fields?
     // A: We don't define the struct here; we just allocate one using a helper.
     // A: The helper fills internal fields that NimBLE uses to manage the buffer.
-    struct os_mbuf *om = ble_hs_mbuf_from_flat(payload, sizeof(payload));
+    struct os_mbuf *om =
+        ble_hs_mbuf_from_flat(payload, payload_count * sizeof(payload[0]));
     if (om == nullptr) {
       // Q: what does this mean?
       // A: It returns a GATT error code telling the client we ran out of memory.

@@ -131,11 +131,12 @@ extern "C" void app_main(void) {
   // Q: does this actually keep anything predictable?
   // A: It keeps runtime and power usage predictable (single read per boot).
   // A: It does not make the sensor values themselves predictable.
-  state.sensor_value_1 = read_sensor(state, ADC_CHANNEL_6);
-  state.sensor_value_2 = read_sensor(state, ADC_CHANNEL_7);
+  state.sensor_values[0] = read_sensor(state, ADC_CHANNEL_6);
+  state.sensor_values[1] = read_sensor(state, ADC_CHANNEL_7);
+  state.sensor_value_count = 2;
 
-  ESP_LOGI(TAG, "Sensor value 1: %d", state.sensor_value_1);
-  ESP_LOGI(TAG, "Sensor value 2: %d", state.sensor_value_2);
+  ESP_LOGI(TAG, "Sensor value 1: %d", state.sensor_values[0]);
+  ESP_LOGI(TAG, "Sensor value 2: %d", state.sensor_values[1]);
 
   load_ble_uuids(state);
   if (!state.ble_uuid_ok) {

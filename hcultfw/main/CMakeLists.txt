@@ -36,6 +36,7 @@ idf_component_register(
     SRCS
         "main.cpp"
         "ble.cpp"
+        "payload.cpp"
         "sensor.cpp"
         "sleep.cpp"
     INCLUDE_DIRS "${CMAKE_CURRENT_BINARY_DIR}"
