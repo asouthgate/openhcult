@@ -90,12 +90,6 @@
 #define SENSOR_POWER_PIN_2 18
 #define SENSOR_PIN_2 GPIO_NUM_35
 
-#define BLE_ADVERTISING_TIME_MS 45000
-// Q: Why is this in microseconds and not MS like above?
-// A: esp_deep_sleep() expects microseconds, so we keep the value in us to avoid
-// A: accidental unit conversion bugs.
-#define SLEEP_TIME_US 60000000ULL
-
 static const char *TAG = "hcultfw";
 
 

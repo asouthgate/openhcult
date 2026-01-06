@@ -10,11 +10,19 @@ foreach(line IN LISTS BLE_CONFIG_LINES)
         set(BLE_SERVICE_UUID_STR "${CMAKE_MATCH_1}")
     elseif(line MATCHES "^characteristic_uuid=(.+)$")
         set(BLE_CHARACTERISTIC_UUID_STR "${CMAKE_MATCH_1}")
+    elseif(line MATCHES "^ble_advertising_time_ms=([0-9]+)$")
+        set(BLE_ADVERTISING_TIME_MS "${CMAKE_MATCH_1}")
+    elseif(line MATCHES "^sleep_time_us=([0-9]+)$")
+        set(SLEEP_TIME_US "${CMAKE_MATCH_1}")
     endif()
 endforeach()
 
 if(NOT BLE_SERVICE_UUID_STR OR NOT BLE_CHARACTERISTIC_UUID_STR)
     message(FATAL_ERROR "BLE config must define service_uuid and characteristic_uuid")
+endif()
+
+if(NOT DEFINED BLE_ADVERTISING_TIME_MS OR NOT DEFINED SLEEP_TIME_US)
+    message(FATAL_ERROR "BLE config must define ble_advertising_time_ms and sleep_time_us")
 endif()
 
 # Generate a header with UUID strings for the firmware to parse at boot.
