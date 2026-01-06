@@ -11,10 +11,12 @@
 /* High-resolution timer for microsecond timestamps. */
 #include "esp_timer.h"
 
-#include "globals.h"
 #include "pins.h"
 #include "sleep.h"
 #include "ble_config.h"
+#include "state.h"
+
+static const char *TAG = "hcultfw";
 
 /*
  * Background task that decides when to enter deep sleep.
@@ -22,12 +24,13 @@
  * been successfully notified to a client.
  */
 void sleep_task(void *param) {
+  FirmwareState *state = static_cast<FirmwareState *>(param);
   // Q: this is while (true): are we always in this loop then? How do we ever exit?
   // A: Yes, the task loops forever. Deep sleep stops the CPU and resets on wake,
   // A: so the loop never returns; the chip restarts instead.
   while (true) {
-    bool should_sleep = g_request_sleep;
-    int64_t elapsed_us = esp_timer_get_time() - boot_time_us;
+    bool should_sleep = state->request_sleep;
+    int64_t elapsed_us = esp_timer_get_time() - state->boot_time_us;
     if (elapsed_us > BLE_ADVERTISING_TIME_MS * 1000LL) {
       ESP_LOGI(TAG, "BLE window expired, sleeping");
       should_sleep = true;

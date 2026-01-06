@@ -2,7 +2,7 @@
 #include <string.h>
 
 #include "ble.h"
-#include "globals.h"
+#include "state.h"
 #include "ble_config.h"
 #include "esp_log.h"
 #include "host/ble_hs.h"
@@ -10,6 +10,9 @@
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
 #include "services/gap/ble_svc_gap.h"
+
+static const char *TAG = "hcultfw";
+static FirmwareState *s_state;
 
 /* Forward declaration: used before definition by the advertising function. */
 // Q: what is a gap event?
@@ -26,8 +29,8 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg);
 static int gatt_svr_chr_access(uint16_t conn_handle, uint16_t attr_handle,
                                struct ble_gatt_access_ctxt *ctxt, void *arg) {
   uint16_t payload[2];
-  payload[0] = static_cast<uint16_t>(g_sensor_value_1);
-  payload[1] = static_cast<uint16_t>(g_sensor_value_2);
+  payload[0] = static_cast<uint16_t>(s_state->sensor_value_1);
+  payload[1] = static_cast<uint16_t>(s_state->sensor_value_2);
 
   // Q: what is this condition for?
   // A: It checks whether the client is doing a GATT read on the characteristic.
@@ -52,12 +55,12 @@ static int gatt_svr_chr_access(uint16_t conn_handle, uint16_t attr_handle,
     }
     // Q: what is this?
     // A: It sends a GATT notification to the client with our payload.
-    int rc = ble_gatts_notify_custom(conn_handle, gatt_chr_handle, om);
+    int rc = ble_gatts_notify_custom(conn_handle, s_state->gatt_chr_handle, om);
     if (rc != 0) {
       ESP_LOGW(TAG, "Notify failed: %d", rc);
     } else {
       ESP_LOGI(TAG, "Client wrote request; notified payload");
-      g_sent_payload = true;
+      s_state->sent_payload = true;
       int dc = ble_gap_terminate(conn_handle, BLE_ERR_REM_USER_CONN_TERM);
       if (dc != 0) {
         ESP_LOGW(TAG, "Disconnect request failed: %d", dc);
@@ -75,7 +78,7 @@ static int gatt_svr_chr_access(uint16_t conn_handle, uint16_t attr_handle,
 // A: GATT server knows what attributes to expose.
 static struct ble_gatt_chr_def gatt_chr_defs[] = {
     {
-        &g_characteristic_uuid.u,
+        nullptr,
         gatt_svr_chr_access,
         nullptr,
         nullptr,
@@ -83,7 +86,7 @@ static struct ble_gatt_chr_def gatt_chr_defs[] = {
                                         BLE_GATT_CHR_F_WRITE_NO_RSP |
                                         BLE_GATT_CHR_F_NOTIFY),
         0,
-        &gatt_chr_handle,
+        nullptr,
         nullptr,
     },
     {
@@ -101,10 +104,10 @@ static struct ble_gatt_chr_def gatt_chr_defs[] = {
 
 // Q: what is this struct? Something like svc definition? What's that?
 // A: It declares the service that groups characteristics under one UUID.
-const struct ble_gatt_svc_def gatt_svcs[] = {
+struct ble_gatt_svc_def gatt_svcs[] = {
     {
         BLE_GATT_SVC_TYPE_PRIMARY,
-        &g_service_uuid.u,
+        nullptr,
         nullptr,
         gatt_chr_defs,
     },
@@ -115,6 +118,13 @@ const struct ble_gatt_svc_def gatt_svcs[] = {
         nullptr,
     },
 };
+
+void ble_init(FirmwareState *state) {
+  s_state = state;
+  gatt_chr_defs[0].uuid = &state->characteristic_uuid.u;
+  gatt_chr_defs[0].val_handle = &state->gatt_chr_handle;
+  gatt_svcs[0].uuid = &state->service_uuid.u;
+}
 
 /*
  * Starts BLE advertising with our custom service UUID.
@@ -136,7 +146,7 @@ static void start_advertising(void) {
   fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
   fields.tx_pwr_lvl_is_present = 1;
   fields.tx_pwr_lvl = BLE_HS_ADV_TX_PWR_LVL_AUTO;
-  fields.uuids128 = &g_service_uuid;
+  fields.uuids128 = &s_state->service_uuid;
   fields.num_uuids128 = 1;
   fields.uuids128_is_complete = 1;
 
@@ -152,7 +162,7 @@ static void start_advertising(void) {
   adv_params.conn_mode = BLE_GAP_CONN_MODE_UND;
   adv_params.disc_mode = BLE_GAP_DISC_MODE_GEN;
 
-  rc = ble_gap_adv_start(g_ble_addr_type, nullptr, BLE_HS_FOREVER,
+  rc = ble_gap_adv_start(s_state->ble_addr_type, nullptr, BLE_HS_FOREVER,
                          &adv_params, gap_event_cb, nullptr);
   if (rc != 0) {
     ESP_LOGE(TAG, "ble_gap_adv_start failed: %d", rc);
@@ -181,9 +191,9 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg) {
       return 0;
     case BLE_GAP_EVENT_DISCONNECT:
       ESP_LOGI(TAG, "Client disconnected");
-      if (g_sent_payload) {
+      if (s_state->sent_payload) {
         ESP_LOGI(TAG, "Payload delivered; sleeping");
-        g_request_sleep = true;
+        s_state->request_sleep = true;
       } else {
         // Restart advertising so the next client can fetch the one-shot data.
         start_advertising();
@@ -212,7 +222,7 @@ void ble_on_reset(int reason) {
 // A: is ready to start using GAP/GATT (e.g., start advertising).
 void ble_on_sync(void) {
   // Use the controller-provided address type (public or random).
-  int rc = ble_hs_id_infer_auto(0, &g_ble_addr_type);
+  int rc = ble_hs_id_infer_auto(0, &s_state->ble_addr_type);
   if (rc != 0) {
     ESP_LOGE(TAG, "Address ensure failed: %d", rc);
     return;
@@ -226,22 +236,22 @@ void ble_on_sync(void) {
  * Loads BLE UUIDs from build-time config and validates their format.
  * This keeps firmware and monitor UUIDs in sync via the shared repo config.
  */
-void load_ble_uuids(void) {
+void load_ble_uuids(FirmwareState *state) {
   ble_uuid_any_t uuid_any;
   int rc = ble_uuid_from_str(&uuid_any, BLE_SERVICE_UUID_STR);
   if (rc != 0 || uuid_any.u.type != BLE_UUID_TYPE_128) {
     ESP_LOGE(TAG, "Invalid BLE service UUID: %s", BLE_SERVICE_UUID_STR);
     return;
   }
-  g_service_uuid = *BLE_UUID128(&uuid_any.u);
+  state->service_uuid = *BLE_UUID128(&uuid_any.u);
 
   rc = ble_uuid_from_str(&uuid_any, BLE_CHARACTERISTIC_UUID_STR);
   if (rc != 0 || uuid_any.u.type != BLE_UUID_TYPE_128) {
     ESP_LOGE(TAG, "Invalid BLE characteristic UUID: %s", BLE_CHARACTERISTIC_UUID_STR);
     return;
   }
-  g_characteristic_uuid = *BLE_UUID128(&uuid_any.u);
-  g_ble_uuid_ok = true;
+  state->characteristic_uuid = *BLE_UUID128(&uuid_any.u);
+  state->ble_uuid_ok = true;
 }
 
 /*

@@ -2,9 +2,12 @@
 
 #include "host/ble_gatt.h"
 
-extern const struct ble_gatt_svc_def gatt_svcs[];
+#include "state.h"
 
+extern struct ble_gatt_svc_def gatt_svcs[];
+
+void ble_init(FirmwareState *state);
 void ble_on_reset(int reason);
 void ble_on_sync(void);
 void ble_host_task(void *param);
-void load_ble_uuids(void);
+void load_ble_uuids(FirmwareState *state);

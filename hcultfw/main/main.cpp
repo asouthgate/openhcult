@@ -72,15 +72,18 @@
 #include "host/ble_store.h"
 
 #include "ble.h"
-#include "globals.h"
 #include "pins.h"
 #include "sensor.h"
 #include "sleep.h"
+#include "state.h"
+
+static const char *TAG = "hcultfw";
 
 extern "C" void app_main(void) {
+  static FirmwareState state = {};
   // Capture a fixed reference time so the device sleeps after a consistent
   // window even if advertising restarts or a client disconnects.
-  boot_time_us = esp_timer_get_time();
+  state.boot_time_us = esp_timer_get_time();
   // Q: What do we mean by flash here?
   // A: NVS lives in on-chip flash memory (persistent storage), not RAM.
   esp_err_t ret = nvs_flash_init();
@@ -114,28 +117,28 @@ extern "C" void app_main(void) {
   // A: It configures the ADC unit (ADC1) for oneshot sampling.
   adc_oneshot_unit_init_cfg_t unit_cfg = {};
   unit_cfg.unit_id = ADC_UNIT_1;
-  ESP_ERROR_CHECK(adc_oneshot_new_unit(&unit_cfg, &adc_handle));
+  ESP_ERROR_CHECK(adc_oneshot_new_unit(&unit_cfg, &state.adc_handle));
 
   // Q: what is this?
   // A: It configures per-channel settings like attenuation and bit width.
   adc_oneshot_chan_cfg_t chan_cfg = {};
   chan_cfg.atten = ADC_ATTEN_DB_12;
   chan_cfg.bitwidth = ADC_BITWIDTH_12;
-  ESP_ERROR_CHECK(adc_oneshot_config_channel(adc_handle, ADC_CHANNEL_6, &chan_cfg));
-  ESP_ERROR_CHECK(adc_oneshot_config_channel(adc_handle, ADC_CHANNEL_7, &chan_cfg));
+  ESP_ERROR_CHECK(adc_oneshot_config_channel(state.adc_handle, ADC_CHANNEL_6, &chan_cfg));
+  ESP_ERROR_CHECK(adc_oneshot_config_channel(state.adc_handle, ADC_CHANNEL_7, &chan_cfg));
 
   // Read sensors once per boot to keep runtime and power usage predictable.
   // Q: does this actually keep anything predictable?
   // A: It keeps runtime and power usage predictable (single read per boot).
   // A: It does not make the sensor values themselves predictable.
-  g_sensor_value_1 = read_sensor(ADC_CHANNEL_6);
-  g_sensor_value_2 = read_sensor(ADC_CHANNEL_7);
+  state.sensor_value_1 = read_sensor(&state, ADC_CHANNEL_6);
+  state.sensor_value_2 = read_sensor(&state, ADC_CHANNEL_7);
 
-  ESP_LOGI(TAG, "Sensor value 1: %d", g_sensor_value_1);
-  ESP_LOGI(TAG, "Sensor value 2: %d", g_sensor_value_2);
+  ESP_LOGI(TAG, "Sensor value 1: %d", state.sensor_value_1);
+  ESP_LOGI(TAG, "Sensor value 2: %d", state.sensor_value_2);
 
-  load_ble_uuids();
-  if (!g_ble_uuid_ok) {
+  load_ble_uuids(&state);
+  if (!state.ble_uuid_ok) {
     ESP_LOGE(TAG, "BLE UUIDs not configured; aborting");
     return;
   }
@@ -144,6 +147,7 @@ extern "C" void app_main(void) {
 
   ble_svc_gap_init();
   ble_svc_gatt_init();
+  ble_init(&state);
 
   // Q: what is gatts_count?
   // A: It counts how many GATT attributes are needed so NimBLE can allocate them
@@ -168,5 +172,5 @@ extern "C" void app_main(void) {
   // Q: what is this function call, how does it work relative to control flow? Sleep_task puts into deep_sleep, but how do we end up back at the start of this function?
   // A: xTaskCreate starts a new FreeRTOS task that runs in parallel with app_main.
   // A: Deep sleep resets the CPU, so on wake the firmware starts at app_main again.
-  xTaskCreate(sleep_task, "sleep_task", 2048, nullptr, 5, nullptr);
+  xTaskCreate(sleep_task, "sleep_task", 2048, &state, 5, nullptr);
 }

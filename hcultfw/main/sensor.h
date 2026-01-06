@@ -2,4 +2,6 @@
 
 #include "esp_adc/adc_oneshot.h"
 
-int read_sensor(adc_channel_t channel);
+#include "state.h"
+
+int read_sensor(FirmwareState *state, adc_channel_t channel);
