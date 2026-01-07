@@ -23,15 +23,18 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg);
 
 /*
  * GATT access callback for our characteristic.
- * Read: returns the two sensor values as a 2x uint16 payload.
+ * Read: returns the latest buffered values as a 2x uint16 payload.
  * Write: treats any write as a "send now" request, notifies the same payload,
  * then signals the sleep task to power down early.
  */
 static int gatt_svr_chr_access(uint16_t conn_handle, uint16_t attr_handle,
                                struct ble_gatt_access_ctxt *ctxt, void *arg) {
-  uint16_t payload[2];
+  int latest_values[kSensorCount];
+  size_t latest_count = copy_latest_measurements(
+      latest_values, sizeof(latest_values) / sizeof(latest_values[0]));
+  uint16_t payload[kSensorCount];
   size_t payload_count = build_sensor_payload(
-      s_state->sensor_values, s_state->sensor_value_count,
+      latest_values, latest_count,
       payload, sizeof(payload) / sizeof(payload[0]));
 
   // Q: what is this condition for?

@@ -79,6 +79,41 @@
 
 static const char *TAG = "hcultfw";
 
+static bool init_ble_stack(FirmwareState &state) {
+  load_ble_uuids(state);
+  if (!state.ble_uuid_ok) {
+    ESP_LOGE(TAG, "BLE UUIDs not configured; aborting");
+    return false;
+  }
+
+  nimble_port_init();
+
+  ble_svc_gap_init();
+  ble_svc_gatt_init();
+  ble_init(state);
+
+  // Q: what is gatts_count?
+  // A: It counts how many GATT attributes are needed so NimBLE can allocate them
+  // A: before we register the services.
+  int rc = ble_gatts_count_cfg(gatt_svcs);
+  if (rc != 0) {
+    ESP_LOGE(TAG, "ble_gatts_count_cfg failed: %d", rc);
+    return false;
+  }
+  rc = ble_gatts_add_svcs(gatt_svcs);
+  if (rc != 0) {
+    ESP_LOGE(TAG, "ble_gatts_add_svcs failed: %d", rc);
+    return false;
+  }
+
+  ble_hs_cfg.sync_cb = ble_on_sync;
+  ble_hs_cfg.reset_cb = ble_on_reset;
+  ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
+
+  nimble_port_freertos_init(ble_host_task);
+  return true;
+}
+
 extern "C" void app_main(void) {
   static FirmwareState state = {};
   // Capture a fixed reference time so the device sleeps after a consistent
@@ -100,7 +135,7 @@ extern "C" void app_main(void) {
   // Q: What is this? Does io_config apply to all these pins?
   // A: Yes. pin_bit_mask specifies which pins this configuration struct applies to.
   io_conf.pin_bit_mask = (1ULL << LED_PIN) | (1ULL << SENSOR_POWER_PIN_1) |
-                         (1ULL << SENSOR_POWER_PIN_2);
+                         (1ULL << SENSOR_POWER_PIN_2) | (1ULL << RED_LED_PIN);
   io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
   io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
   ESP_ERROR_CHECK(gpio_config(&io_conf));
@@ -109,6 +144,7 @@ extern "C" void app_main(void) {
   // Q: what's the static_cast for again?
   // A: It converts an integer macro to the gpio_num_t enum expected by the API.
   gpio_set_level(static_cast<gpio_num_t>(LED_PIN), 1);
+  gpio_set_level(static_cast<gpio_num_t>(RED_LED_PIN), 0);
   gpio_set_level(static_cast<gpio_num_t>(SENSOR_POWER_PIN_1), 1);
   gpio_set_level(static_cast<gpio_num_t>(SENSOR_POWER_PIN_2), 1);
   vTaskDelay(pdMS_TO_TICKS(200));
@@ -131,47 +167,23 @@ extern "C" void app_main(void) {
   // Q: does this actually keep anything predictable?
   // A: It keeps runtime and power usage predictable (single read per boot).
   // A: It does not make the sensor values themselves predictable.
-  state.sensor_values[0] = read_sensor(state, ADC_CHANNEL_6);
-  state.sensor_values[1] = read_sensor(state, ADC_CHANNEL_7);
-  state.sensor_value_count = 2;
+  gpio_set_level(static_cast<gpio_num_t>(RED_LED_PIN), 1);
+  vTaskDelay(pdMS_TO_TICKS(100));
+  gpio_set_level(static_cast<gpio_num_t>(RED_LED_PIN), 0);
+  int sensor_values[kSensorCount];
+  sensor_values[0] = read_sensor(state, ADC_CHANNEL_6);
+  sensor_values[1] = read_sensor(state, ADC_CHANNEL_7);
 
-  ESP_LOGI(TAG, "Sensor value 1: %d", state.sensor_values[0]);
-  ESP_LOGI(TAG, "Sensor value 2: %d", state.sensor_values[1]);
-  for (size_t i = 0; i < state.sensor_value_count; ++i) {
-    push_sensor_measurement(state.sensor_values[i]);
+  ESP_LOGI(TAG, "Sensor value 1: %d", sensor_values[0]);
+  ESP_LOGI(TAG, "Sensor value 2: %d", sensor_values[1]);
+  int64_t sample_time_us = esp_timer_get_time();
+  for (size_t i = 0; i < kSensorCount; ++i) {
+    push_sensor_measurement(sensor_values[i], sample_time_us);
   }
 
-  load_ble_uuids(state);
-  if (!state.ble_uuid_ok) {
-    ESP_LOGE(TAG, "BLE UUIDs not configured; aborting");
+  if (!init_ble_stack(state)) {
     return;
   }
-
-  nimble_port_init();
-
-  ble_svc_gap_init();
-  ble_svc_gatt_init();
-  ble_init(state);
-
-  // Q: what is gatts_count?
-  // A: It counts how many GATT attributes are needed so NimBLE can allocate them
-  // A: before we register the services.
-  int rc = ble_gatts_count_cfg(gatt_svcs);
-  if (rc != 0) {
-    ESP_LOGE(TAG, "ble_gatts_count_cfg failed: %d", rc);
-    return;
-  }
-  rc = ble_gatts_add_svcs(gatt_svcs);
-  if (rc != 0) {
-    ESP_LOGE(TAG, "ble_gatts_add_svcs failed: %d", rc);
-    return;
-  }
-
-  ble_hs_cfg.sync_cb = ble_on_sync;
-  ble_hs_cfg.reset_cb = ble_on_reset;
-  ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
-
-  nimble_port_freertos_init(ble_host_task);
 
   // Q: what is this function call, how does it work relative to control flow? Sleep_task puts into deep_sleep, but how do we end up back at the start of this function?
   // A: xTaskCreate starts a new FreeRTOS task that runs in parallel with app_main.
