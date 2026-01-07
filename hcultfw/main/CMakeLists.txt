@@ -39,5 +39,6 @@ idf_component_register(
         "payload.cpp"
         "sensor.cpp"
         "sleep.cpp"
+        "state.cpp"
     INCLUDE_DIRS "${CMAKE_CURRENT_BINARY_DIR}"
 )

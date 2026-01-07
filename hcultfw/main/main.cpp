@@ -137,6 +137,9 @@ extern "C" void app_main(void) {
 
   ESP_LOGI(TAG, "Sensor value 1: %d", state.sensor_values[0]);
   ESP_LOGI(TAG, "Sensor value 2: %d", state.sensor_values[1]);
+  for (size_t i = 0; i < state.sensor_value_count; ++i) {
+    push_sensor_measurement(state.sensor_values[i]);
+  }
 
   load_ble_uuids(state);
   if (!state.ble_uuid_ok) {
