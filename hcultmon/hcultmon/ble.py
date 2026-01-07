@@ -27,7 +27,12 @@ async def run_monitor(db_con, characteristic_uuid=None):
         characteristic_uuid = config.get_ble_characteristic_uuid()
     while True:
         logging.info("Starting BLE scan")
-        devices = await BleakScanner.discover(timeout=10.0)
+        try:
+            devices = await BleakScanner.discover(timeout=10.0)
+        except BleakDBusError as e:
+            logging.error(f"BLE scan failed: {e}")
+            await asyncio.sleep(10.0)
+            continue
         esp32_device = None
         for d in devices:
             if d.name and DEVICE_NAME_HINT in d.name:
