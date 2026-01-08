@@ -32,7 +32,17 @@ static int gatt_svr_chr_access(uint16_t conn_handle, uint16_t attr_handle,
   if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
     uint8_t payload[kSensorCount * kSensorPayloadStride];
     size_t payload_count = g_sensor_buffer_count / kSensorCount;
-    int rc = 0;
+    uint8_t header[kPayloadHeaderSize];
+    size_t header_size =
+        build_payload_header(static_cast<uint16_t>(payload_count),
+                             header, sizeof(header));
+    if (header_size == 0) {
+      return BLE_ATT_ERR_UNLIKELY;
+    }
+    int rc = os_mbuf_append(ctxt->om, header, header_size);
+    if (rc != 0) {
+      return rc;
+    }
     for (size_t i = 0; i < payload_count; ++i) {
       size_t payload_size = get_payload_i(i, payload, sizeof(payload));
       if (payload_size == 0) {

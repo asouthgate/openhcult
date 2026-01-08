@@ -68,3 +68,20 @@ size_t get_payload_i(size_t payload_index, uint8_t *out, size_t out_capacity) {
 
   return build_sensor_payload(values, times, kSensorCount, out, out_capacity);
 }
+
+size_t build_payload_header(uint16_t payload_count,
+                            uint8_t *out, size_t out_capacity) {
+  if (out_capacity < kPayloadHeaderSize) {
+    return 0;
+  }
+  out[0] = kPayloadHeaderMagic0;
+  out[1] = kPayloadHeaderMagic1;
+  out[2] = kPayloadHeaderVersion;
+  out[3] = static_cast<uint8_t>(kSensorCount & 0xFF);
+  out[4] = static_cast<uint8_t>(payload_count & 0xFF);
+  out[5] = static_cast<uint8_t>((payload_count >> 8) & 0xFF);
+  uint16_t stride = static_cast<uint16_t>(kSensorPayloadStride);
+  out[6] = static_cast<uint8_t>(stride & 0xFF);
+  out[7] = static_cast<uint8_t>((stride >> 8) & 0xFF);
+  return kPayloadHeaderSize;
+}
