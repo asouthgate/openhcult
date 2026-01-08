@@ -26,8 +26,6 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg);
 /*
  * GATT access callback for our characteristic.
  * Read: returns the latest buffered values with timestamps.
- * Write: treats any write as a "send now" request, notifies the same payload,
- * then signals the sleep task to power down early.
  */
 static int gatt_svr_chr_access(uint16_t conn_handle, uint16_t attr_handle,
                                struct ble_gatt_access_ctxt *ctxt, void *arg) {
@@ -44,39 +42,8 @@ static int gatt_svr_chr_access(uint16_t conn_handle, uint16_t attr_handle,
   // Q: what is this condition for?
   // A: It checks whether the client is doing a GATT read on the characteristic.
   if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
+    s_state->sent_payload = true;
     return os_mbuf_append(ctxt->om, payload, payload_size);
-  }
-
-  // Q: what is this condition for?
-  // A: It checks whether the client wrote to the characteristic, which we treat
-  // A: as a request to send the data back via a notification.
-  if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
-    // Q: what is the os_mbuf struct?
-    // A: It's NimBLE's packet buffer type (a chainable buffer used for BLE data).
-    // Q: why do we define a struct in this way? we define the os_mbfu struct? What about fields?
-    // A: We don't define the struct here; we just allocate one using a helper.
-    // A: The helper fills internal fields that NimBLE uses to manage the buffer.
-    struct os_mbuf *om =
-        ble_hs_mbuf_from_flat(payload, payload_size);
-    if (om == nullptr) {
-      // Q: what does this mean?
-      // A: It returns a GATT error code telling the client we ran out of memory.
-      return BLE_ATT_ERR_INSUFFICIENT_RES;
-    }
-    // Q: what is this?
-    // A: It sends a GATT notification to the client with our payload.
-    int rc = ble_gatts_notify_custom(conn_handle, s_state->gatt_chr_handle, om);
-    if (rc != 0) {
-      ESP_LOGW(TAG, "Notify failed: %d", rc);
-    } else {
-      ESP_LOGI(TAG, "Client wrote request; notified payload");
-      s_state->sent_payload = true;
-      int dc = ble_gap_terminate(conn_handle, BLE_ERR_REM_USER_CONN_TERM);
-      if (dc != 0) {
-        ESP_LOGW(TAG, "Disconnect request failed: %d", dc);
-      }
-    }
-    return 0;
   }
 
   return BLE_ATT_ERR_UNLIKELY;
@@ -92,9 +59,7 @@ static struct ble_gatt_chr_def gatt_chr_defs[] = {
         gatt_svr_chr_access,
         nullptr,
         nullptr,
-        static_cast<ble_gatt_chr_flags>(BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE |
-                                        BLE_GATT_CHR_F_WRITE_NO_RSP |
-                                        BLE_GATT_CHR_F_NOTIFY),
+        static_cast<ble_gatt_chr_flags>(BLE_GATT_CHR_F_READ),
         0,
         nullptr,
         nullptr,

@@ -36,7 +36,7 @@ def _notification_handler(sender, data, dbcon, device_id):
 
 
 async def run_monitor(db_con, characteristic_uuid=None):
-    """Continuously scan, connect, request data, and store notifications."""
+    """Continuously scan, connect, request data, and store readings."""
     if characteristic_uuid is None:
         characteristic_uuid = config.get_ble_characteristic_uuid()
     while True:
@@ -66,36 +66,17 @@ async def run_monitor(db_con, characteristic_uuid=None):
                     continue
                 logging.info("Connected to ESP32 device.")
 
-                # await client.start_notify(...) only waits for the subscription to be set up
-                # (i.e., CCCD written / notifications enabled).
-                # It does not wait for any notification data. The _handler runs
-                # later, asynchronously, whenever a notification arrives.
                 device_id = database.register_device(
                     db_con,
                     esp32_device.name or DEVICE_NAME_HINT,
                     esp32_device.address,
                 )
-                notify_event = asyncio.Event()
-
-                def _handler(sender, data):
-                    _notification_handler(sender, data, db_con, device_id)
-                    notify_event.set()
-
-                await client.start_notify(characteristic_uuid, _handler)
                 try:
-                    await client.write_gatt_char(
-                        characteristic_uuid,
-                        "a_message_here".encode("utf-8"),
-                        response=False,
-                    )
+                    data = await client.read_gatt_char(characteristic_uuid)
                 except BleakDBusError as e:
-                    logging.error(f"Failed to write to characteristic: {e}")
-                try:
-                    await asyncio.wait_for(notify_event.wait(), timeout=5.0)
-                except asyncio.TimeoutError:
-                    logging.warning("Timed out waiting for sensor notification.")
-                if client.is_connected:
-                    await client.stop_notify(characteristic_uuid)
+                    logging.error(f"Failed to read characteristic: {e}")
+                    continue
+                _notification_handler(esp32_device.address, data, db_con, device_id)
         except BleakDeviceNotFoundError as e:
             logging.error(f"Device not found error: {e} (device probably went to sleep)")
         except EOFError as e:
