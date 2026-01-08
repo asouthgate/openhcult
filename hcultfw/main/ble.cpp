@@ -6,6 +6,7 @@
 #include "ble_config.h"
 #include "esp_log.h"
 #include "host/ble_hs.h"
+#include "host/ble_store.h"
 #include "host/ble_hs_id.h"
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
@@ -132,6 +133,41 @@ void ble_init(FirmwareState &state) {
   gatt_chr_defs[0].uuid = &state.characteristic_uuid.u;
   gatt_chr_defs[0].val_handle = &state.gatt_chr_handle;
   gatt_svcs[0].uuid = &state.service_uuid.u;
+}
+
+bool init_ble_stack(FirmwareState &state) {
+  load_ble_uuids(state);
+  if (!state.ble_uuid_ok) {
+    ESP_LOGE(TAG, "BLE UUIDs not configured; aborting");
+    return false;
+  }
+
+  nimble_port_init();
+
+  ble_svc_gap_init();
+  ble_svc_gatt_init();
+  ble_init(state);
+
+  // Q: what is gatts_count?
+  // A: It counts how many GATT attributes are needed so NimBLE can allocate them
+  // A: before we register the services.
+  int rc = ble_gatts_count_cfg(gatt_svcs);
+  if (rc != 0) {
+    ESP_LOGE(TAG, "ble_gatts_count_cfg failed: %d", rc);
+    return false;
+  }
+  rc = ble_gatts_add_svcs(gatt_svcs);
+  if (rc != 0) {
+    ESP_LOGE(TAG, "ble_gatts_add_svcs failed: %d", rc);
+    return false;
+  }
+
+  ble_hs_cfg.sync_cb = ble_on_sync;
+  ble_hs_cfg.reset_cb = ble_on_reset;
+  ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
+
+  nimble_port_freertos_init(ble_host_task);
+  return true;
 }
 
 /*

@@ -63,10 +63,6 @@
 #include "services/gap/ble_svc_gap.h"
 /* GATT service helper (standard GATT service). */
 #include "services/gatt/ble_svc_gatt.h"
-/* Simple NVS-backed storage helpers for NimBLE. */
-// Q: NVS?
-// A: Non-Volatile Storage in flash; NimBLE uses it to persist BLE state.
-#include "host/ble_store.h"
 
 #include "ble.h"
 #include "pins.h"
@@ -76,54 +72,7 @@
 
 static const char *TAG = "hcultfw";
 
-static bool init_ble_stack(FirmwareState &state) {
-  load_ble_uuids(state);
-  if (!state.ble_uuid_ok) {
-    ESP_LOGE(TAG, "BLE UUIDs not configured; aborting");
-    return false;
-  }
-
-  nimble_port_init();
-
-  ble_svc_gap_init();
-  ble_svc_gatt_init();
-  ble_init(state);
-
-  // Q: what is gatts_count?
-  // A: It counts how many GATT attributes are needed so NimBLE can allocate them
-  // A: before we register the services.
-  int rc = ble_gatts_count_cfg(gatt_svcs);
-  if (rc != 0) {
-    ESP_LOGE(TAG, "ble_gatts_count_cfg failed: %d", rc);
-    return false;
-  }
-  rc = ble_gatts_add_svcs(gatt_svcs);
-  if (rc != 0) {
-    ESP_LOGE(TAG, "ble_gatts_add_svcs failed: %d", rc);
-    return false;
-  }
-
-  ble_hs_cfg.sync_cb = ble_on_sync;
-  ble_hs_cfg.reset_cb = ble_on_reset;
-  ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
-
-  nimble_port_freertos_init(ble_host_task);
-  return true;
-}
-
-extern "C" void app_main(void) {
-  static FirmwareState state = {};
-  // Capture a fixed reference time so the device sleeps after a consistent
-  // window even if advertising restarts or a client disconnects.
-  state.boot_time_us = esp_timer_get_time();
-  // Q: What do we mean by flash here?
-  // A: NVS lives in on-chip flash memory (persistent storage), not RAM.
-  esp_err_t ret = nvs_flash_init();
-  if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-    ESP_ERROR_CHECK(nvs_flash_erase());
-    ESP_ERROR_CHECK(nvs_flash_init());
-  }
-
+static void init_power_pins() {
   gpio_config_t io_conf = {};
   // Q: what is this mode?
   // A: GPIO_MODE_OUTPUT sets these pins as digital outputs.
@@ -145,7 +94,9 @@ extern "C" void app_main(void) {
   gpio_set_level(static_cast<gpio_num_t>(SENSOR_POWER_PIN_1), 1);
   gpio_set_level(static_cast<gpio_num_t>(SENSOR_POWER_PIN_2), 1);
   vTaskDelay(pdMS_TO_TICKS(200));
+}
 
+static void take_sensor_readings(FirmwareState &state) {
   // Q: what is this?
   // A: It configures the ADC unit (ADC1) for oneshot sampling.
   adc_oneshot_unit_init_cfg_t unit_cfg = {};
@@ -180,6 +131,28 @@ extern "C" void app_main(void) {
 
   ESP_LOGI(TAG, "Sensor value 1: %d", sensor_values[0]);
   ESP_LOGI(TAG, "Sensor value 2: %d", sensor_values[1]);
+}
+
+static void init_nvs_storage() {
+  // Q: what do we mean by flash here?
+  // A: NVS lives in on-chip flash memory (persistent storage), not RAM.
+  esp_err_t ret = nvs_flash_init();
+  if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+    ESP_ERROR_CHECK(nvs_flash_erase());
+    ESP_ERROR_CHECK(nvs_flash_init());
+  }
+}
+
+extern "C" void app_main(void) {
+  static FirmwareState state = {};
+  // Capture a fixed reference time so the device sleeps after a consistent
+  // window even if advertising restarts or a client disconnects.
+  state.boot_time_us = esp_timer_get_time();
+  init_nvs_storage();
+
+  init_power_pins();
+
+  take_sensor_readings(state);
 
   if (!init_ble_stack(state)) {
     return;
