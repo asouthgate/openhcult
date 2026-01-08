@@ -12,6 +12,7 @@
 #include "nimble/nimble_port_freertos.h"
 #include "payload.h"
 #include "services/gap/ble_svc_gap.h"
+#include "services/gatt/ble_svc_gatt.h"
 
 static const char *TAG = "hcultfw";
 static FirmwareState *s_state;
