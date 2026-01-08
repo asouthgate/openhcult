@@ -26,10 +26,17 @@ def setup_db(db_path):
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
             sensor TEXT NOT NULL,
             measurement INTEGER NOT NULL,
+            measurement_time_us INTEGER,
             FOREIGN KEY (device_id) REFERENCES devices(id)
         )
         """
     )
+    cursor.execute("PRAGMA table_info(sensor_readings)")
+    columns = {row[1] for row in cursor.fetchall()}
+    if "measurement_time_us" not in columns:
+        cursor.execute(
+            "ALTER TABLE sensor_readings ADD COLUMN measurement_time_us INTEGER"
+        )
     conn.commit()
     return conn
 
@@ -58,8 +65,19 @@ def register_device(conn, name, address):
 def write_sensor_readings(conn, device_id, readings):
     """Insert one row per sensor reading for the given device."""
     cursor = conn.cursor()
-    cursor.executemany(
-        "INSERT INTO sensor_readings (device_id, sensor, measurement) VALUES (?, ?, ?)",
-        [(device_id, key, value) for key, value in readings.items()],
-    )
+    if isinstance(readings, dict):
+        rows = [(device_id, key, value) for key, value in readings.items()]
+        cursor.executemany(
+            "INSERT INTO sensor_readings (device_id, sensor, measurement) VALUES (?, ?, ?)",
+            rows,
+        )
+    else:
+        rows = [(device_id, sensor, measurement, timestamp_us)
+                for sensor, measurement, timestamp_us in readings]
+        cursor.executemany(
+            "INSERT INTO sensor_readings "
+            "(device_id, sensor, measurement, measurement_time_us) "
+            "VALUES (?, ?, ?, ?)",
+            rows,
+        )
     conn.commit()

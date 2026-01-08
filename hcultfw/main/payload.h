@@ -3,5 +3,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
-size_t build_sensor_payload(const int *readings, size_t reading_count,
-                            uint16_t *out, size_t out_capacity);
+constexpr size_t kSensorPayloadStride =
+    sizeof(uint16_t) + sizeof(int64_t);
+
+size_t build_sensor_payload(const int *readings,
+                            const int64_t *timestamps_us,
+                            size_t reading_count,
+                            uint8_t *out, size_t out_capacity);

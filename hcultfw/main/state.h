@@ -3,7 +3,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "esp_attr.h"
 #include "esp_adc/adc_oneshot.h"
 #include "host/ble_uuid.h"
 
@@ -16,7 +15,8 @@ extern size_t g_sensor_buffer_head;
 extern size_t g_sensor_buffer_count;
 
 void push_sensor_measurement(int value, int64_t timestamp_us);
-size_t copy_latest_measurements(int *out, size_t out_capacity);
+size_t copy_latest_measurements_with_time(int *values, int64_t *times,
+                                          size_t out_capacity);
 
 struct FirmwareState {
   ble_uuid128_t service_uuid;

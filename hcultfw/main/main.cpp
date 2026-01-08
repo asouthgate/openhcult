@@ -22,13 +22,10 @@
 #include "driver/gpio.h"
 /* ESP-IDF logging macros (ESP_LOGI/W/E). */
 #include "esp_log.h"
-/* Deep sleep APIs for low-power operation. */
-// Q: is this proper deep sleep?
-// A: Yes. ESP-IDF's deep sleep powers down most of the chip; only RTC keeps time
-// A: and wake sources. A wake resets the CPU and restarts app_main.
-#include "esp_sleep.h"
 /* High-resolution timer for microsecond timestamps. */
 #include "esp_timer.h"
+/* RTC counter for time across deep sleep. */
+#include "esp_rtc_time.h"
 /*
  * NVS (Non-Volatile Storage) is a small key-value store in flash.
  * NimBLE uses it for BLE state (e.g., bonding keys), so we initialize it.
@@ -170,16 +167,19 @@ extern "C" void app_main(void) {
   gpio_set_level(static_cast<gpio_num_t>(RED_LED_PIN), 1);
   vTaskDelay(pdMS_TO_TICKS(100));
   gpio_set_level(static_cast<gpio_num_t>(RED_LED_PIN), 0);
+  const adc_channel_t sensor_channels[kSensorCount] = {
+      ADC_CHANNEL_6,
+      ADC_CHANNEL_7,
+  };
   int sensor_values[kSensorCount];
-  sensor_values[0] = read_sensor(state, ADC_CHANNEL_6);
-  sensor_values[1] = read_sensor(state, ADC_CHANNEL_7);
+  for (size_t i = 0; i < kSensorCount; ++i) {
+    int64_t sample_time_us = static_cast<int64_t>(esp_rtc_get_time_us());
+    sensor_values[i] = read_sensor(state, sensor_channels[i]);
+    push_sensor_measurement(sensor_values[i], sample_time_us);
+  }
 
   ESP_LOGI(TAG, "Sensor value 1: %d", sensor_values[0]);
   ESP_LOGI(TAG, "Sensor value 2: %d", sensor_values[1]);
-  int64_t sample_time_us = esp_timer_get_time();
-  for (size_t i = 0; i < kSensorCount; ++i) {
-    push_sensor_measurement(sensor_values[i], sample_time_us);
-  }
 
   if (!init_ble_stack(state)) {
     return;

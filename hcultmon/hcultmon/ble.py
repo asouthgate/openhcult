@@ -14,10 +14,24 @@ DEVICE_NAME_HINT = "ESP32_Sensor"
 
 def _notification_handler(sender, data, dbcon, device_id):
     """Decode the payload and persist readings for a device."""
-    sensor1 = int.from_bytes(data[0:2], byteorder="little")
-    sensor2 = int.from_bytes(data[2:4], byteorder="little")
-    logging.info(f"Received data from {sender}: Sensor 1: {sensor1}, Sensor 2: {sensor2}")
-    readings = {"sensor1": sensor1, "sensor2": sensor2}
+    readings = []
+    stride = 10
+    sensor_count = len(data) // stride
+    for i in range(sensor_count):
+        offset = i * stride
+        sensor_value = int.from_bytes(data[offset : offset + 2], byteorder="little")
+        timestamp_us = int.from_bytes(
+            data[offset + 2 : offset + 10], byteorder="little", signed=False
+        )
+        readings.append((f"sensor{i + 1}", sensor_value, timestamp_us))
+    for sensor_name, sensor_value, timestamp_us in readings:
+        logging.info(
+            "Received data from %s: %s=%d at %d us",
+            sender,
+            sensor_name,
+            sensor_value,
+            timestamp_us,
+        )
     database.write_sensor_readings(dbcon, device_id, readings)
 
 
