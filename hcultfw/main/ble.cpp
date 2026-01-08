@@ -29,15 +29,8 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg);
  */
 static int gatt_svr_chr_access(uint16_t conn_handle, uint16_t attr_handle,
                                struct ble_gatt_access_ctxt *ctxt, void *arg) {
-  int latest_values[kSensorCount];
-  int64_t latest_times[kSensorCount];
-  size_t latest_count = copy_latest_measurements_with_time(
-      latest_values, latest_times,
-      sizeof(latest_values) / sizeof(latest_values[0]));
   uint8_t payload[kSensorCount * kSensorPayloadStride];
-  size_t payload_size = build_sensor_payload(
-      latest_values, latest_times, latest_count,
-      payload, sizeof(payload));
+  size_t payload_size = get_latest_payload(payload, sizeof(payload));
 
   // Q: what is this condition for?
   // A: It checks whether the client is doing a GATT read on the characteristic.

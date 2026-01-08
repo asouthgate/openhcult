@@ -1,4 +1,5 @@
 #include "payload.h"
+#include "state.h"
 
 size_t build_sensor_payload(const int *readings,
                             const int64_t *timestamps_us,
@@ -21,4 +22,15 @@ size_t build_sensor_payload(const int *readings,
     }
   }
   return count * kSensorPayloadStride;
+}
+
+size_t get_latest_payload(uint8_t *out, size_t out_capacity) {
+  int latest_values[kSensorCount];
+  int64_t latest_times[kSensorCount];
+  size_t latest_count = copy_latest_measurements_with_time(
+      latest_values, latest_times,
+      sizeof(latest_values) / sizeof(latest_values[0]));
+  return build_sensor_payload(
+      latest_values, latest_times, latest_count,
+      out, out_capacity);
 }
