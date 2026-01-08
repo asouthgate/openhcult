@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 
 from bleak import BleakScanner, BleakClient
 from bleak.exc import BleakDeviceNotFoundError, BleakDBusError
@@ -79,6 +80,8 @@ def _notification_handler(sender, data, dbcon, device_id):
             payload_data, meta["sensor_count"], meta["stride_bytes"]
         )
         stride_bytes = meta["stride_bytes"]
+    collection_time_ms = int(time.time() * 1000)
+    all_readings = []
     for payload_index, payload in enumerate(payload_blocks, start=1):
         readings = _decode_payload(payload, stride_bytes)
         for sensor_name, sensor_value, timestamp_us in readings:
@@ -90,8 +93,25 @@ def _notification_handler(sender, data, dbcon, device_id):
                 sensor_name,
                 sensor_value,
                 timestamp_us,
+            )
+            all_readings.append((sensor_name, sensor_value, timestamp_us))
+    if not all_readings:
+        return
+    last_timestamp_us = max(timestamp_us for _, _, timestamp_us in all_readings)
+    rows = []
+    for sensor_name, sensor_value, timestamp_us in all_readings:
+        delta_us = last_timestamp_us - timestamp_us
+        adjusted_time_ms = collection_time_ms - int(delta_us / 1000)
+        rows.append(
+            (
+                sensor_name,
+                sensor_value,
+                timestamp_us,
+                adjusted_time_ms,
+                collection_time_ms,
+            )
         )
-        database.write_sensor_readings(dbcon, device_id, readings)
+    database.write_sensor_readings(dbcon, device_id, rows)
 
 
 def _parse_header(data):

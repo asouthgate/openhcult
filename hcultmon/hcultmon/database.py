@@ -23,20 +23,15 @@ def setup_db(db_path):
         CREATE TABLE IF NOT EXISTS sensor_readings (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             device_id INTEGER NOT NULL,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
             sensor TEXT NOT NULL,
             measurement INTEGER NOT NULL,
             measurement_time_us INTEGER,
+            collection_time_ms INTEGER,
+            adjusted_time_ms INTEGER,
             FOREIGN KEY (device_id) REFERENCES devices(id)
         )
         """
     )
-    cursor.execute("PRAGMA table_info(sensor_readings)")
-    columns = {row[1] for row in cursor.fetchall()}
-    if "measurement_time_us" not in columns:
-        cursor.execute(
-            "ALTER TABLE sensor_readings ADD COLUMN measurement_time_us INTEGER"
-        )
     conn.commit()
     return conn
 
@@ -72,12 +67,28 @@ def write_sensor_readings(conn, device_id, readings):
             rows,
         )
     else:
-        rows = [(device_id, sensor, measurement, timestamp_us)
-                for sensor, measurement, timestamp_us in readings]
+        rows = [
+            (
+                device_id,
+                sensor,
+                measurement,
+                timestamp_us,
+                adjusted_time_ms,
+                collection_time_ms,
+            )
+            for (
+                sensor,
+                measurement,
+                timestamp_us,
+                adjusted_time_ms,
+                collection_time_ms,
+            ) in readings
+        ]
         cursor.executemany(
             "INSERT INTO sensor_readings "
-            "(device_id, sensor, measurement, measurement_time_us) "
-            "VALUES (?, ?, ?, ?)",
+            "(device_id, sensor, measurement, measurement_time_us, "
+            "adjusted_time_ms, collection_time_ms) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
             rows,
         )
     conn.commit()
