@@ -13,10 +13,12 @@ extern int g_sensor_buffer[kSensorBufferSize];
 extern int64_t g_sensor_time_buffer[kSensorBufferSize];
 extern size_t g_sensor_buffer_head;
 extern size_t g_sensor_buffer_count;
+extern uint32_t g_sleep_cycle_count;
 
 void push_sensor_measurement(int value, int64_t timestamp_us);
 size_t copy_latest_measurements_with_time(int *values, int64_t *times,
                                           size_t out_capacity);
+void clear_sensor_buffer();
 
 struct FirmwareState {
   ble_uuid128_t service_uuid;

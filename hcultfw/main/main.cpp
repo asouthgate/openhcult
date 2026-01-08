@@ -22,6 +22,8 @@
 #include "driver/gpio.h"
 /* ESP-IDF logging macros (ESP_LOGI/W/E). */
 #include "esp_log.h"
+/* Deep sleep APIs for low-power operation. */
+#include "esp_sleep.h"
 /* High-resolution timer for microsecond timestamps. */
 #include "esp_timer.h"
 /* RTC counter for time across deep sleep. */
@@ -65,6 +67,7 @@
 #include "services/gatt/ble_svc_gatt.h"
 
 #include "ble.h"
+#include "ble_config.h"
 #include "pins.h"
 #include "sensor.h"
 #include "sleep.h"
@@ -143,6 +146,13 @@ static void init_nvs_storage() {
   }
 }
 
+static void sleep_now() {
+  gpio_set_level(static_cast<gpio_num_t>(LED_PIN), 0);
+  gpio_set_level(static_cast<gpio_num_t>(SENSOR_POWER_PIN_1), 0);
+  gpio_set_level(static_cast<gpio_num_t>(SENSOR_POWER_PIN_2), 0);
+  esp_deep_sleep(SLEEP_TIME_US);
+}
+
 extern "C" void app_main(void) {
   static FirmwareState state = {};
   // Capture a fixed reference time so the device sleeps after a consistent
@@ -153,6 +163,15 @@ extern "C" void app_main(void) {
   init_power_pins();
 
   take_sensor_readings(state);
+
+  ++g_sleep_cycle_count;
+  if (g_sleep_cycle_count < N_SLEEPS_PER_TRANSMISSION) {
+    ESP_LOGI(TAG, "Skipping BLE (%u/%u)",
+             g_sleep_cycle_count,
+             N_SLEEPS_PER_TRANSMISSION);
+    sleep_now();
+    return;
+  }
 
   if (!init_ble_stack(state)) {
     return;

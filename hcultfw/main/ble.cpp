@@ -55,6 +55,8 @@ static int gatt_svr_chr_access(uint16_t conn_handle, uint16_t attr_handle,
     }
 
     s_state->sent_payload = true;
+    clear_sensor_buffer();
+    g_sleep_cycle_count = 0;
     return 0;
   }
   return BLE_ATT_ERR_UNLIKELY;
