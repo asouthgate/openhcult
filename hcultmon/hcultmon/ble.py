@@ -10,29 +10,53 @@ from . import config
 from . import database
 
 DEVICE_NAME_HINT = "ESP32_Sensor"
+PAYLOAD_STRIDE_BYTES = 10
+SENSOR_COUNT = 2
+
+
+def _decode_payload(payload):
+    """Decode a single payload block into (sensor, value, timestamp) tuples."""
+    readings = []
+    sensor_count = len(payload) // PAYLOAD_STRIDE_BYTES
+    for i in range(sensor_count):
+        offset = i * PAYLOAD_STRIDE_BYTES
+        sensor_value = int.from_bytes(
+            payload[offset : offset + 2], byteorder="little"
+        )
+        timestamp_us = int.from_bytes(
+            payload[offset + 2 : offset + 10], byteorder="little", signed=False
+        )
+        readings.append((f"sensor{i + 1}", sensor_value, timestamp_us))
+    return readings
+
+
+def _split_payload_blocks(data):
+    """Split a read buffer into one or more payload blocks."""
+    block_size = PAYLOAD_STRIDE_BYTES * SENSOR_COUNT
+    if block_size == 0 or len(data) % block_size != 0:
+        return [data]
+    return [
+        data[offset : offset + block_size]
+        for offset in range(0, len(data), block_size)
+    ]
 
 
 def _notification_handler(sender, data, dbcon, device_id):
     """Decode the payload and persist readings for a device."""
-    readings = []
-    stride = 10
-    sensor_count = len(data) // stride
-    for i in range(sensor_count):
-        offset = i * stride
-        sensor_value = int.from_bytes(data[offset : offset + 2], byteorder="little")
-        timestamp_us = int.from_bytes(
-            data[offset + 2 : offset + 10], byteorder="little", signed=False
-        )
-        readings.append((f"sensor{i + 1}", sensor_value, timestamp_us))
-    for sensor_name, sensor_value, timestamp_us in readings:
-        logging.info(
-            "Received data from %s: %s=%d at %d us",
-            sender,
-            sensor_name,
-            sensor_value,
-            timestamp_us,
-        )
-    database.write_sensor_readings(dbcon, device_id, readings)
+    payload_blocks = _split_payload_blocks(data)
+    for payload_index, payload in enumerate(payload_blocks, start=1):
+        readings = _decode_payload(payload)
+        for sensor_name, sensor_value, timestamp_us in readings:
+            logging.info(
+                "Received data from %s [payload %d/%d]: %s=%d at %d us",
+                sender,
+                payload_index,
+                len(payload_blocks),
+                sensor_name,
+                sensor_value,
+                timestamp_us,
+            )
+        database.write_sensor_readings(dbcon, device_id, readings)
 
 
 async def run_monitor(db_con, characteristic_uuid=None):

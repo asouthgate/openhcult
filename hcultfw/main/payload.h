@@ -12,3 +12,4 @@ size_t build_sensor_payload(const int *readings,
                             uint8_t *out, size_t out_capacity);
 
 size_t get_latest_payload(uint8_t *out, size_t out_capacity);
+size_t get_payload_i(size_t payload_index, uint8_t *out, size_t out_capacity);

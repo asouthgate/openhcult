@@ -34,3 +34,37 @@ size_t get_latest_payload(uint8_t *out, size_t out_capacity) {
       latest_values, latest_times, latest_count,
       out, out_capacity);
 }
+
+size_t get_payload_i(size_t payload_index, uint8_t *out, size_t out_capacity) {
+  if (out_capacity < kSensorCount * kSensorPayloadStride) {
+    return 0;
+  }
+  if (g_sensor_buffer_count == 0) {
+    return 0;
+  }
+  size_t full_count = (g_sensor_buffer_count / kSensorCount) * kSensorCount;
+  if (full_count == 0) {
+    return 0;
+  }
+  size_t payload_count = full_count / kSensorCount;
+  if (payload_index >= payload_count) {
+    return 0;
+  }
+
+  size_t drop = g_sensor_buffer_count - full_count;
+  size_t oldest =
+      (g_sensor_buffer_head + kSensorBufferSize - g_sensor_buffer_count) %
+      kSensorBufferSize;
+  size_t start = (oldest + drop) % kSensorBufferSize;
+  size_t base = (start + payload_index * kSensorCount) % kSensorBufferSize;
+
+  int values[kSensorCount];
+  int64_t times[kSensorCount];
+  for (size_t i = 0; i < kSensorCount; ++i) {
+    size_t index = (base + i) % kSensorBufferSize;
+    values[i] = g_sensor_buffer[index];
+    times[i] = g_sensor_time_buffer[index];
+  }
+
+  return build_sensor_payload(values, times, kSensorCount, out, out_capacity);
+}

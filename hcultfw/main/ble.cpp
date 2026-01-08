@@ -29,16 +29,24 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg);
  */
 static int gatt_svr_chr_access(uint16_t conn_handle, uint16_t attr_handle,
                                struct ble_gatt_access_ctxt *ctxt, void *arg) {
-  uint8_t payload[kSensorCount * kSensorPayloadStride];
-  size_t payload_size = get_latest_payload(payload, sizeof(payload));
-
-  // Q: what is this condition for?
-  // A: It checks whether the client is doing a GATT read on the characteristic.
   if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
-    s_state->sent_payload = true;
-    return os_mbuf_append(ctxt->om, payload, payload_size);
-  }
+    uint8_t payload[kSensorCount * kSensorPayloadStride];
+    size_t payload_count = g_sensor_buffer_count / kSensorCount;
+    int rc = 0;
+    for (size_t i = 0; i < payload_count; ++i) {
+      size_t payload_size = get_payload_i(i, payload, sizeof(payload));
+      if (payload_size == 0) {
+        break;
+      }
+      rc = os_mbuf_append(ctxt->om, payload, payload_size);
+      if (rc != 0) {
+        return rc;
+      }
+    }
 
+    s_state->sent_payload = true;
+    return 0;
+  }
   return BLE_ATT_ERR_UNLIKELY;
 }
 
