@@ -96,7 +96,7 @@ static void init_power_pins() {
   gpio_set_level(static_cast<gpio_num_t>(RED_LED_PIN), 0);
   gpio_set_level(static_cast<gpio_num_t>(SENSOR_POWER_PIN_1), 1);
   gpio_set_level(static_cast<gpio_num_t>(SENSOR_POWER_PIN_2), 1);
-  vTaskDelay(pdMS_TO_TICKS(200));
+  vTaskDelay(pdMS_TO_TICKS(10));
 }
 
 static void take_sensor_readings(FirmwareState &state) {
@@ -119,7 +119,7 @@ static void take_sensor_readings(FirmwareState &state) {
   // A: It keeps runtime and power usage predictable (single read per boot).
   // A: It does not make the sensor values themselves predictable.
   gpio_set_level(static_cast<gpio_num_t>(RED_LED_PIN), 1);
-  vTaskDelay(pdMS_TO_TICKS(100));
+  vTaskDelay(pdMS_TO_TICKS(10));
   gpio_set_level(static_cast<gpio_num_t>(RED_LED_PIN), 0);
   const adc_channel_t sensor_channels[kSensorCount] = {
       ADC_CHANNEL_6,
