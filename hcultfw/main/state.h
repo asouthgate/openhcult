@@ -16,10 +16,14 @@ extern size_t g_sensor_buffer_count;
 extern uint32_t g_sleep_cycle_count;
 
 void push_sensor_measurement(int value, int64_t timestamp_us);
-size_t copy_latest_measurements_with_time(int *values, int64_t *times,
-                                          size_t out_capacity);
+size_t copy_latest_measurements_with_time(
+  int *values,
+  int64_t *times,
+  size_t capacity
+);
 void clear_sensor_buffer();
 
+// TODO: FirmwareState should be separated from sensor buffer logic.
 struct FirmwareState {
   ble_uuid128_t service_uuid;
   ble_uuid128_t characteristic_uuid;

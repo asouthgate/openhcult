@@ -52,26 +52,6 @@ def _fetch_series(db_path: Path) -> Dict[str, List[Tuple[np.datetime64, int]]]:
     return series
 
 
-def _gaussian_average(values: np.ndarray, window: int, sigma: float) -> np.ndarray:
-    if window <= 1 or values.size == 0:
-        return values.copy()
-    half = window // 2
-    offsets = np.arange(-half, half + 1, dtype=float)
-    weights = np.exp(-0.5 * (offsets / sigma) ** 2)
-    smoothed = np.empty_like(values, dtype=float)
-    for i in range(values.size):
-        start = max(0, i - half)
-        end = min(values.size, i + half + 1)
-        window_values = values[start:end]
-        window_weights = weights[(start - i + half):(end - i + half)]
-        weight_sum = float(window_weights.sum())
-        if weight_sum == 0:
-            smoothed[i] = float(window_values.mean())
-        else:
-            smoothed[i] = float((window_values * window_weights).sum() / weight_sum)
-    return smoothed
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Plot sensor time series from the configured SQLite database."
@@ -130,24 +110,10 @@ def main() -> int:
         points = series[name]
         times = [t for t, _ in points]
         values = np.array([v for _, v in points], dtype=float)
-        vmin = float(values.min())
-        vmax = float(values.max())
-        if vmax == vmin:
-            normalized = np.zeros_like(values)
-        else:
-            normalized = (values - vmin) / (vmax - vmin)
-        window = min(5, len(normalized))
-        sigma = max(1.0, window / 2.0)
-        smoothed = _gaussian_average(normalized, window, sigma)
-        ax.plot(times, smoothed, label=f"{name} (smoothed)")
-        ax.scatter(times, normalized, label=f"{name} (raw)", s=18, alpha=0.7)
+        ax.scatter(times, values, label=name, s=18, alpha=0.7)
 
         raw_ax = raw_axes[idx]
-        raw_window = min(5, len(values))
-        raw_sigma = max(1.0, raw_window / 2.0)
-        raw_smoothed = _gaussian_average(values, raw_window, raw_sigma)
-        raw_ax.plot(times, raw_smoothed, label=f"{name} (smoothed)")
-        raw_ax.scatter(times, values, label=f"{name} (raw)", s=18, alpha=0.8)
+        raw_ax.scatter(times, values, label=name, s=18, alpha=0.8)
         raw_ax.legend()
         raw_ax.set_title(f"{name} raw")
         raw_ax.set_xlabel("Timestamp")
@@ -156,9 +122,9 @@ def main() -> int:
         raw_ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
         raw_ax.tick_params(axis="x", rotation=30)
 
-    ax.set_title("Sensor Readings (Normalized)")
+    ax.set_title("Sensor Readings")
     ax.set_xlabel("Timestamp")
-    ax.set_ylabel("Normalized (min-max)")
+    ax.set_ylabel("Value")
     ax.xaxis.set_major_locator(locator)
     ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
     ax.legend()

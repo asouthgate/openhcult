@@ -1,14 +1,9 @@
 /* Task creation and scheduling APIs built on top of FreeRTOS core types. */
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-
-/* GPIO driver for pin direction and level control. */
 #include "driver/gpio.h"
-/* ESP-IDF logging macros (ESP_LOGI/W/E). */
 #include "esp_log.h"
-/* Deep sleep APIs for low-power operation. */
 #include "esp_sleep.h"
-/* High-resolution timer for microsecond timestamps. */
 #include "esp_timer.h"
 
 #include "pins.h"
@@ -18,19 +13,14 @@
 
 static const char *TAG = "hcultfw";
 
-/*
- * Background task that decides when to enter deep sleep.
- * It sleeps either when the fixed advertising window expires or once data has
- * been successfully notified to a client.
- */
 void sleep_task(void *param) {
   FirmwareState &state = *static_cast<FirmwareState *>(param);
-  // Q: this is while (true): are we always in this loop then? How do we ever exit?
-  // A: Yes, the task loops forever. Deep sleep stops the CPU and resets on wake,
-  // A: so the loop never returns; the chip restarts instead.
+  // while(true) does get exited by the deep sleep call, so this 
+  // is not an infinite loop.
   while (true) {
     bool should_sleep = state.request_sleep;
     int64_t elapsed_us = esp_timer_get_time() - state.boot_time_us;
+    // If we've been advertising for too long, go to sleep
     if (elapsed_us > BLE_ADVERTISING_TIME_MS * 1000LL) {
       ESP_LOGI(TAG, "BLE window expired, sleeping");
       should_sleep = true;
