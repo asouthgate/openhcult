@@ -1,10 +1,12 @@
 /* C string utilities for zeroing structs and basic buffer helpers. */
 #include <string.h>
+#include <stdio.h>
 
 #include "ble.h"
 #include "state.h"
 #include "ble_config.h"
 #include "esp_log.h"
+#include "esp_mac.h"
 #include "host/ble_hs.h"
 #include "host/ble_store.h"
 #include "host/ble_hs_id.h"
@@ -16,6 +18,7 @@
 
 static const char *TAG = "hcultfw";
 static FirmwareState *s_state;
+static char s_device_name[32];
 
 /* Forward declaration: used before definition by the advertising function. */
 // Q: what is a gap event?
@@ -181,6 +184,19 @@ static void start_advertising(void) {
     return;
   }
 
+  memset(&fields, 0, sizeof(fields));
+  const char *adv_name = ble_svc_gap_device_name();
+  if (adv_name) {
+    fields.name = reinterpret_cast<const uint8_t *>(adv_name);
+    fields.name_len = strlen(adv_name);
+    fields.name_is_complete = 1;
+    rc = ble_gap_adv_rsp_set_fields(&fields);
+    if (rc != 0) {
+      ESP_LOGE(TAG, "ble_gap_adv_rsp_set_fields failed: %d", rc);
+      return;
+    }
+  }
+
   memset(&adv_params, 0, sizeof(adv_params));
   adv_params.conn_mode = BLE_GAP_CONN_MODE_UND;
   adv_params.disc_mode = BLE_GAP_DISC_MODE_GEN;
@@ -251,7 +267,16 @@ void ble_on_sync(void) {
     return;
   }
 
-  ble_svc_gap_device_name_set("ESP32_Sensor");
+  uint8_t mac[6] = {};
+  esp_read_mac(mac, ESP_MAC_BT);
+  snprintf(s_device_name, sizeof(s_device_name),
+           "ESP32_Sensor_%02X%02X%02X", mac[3], mac[4], mac[5]);
+  rc = ble_svc_gap_device_name_set(s_device_name);
+  if (rc != 0) {
+    ESP_LOGE(TAG, "Device name set failed: %d", rc);
+    return;
+  }
+  ESP_LOGI(TAG, "BLE device name: %s", s_device_name);
   start_advertising();
 }
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import configparser
+import math
 import sqlite3
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -34,16 +35,20 @@ def _load_db_path(config_path: Path) -> Path:
 def _fetch_series(db_path: Path) -> Dict[str, List[Tuple[np.datetime64, int]]]:
     series: Dict[str, List[Tuple[np.datetime64, int]]] = {}
     query = (
-        "SELECT adjusted_time_ms, sensor, measurement "
-        "FROM sensor_readings "
-        "ORDER BY adjusted_time_ms ASC, id ASC"
+        "SELECT sr.adjusted_time_ms, d.name, d.address, sr.sensor, sr.measurement "
+        "FROM sensor_readings sr "
+        "JOIN devices d ON sr.device_id = d.id "
+        "ORDER BY sr.adjusted_time_ms ASC, sr.id ASC"
     )
     with sqlite3.connect(db_path) as conn:
-        for time_ms, sensor_name, value in conn.execute(query):
+        for time_ms, device_name, device_addr, sensor_name, value in conn.execute(query):
             if time_ms is None:
                 continue
             timestamp = np.datetime64(int(time_ms), "ms")
-            series.setdefault(sensor_name, []).append((timestamp, int(value)))
+            label = device_name or device_addr or "unknown"
+            series.setdefault(f"{label}:{sensor_name}", []).append(
+                (timestamp, int(value))
+            )
     return series
 
 
@@ -108,21 +113,18 @@ def main() -> int:
         return 0
 
     sensor_names = sorted(series.keys())
-    if len(sensor_names) > 2:
-        sensor_names = sensor_names[:2]
 
     locator = mdates.AutoDateLocator()
-    has_two = len(sensor_names) == 2
-    fig = plt.figure(figsize=(12, 8))
-    if has_two:
-        raw_axes = [
-            fig.add_subplot(2, 2, 1),
-            fig.add_subplot(2, 2, 2),
-        ]
-        ax = fig.add_subplot(2, 1, 2)
-    else:
-        raw_axes = [fig.add_subplot(2, 1, 1)]
-        ax = fig.add_subplot(2, 1, 2)
+    fig = plt.figure(figsize=(14, 4 + 4 * math.ceil(len(sensor_names) / 2)))
+    cols = 2
+    rows = math.ceil(len(sensor_names) / cols)
+    grid = fig.add_gridspec(rows + 1, cols)
+    raw_axes = []
+    for i in range(len(sensor_names)):
+        r = i // cols
+        c = i % cols
+        raw_axes.append(fig.add_subplot(grid[r, c]))
+    ax = fig.add_subplot(grid[rows, :])
 
     for idx, name in enumerate(sensor_names):
         points = series[name]
@@ -140,7 +142,7 @@ def main() -> int:
         ax.plot(times, smoothed, label=f"{name} (smoothed)")
         ax.scatter(times, normalized, label=f"{name} (raw)", s=18, alpha=0.7)
 
-        raw_ax = raw_axes[min(idx, len(raw_axes) - 1)]
+        raw_ax = raw_axes[idx]
         raw_window = min(5, len(values))
         raw_sigma = max(1.0, raw_window / 2.0)
         raw_smoothed = _gaussian_average(values, raw_window, raw_sigma)

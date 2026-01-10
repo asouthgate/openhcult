@@ -139,6 +139,7 @@ async def run_monitor(db_con, characteristic_uuid=None):
     """Continuously scan, connect, request data, and store readings."""
     if characteristic_uuid is None:
         characteristic_uuid = config.get_ble_characteristic_uuid()
+    service_uuid = config.get_ble_service_uuid().lower()
     while True:
         logging.info("Starting BLE scan")
         try:
@@ -150,6 +151,12 @@ async def run_monitor(db_con, characteristic_uuid=None):
         esp32_device = None
         for d in devices:
             if d.name and DEVICE_NAME_HINT in d.name:
+                esp32_device = d
+                break
+            uuids = []
+            if getattr(d, "metadata", None):
+                uuids = d.metadata.get("uuids") or []
+            if any(u.lower() == service_uuid for u in uuids):
                 esp32_device = d
                 break
 

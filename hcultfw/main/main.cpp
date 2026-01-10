@@ -89,14 +89,24 @@ static void init_power_pins() {
   io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
   ESP_ERROR_CHECK(gpio_config(&io_conf));
 
-  // Power the sensors just long enough to take a single batch of readings.
-  // Q: what's the static_cast for again?
-  // A: It converts an integer macro to the gpio_num_t enum expected by the API.
   gpio_set_level(static_cast<gpio_num_t>(LED_PIN), 1);
   gpio_set_level(static_cast<gpio_num_t>(RED_LED_PIN), 0);
-  gpio_set_level(static_cast<gpio_num_t>(SENSOR_POWER_PIN_1), 1);
-  gpio_set_level(static_cast<gpio_num_t>(SENSOR_POWER_PIN_2), 1);
-  vTaskDelay(pdMS_TO_TICKS(10));
+  gpio_set_level(static_cast<gpio_num_t>(SENSOR_POWER_PIN_1), 0);
+  gpio_set_level(static_cast<gpio_num_t>(SENSOR_POWER_PIN_2), 0);
+}
+
+static void power_sensor(gpio_num_t pin, bool on) {
+  gpio_set_level(pin, on ? 1 : 0);
+}
+
+static int read_sensor_with_power(FirmwareState &state,
+                                  gpio_num_t power_pin,
+                                  adc_channel_t channel) {
+  power_sensor(power_pin, true);
+  vTaskDelay(pdMS_TO_TICKS(50));
+  int value = read_sensor(state, channel);
+  power_sensor(power_pin, false);
+  return value;
 }
 
 static void take_sensor_readings(FirmwareState &state) {
@@ -125,10 +135,15 @@ static void take_sensor_readings(FirmwareState &state) {
       ADC_CHANNEL_6,
       ADC_CHANNEL_7,
   };
+  const gpio_num_t sensor_power_pins[kSensorCount] = {
+      static_cast<gpio_num_t>(SENSOR_POWER_PIN_1),
+      static_cast<gpio_num_t>(SENSOR_POWER_PIN_2),
+  };
   int sensor_values[kSensorCount];
   for (size_t i = 0; i < kSensorCount; ++i) {
     int64_t sample_time_us = static_cast<int64_t>(esp_rtc_get_time_us());
-    sensor_values[i] = read_sensor(state, sensor_channels[i]);
+    sensor_values[i] = read_sensor_with_power(
+        state, sensor_power_pins[i], sensor_channels[i]);
     push_sensor_measurement(sensor_values[i], sample_time_us);
   }
 
