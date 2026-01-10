@@ -188,3 +188,5 @@ async def run_monitor(db_con, characteristic_uuid=None):
             logging.error(f"Device not found error: {e} (device probably went to sleep)")
         except EOFError as e:
             logging.error(f"Connection closed unexpectedly: {e}")
+        except BleakError as e:
+            logging.error(f"BLE error: {e}")
