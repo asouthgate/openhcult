@@ -1,4 +1,4 @@
-/* C string utilities for zeroing structs and basic buffer helpers. */
+// This file is basically a bunch of callbacks and boilerplate. The callbacks are important.
 #include <string.h>
 #include <stdio.h>
 
@@ -17,28 +17,30 @@
 #include "services/gatt/ble_svc_gatt.h"
 
 static const char *TAG = "hcultfw";
+// TODO: this global shouldn't be a global and if it has to be shouldn't be defined here.
+//   or the BLE globals should be split from the others
 static FirmwareState *s_state;
 static char s_device_name[32];
 
-/* Forward declaration: used before definition by the advertising function. */
-// Q: what is a gap event?
-// A: A GAP event is a BLE connection/advertising state change (connect, disconnect,
-// A: advertising complete, etc.) delivered to the host callback.
 static int gap_event_cb(struct ble_gap_event *event, void *arg);
 
-/*
- * GATT access callback for our characteristic.
- * Read: returns the latest buffered values with timestamps.
- */
-static int gatt_svr_chr_access(uint16_t conn_handle, uint16_t attr_handle,
-                               struct ble_gatt_access_ctxt *ctxt, void *arg) {
+// This is the GATT characteristic access callback, in which we handle response to read.
+static int gatt_svr_chr_access(
+  uint16_t conn_handle,
+  uint16_t attr_handle,
+  struct ble_gatt_access_ctxt *ctxt,
+  void *arg
+) {
+  // Main logic for read operation
   if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
     uint8_t payload[kSensorCount * kSensorPayloadStride];
     size_t payload_count = g_sensor_buffer_count / kSensorCount;
     uint8_t header[kPayloadHeaderSize];
-    size_t header_size =
-        build_payload_header(static_cast<uint16_t>(payload_count),
-                             header, sizeof(header));
+    size_t header_size = build_payload_header(
+      static_cast<uint16_t>(payload_count),
+      header,
+      sizeof(header)
+    );
     if (header_size == 0) {
       return BLE_ATT_ERR_UNLIKELY;
     }
@@ -63,10 +65,9 @@ static int gatt_svr_chr_access(uint16_t conn_handle, uint16_t attr_handle,
   return BLE_ATT_ERR_UNLIKELY;
 }
 
-
-// Q: what is this struct? Something like characteristic definition? What's that?
-// A: Yes. It declares the characteristic (UUID, access callback, flags) so the
-// A: GATT server knows what attributes to expose.
+// Definition for the characteristics in our GATT service.
+// See where we specify gatt_svr_chr_access, read/write handler.
+// NimBLE expects the array to be terminated by an entry with all zeroes.
 static struct ble_gatt_chr_def gatt_chr_defs[] = {
     {
         nullptr,
@@ -90,9 +91,7 @@ static struct ble_gatt_chr_def gatt_chr_defs[] = {
     },
 };
 
-
-// Q: what is this struct? Something like svc definition? What's that?
-// A: It declares the service that groups characteristics under one UUID.
+// Service is basically just a container for characteristics.
 struct ble_gatt_svc_def gatt_svcs[] = {
     {
         BLE_GATT_SVC_TYPE_PRIMARY,
@@ -128,9 +127,6 @@ bool init_ble_stack(FirmwareState &state) {
   ble_svc_gatt_init();
   ble_init(state);
 
-  // Q: what is gatts_count?
-  // A: It counts how many GATT attributes are needed so NimBLE can allocate them
-  // A: before we register the services.
   int rc = ble_gatts_count_cfg(gatt_svcs);
   if (rc != 0) {
     ESP_LOGE(TAG, "ble_gatts_count_cfg failed: %d", rc);
@@ -150,23 +146,10 @@ bool init_ble_stack(FirmwareState &state) {
   return true;
 }
 
-/*
- * Starts BLE advertising with our custom service UUID.
- * This keeps the device discoverable for a short window so a client can
- * connect and request the sensor readings.
- */
 static void start_advertising(void) {
-  // Q: what are each of these structs for?
-  // A: ble_hs_adv_fields describes the advertising payload (what we broadcast).
-  // A: ble_gap_adv_params controls advertising behavior (connectable, discoverable).
   struct ble_gap_adv_params adv_params;
   struct ble_hs_adv_fields fields;
-
-  // Q: why we set the fields to 0?
-  // A: Zero-initialization avoids uninitialized garbage and clearly marks fields
-  // A: we are not using.
   memset(&fields, 0, sizeof(fields));
-  // Advertise the custom service UUID so clients can discover it quickly.
   fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
   fields.tx_pwr_lvl_is_present = 1;
   fields.tx_pwr_lvl = BLE_HS_ADV_TX_PWR_LVL_AUTO;
@@ -174,8 +157,6 @@ static void start_advertising(void) {
   fields.num_uuids128 = 1;
   fields.uuids128_is_complete = 1;
 
-  // Q: where is ble_gap_adv_set_fields from?
-  // A: It's part of NimBLE's GAP API (ble_gap.h); it builds the advertising data.
   int rc = ble_gap_adv_set_fields(&fields);
   if (rc != 0) {
     ESP_LOGE(TAG, "ble_gap_adv_set_fields failed: %d", rc);
@@ -209,12 +190,7 @@ static void start_advertising(void) {
   ESP_LOGI(TAG, "BLE advertising started");
 }
 
-/*
- * GAP event handler invoked by NimBLE for connection state changes.
- * We restart advertising on failures or disconnects to remain discoverable.
- */
-// Q: what is GAP?
-// A: GAP is the BLE layer that manages advertising, discovery, and connections.
+// GAP event handler invoked by NimBLE for connection state changes.
 static int gap_event_cb(struct ble_gap_event *event, void *arg) {
   switch (event->type) {
     case BLE_GAP_EVENT_CONNECT:
@@ -243,22 +219,12 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg) {
   }
 }
 
-/*
- * NimBLE reset callback.
- * This is mostly informational; it helps diagnose unexpected controller resets.
- */
+// NimBLE reset callback.
 void ble_on_reset(int reason) {
   ESP_LOGE(TAG, "Resetting NimBLE; reason=%d", reason);
 }
 
-/*
- * NimBLE sync callback.
- * Runs after the host stack is ready, so it's the right time to set the
- * device name and start advertising.
- */
-// Q: what is a NimBLE sync?
-// A: It's the point where the host stack has synchronized with the controller and
-// A: is ready to start using GAP/GATT (e.g., start advertising).
+// NimBLE sync callback, runs after the host stack is ready
 void ble_on_sync(void) {
   // Use the controller-provided address type (public or random).
   int rc = ble_hs_id_infer_auto(0, &s_state->ble_addr_type);
@@ -269,8 +235,14 @@ void ble_on_sync(void) {
 
   uint8_t mac[6] = {};
   esp_read_mac(mac, ESP_MAC_BT);
-  snprintf(s_device_name, sizeof(s_device_name),
-           "ESP32_Sensor_%02X%02X%02X", mac[3], mac[4], mac[5]);
+  snprintf(
+    s_device_name,
+    sizeof(s_device_name),
+    "ESP32_Sensor_%02X%02X%02X",
+    mac[3],
+    mac[4],
+    mac[5]
+  );
   rc = ble_svc_gap_device_name_set(s_device_name);
   if (rc != 0) {
     ESP_LOGE(TAG, "Device name set failed: %d", rc);
@@ -280,10 +252,6 @@ void ble_on_sync(void) {
   start_advertising();
 }
 
-/*
- * Loads BLE UUIDs from build-time config and validates their format.
- * This keeps firmware and monitor UUIDs in sync via the shared repo config.
- */
 void load_ble_uuids(FirmwareState &state) {
   ble_uuid_any_t uuid_any;
   int rc = ble_uuid_from_str(&uuid_any, BLE_SERVICE_UUID_STR);
@@ -302,13 +270,7 @@ void load_ble_uuids(FirmwareState &state) {
   state.ble_uuid_ok = true;
 }
 
-/*
- * FreeRTOS task entry point for the NimBLE host.
- * NimBLE runs an internal event loop here for the lifetime of BLE activity.
- */
-// Q: How does this relate to the control flow from our main function? This event loop is the main loop or what?
-// A: It's the BLE stack's own event loop running in a separate FreeRTOS task.
-// A: app_main continues after starting the task; this does not replace app_main.
+// Entrypoint for the NimBLE host task.
 void ble_host_task(void *param) {
   // NimBLE runs an internal event loop; this task blocks until it exits.
   nimble_port_run();
