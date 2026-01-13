@@ -6,7 +6,9 @@
 #include "esp_adc/adc_oneshot.h"
 #include "host/ble_uuid.h"
 
-constexpr size_t kSensorBufferSize = 256;
+#include "ble_config.h"
+
+constexpr size_t kSensorBufferSize = SENSOR_BUFFER_SIZE;
 constexpr size_t kSensorCount = 2;
 
 extern int g_sensor_buffer[kSensorBufferSize];

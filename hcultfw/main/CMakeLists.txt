@@ -16,6 +16,8 @@ foreach(line IN LISTS BLE_CONFIG_LINES)
         set(SLEEP_TIME_US "${CMAKE_MATCH_1}")
     elseif(line MATCHES "^n_sleeps_per_transmission=([0-9]+)$")
         set(N_SLEEPS_PER_TRANSMISSION "${CMAKE_MATCH_1}")
+    elseif(line MATCHES "^sensor_buffer_size=([0-9]+)$")
+        set(SENSOR_BUFFER_SIZE "${CMAKE_MATCH_1}")
     endif()
 endforeach()
 
@@ -23,8 +25,8 @@ if(NOT BLE_SERVICE_UUID_STR OR NOT BLE_CHARACTERISTIC_UUID_STR)
     message(FATAL_ERROR "BLE config must define service_uuid and characteristic_uuid")
 endif()
 
-if(NOT DEFINED BLE_ADVERTISING_TIME_MS OR NOT DEFINED SLEEP_TIME_US OR NOT DEFINED N_SLEEPS_PER_TRANSMISSION)
-    message(FATAL_ERROR "BLE config must define ble_advertising_time_ms, sleep_time_us, and n_sleeps_per_transmission")
+if(NOT DEFINED BLE_ADVERTISING_TIME_MS OR NOT DEFINED SLEEP_TIME_US OR NOT DEFINED N_SLEEPS_PER_TRANSMISSION OR NOT DEFINED SENSOR_BUFFER_SIZE)
+    message(FATAL_ERROR "BLE config must define ble_advertising_time_ms, sleep_time_us, n_sleeps_per_transmission, and sensor_buffer_size")
 endif()
 
 # Generate a header with UUID strings for the firmware to parse at boot.

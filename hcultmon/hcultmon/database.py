@@ -12,6 +12,7 @@ def setup_db(db_path):
         CREATE TABLE IF NOT EXISTS devices (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT,
+            tag TEXT,
             address TEXT UNIQUE,
             first_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
             last_seen DATETIME DEFAULT CURRENT_TIMESTAMP
