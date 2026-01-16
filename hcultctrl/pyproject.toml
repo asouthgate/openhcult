@@ -1,0 +1,13 @@
+[project]
+name = "hcultctrl"
+version = "0.1.0"
+description = "HTTP API for querying OpenHCult sensor readings."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn>=0.27",
+]
+
+[project.scripts]
+hcultctrl = "hcultctrl.__main__:main"

@@ -5,8 +5,12 @@ from __future__ import annotations
 
 import argparse
 import configparser
+import json
 import math
+import os
 import sqlite3
+import urllib.parse
+import urllib.request
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -16,6 +20,13 @@ import numpy as np
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
+
+
+def _default_config_path() -> Path:
+    base = os.environ.get("XDG_CONFIG_HOME")
+    if base:
+        return Path(base) / "openhcult" / "openhcult.conf"
+    return Path.home() / ".config" / "openhcult" / "openhcult.conf"
 
 
 def _load_db_path(config_path: Path) -> Path:
@@ -35,20 +46,65 @@ def _load_db_path(config_path: Path) -> Path:
 def _fetch_series(db_path: Path) -> Dict[str, List[Tuple[np.datetime64, int]]]:
     series: Dict[str, List[Tuple[np.datetime64, int]]] = {}
     query = (
-        "SELECT sr.adjusted_time_ms, d.name, d.address, sr.sensor, sr.measurement "
+        "SELECT sr.adjusted_time_ms, d.name, d.tag, d.address, sr.sensor, sr.measurement "
         "FROM sensor_readings sr "
         "JOIN devices d ON sr.device_id = d.id "
         "ORDER BY sr.adjusted_time_ms ASC, sr.id ASC"
     )
     with sqlite3.connect(db_path) as conn:
-        for time_ms, device_name, device_addr, sensor_name, value in conn.execute(query):
+        for time_ms, device_name, device_tag, device_addr, sensor_name, value in conn.execute(query):
             if time_ms is None:
                 continue
             timestamp = np.datetime64(int(time_ms), "ms")
-            label = device_name or device_addr or "unknown"
-            series.setdefault(f"{label}:{sensor_name}", []).append(
+            base = device_name or device_addr or "unknown"
+            if device_tag:
+                base = f"{base} ({device_tag})"
+            series.setdefault(f"{base}:{sensor_name}", []).append(
                 (timestamp, int(value))
             )
+    return series
+
+
+def _fetch_series_from_ctrl(
+    ctrl_url: str,
+    *,
+    sensor: str | None,
+    device: str | None,
+    start_ms: int | None,
+    end_ms: int | None,
+    start_utc: str | None,
+    end_utc: str | None,
+    limit: int,
+) -> Dict[str, List[Tuple[np.datetime64, int]]]:
+    series: Dict[str, List[Tuple[np.datetime64, int]]] = {}
+    params: Dict[str, str] = {"format": "json", "limit": str(limit)}
+    if sensor:
+        params["sensor"] = sensor
+    if device:
+        params["device"] = device
+    if start_ms is not None:
+        params["start_ms"] = str(start_ms)
+    if end_ms is not None:
+        params["end_ms"] = str(end_ms)
+    if start_utc:
+        params["start_utc"] = start_utc
+    if end_utc:
+        params["end_utc"] = end_utc
+
+    base_url = ctrl_url.rstrip("/")
+    url = f"{base_url}/timeseries?{urllib.parse.urlencode(params)}"
+    with urllib.request.urlopen(url, timeout=10) as resp:
+        payload = json.load(resp)
+
+    for row in payload.get("data", []):
+        time_ms = row.get("adjusted_time_ms")
+        if time_ms is None:
+            continue
+        timestamp = np.datetime64(int(time_ms), "ms")
+        device_name = row.get("device_name") or row.get("device_address") or "unknown"
+        sensor_name = row.get("sensor") or "sensor"
+        key = f"{device_name}:{sensor_name}"
+        series.setdefault(key, []).append((timestamp, int(row.get("measurement", 0))))
     return series
 
 
@@ -58,13 +114,56 @@ def main() -> int:
     )
     parser.add_argument(
         "--config",
-        default=str(_repo_root() / "openhcult.conf"),
-        help="Path to openhcult.conf (default: repo root)",
+        default=str(_default_config_path()),
+        help="Path to openhcult.conf (default: XDG config)",
     )
     parser.add_argument(
         "--db",
         default=None,
         help="Override database path (otherwise read from config)",
+    )
+    parser.add_argument(
+        "--ctrl-url",
+        default=None,
+        help="Query data from hcultctrl instead of SQLite (e.g. http://127.0.0.1:8000)",
+    )
+    parser.add_argument(
+        "--sensor",
+        default=None,
+        help="Filter to a single sensor name (e.g. sensor1)",
+    )
+    parser.add_argument(
+        "--device",
+        default=None,
+        help="Filter to a device name or BLE address",
+    )
+    parser.add_argument(
+        "--start-ms",
+        type=int,
+        default=None,
+        help="Start time in epoch milliseconds",
+    )
+    parser.add_argument(
+        "--end-ms",
+        type=int,
+        default=None,
+        help="End time in epoch milliseconds",
+    )
+    parser.add_argument(
+        "--start-utc",
+        default=None,
+        help="Start time in UTC (ISO 8601, e.g. 2026-01-16T12:00:00Z)",
+    )
+    parser.add_argument(
+        "--end-utc",
+        default=None,
+        help="End time in UTC (ISO 8601, e.g. 2026-01-16T13:00:00Z)",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=10000,
+        help="Limit number of rows when querying hcultctrl",
     )
     parser.add_argument(
         "--out",
@@ -73,21 +172,32 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    config_path = Path(args.config)
-    if not config_path.exists():
-        raise FileNotFoundError(f"Missing config: {config_path}")
-
-    db_path = Path(args.db) if args.db else _load_db_path(config_path)
-    if not db_path.exists():
-        raise FileNotFoundError(f"Missing database: {db_path}")
-
     if args.out:
         matplotlib.use("Agg")
 
     import matplotlib.pyplot as plt
     import matplotlib.dates as mdates
 
-    series = _fetch_series(db_path)
+    if args.ctrl_url:
+        series = _fetch_series_from_ctrl(
+            args.ctrl_url,
+            sensor=args.sensor,
+            device=args.device,
+            start_ms=args.start_ms,
+            end_ms=args.end_ms,
+            start_utc=args.start_utc,
+            end_utc=args.end_utc,
+            limit=args.limit,
+        )
+    else:
+        config_path = Path(args.config)
+        if not config_path.exists():
+            raise FileNotFoundError(f"Missing config: {config_path}")
+
+        db_path = Path(args.db) if args.db else _load_db_path(config_path)
+        if not db_path.exists():
+            raise FileNotFoundError(f"Missing database: {db_path}")
+        series = _fetch_series(db_path)
     if not series:
         print("No sensor readings found.")
         return 0
@@ -110,12 +220,12 @@ def main() -> int:
         points = series[name]
         times = [t for t, _ in points]
         values = np.array([v for _, v in points], dtype=float)
-        ax.scatter(times, values, label=name, s=18, alpha=0.7)
+        ax.plot(times, values, label=name, linewidth=1.2)
 
         raw_ax = raw_axes[idx]
-        raw_ax.scatter(times, values, label=name, s=18, alpha=0.8)
+        raw_ax.plot(times, values, label=name, linewidth=1.2)
         raw_ax.legend()
-        raw_ax.set_title(f"{name} raw")
+        raw_ax.set_title(name)
         raw_ax.set_xlabel("Timestamp")
         raw_ax.set_ylabel("Value")
         raw_ax.xaxis.set_major_locator(locator)
