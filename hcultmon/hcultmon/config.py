@@ -1,5 +1,6 @@
 """Configuration loader for hcultmon."""
 
+import os
 from configparser import ConfigParser
 from pathlib import Path
 
@@ -7,10 +8,17 @@ from pathlib import Path
 DEFAULT_CONFIG_NAME = "openhcult.conf"
 
 
+def _default_config_path() -> Path:
+    base = os.environ.get("XDG_CONFIG_HOME")
+    if base:
+        return Path(base) / "openhcult" / DEFAULT_CONFIG_NAME
+    return Path.home() / ".config" / "openhcult" / DEFAULT_CONFIG_NAME
+
+
 def _load_config():
     """Return the parsed repo-level config and its path."""
     repo_root = Path(__file__).resolve().parents[2]
-    config_path = repo_root / DEFAULT_CONFIG_NAME
+    config_path = _default_config_path()
     if not config_path.exists():
         raise FileNotFoundError(f"Missing config: {config_path}")
     parser = ConfigParser()

@@ -5,7 +5,7 @@ import logging
 import time
 
 from bleak import BleakScanner, BleakClient
-from bleak.exc import BleakDeviceNotFoundError, BleakDBusError
+from bleak.exc import BleakDeviceNotFoundError, BleakDBusError, BleakError
 
 from . import config
 from . import database
@@ -190,3 +190,5 @@ async def run_monitor(db_con, characteristic_uuid=None):
             logging.error(f"Connection closed unexpectedly: {e}")
         except BleakError as e:
             logging.error(f"BLE error: {e}")
+        except TimeoutError as e:
+            logging.error(f"Connection timed out: {e}")
