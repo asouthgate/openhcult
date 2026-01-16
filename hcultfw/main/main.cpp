@@ -81,7 +81,7 @@ static void take_sensor_readings(FirmwareState &state) {
   // Enable the red pin for debugging purposes and to force power draw to prevent battery from
   // going to sleep. Power banks sometimes cut power to the output if the draw is too low.
   gpio_set_level(static_cast<gpio_num_t>(RED_LED_PIN), 1);
-  vTaskDelay(pdMS_TO_TICKS(300));
+  vTaskDelay(pdMS_TO_TICKS(RED_LED_FLASH_MS));
   gpio_set_level(static_cast<gpio_num_t>(RED_LED_PIN), 0);
   const adc_channel_t sensor_channels[kSensorCount] = {
       ADC_CHANNEL_6,
