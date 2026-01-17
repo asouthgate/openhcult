@@ -10,7 +10,7 @@ Group=hcult
 LogsDirectory=hcult
 LogsDirectoryMode=0755
 WorkingDirectory=/opt/openhcult/hcultmon
-ExecStart=/opt/openhcult/.venv/bin/python -m hcultmon
+ExecStart=/opt/openhcult/.venv/bin/python -m hcultmon -c /opt/openhcult/openhcult.conf
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1

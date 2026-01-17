@@ -3,11 +3,15 @@
 import os
 from configparser import ConfigParser
 from pathlib import Path
+from typing import Optional
 
 
 DEFAULT_CONFIG_NAME = "openhcult.conf"
 DEFAULT_LOG_DIR = "/var/log/hcult"
 DEFAULT_LOG_STDOUT = True
+DEFAULT_CTRL_HOST = "127.0.0.1"
+DEFAULT_CTRL_PORT = 8000
+_CONFIG_PATH_OVERRIDE: Optional[Path] = None
 
 
 def _default_config_path() -> Path:
@@ -20,12 +24,18 @@ def _default_config_path() -> Path:
 def _load_config():
     """Return the parsed repo-level config and its path."""
     repo_root = Path(__file__).resolve().parents[2]
-    config_path = _default_config_path()
+    config_path = _CONFIG_PATH_OVERRIDE or _default_config_path()
     if not config_path.exists():
         raise FileNotFoundError(f"Missing config: {config_path}")
     parser = ConfigParser()
     parser.read(config_path)
     return parser, config_path, repo_root
+
+
+def set_config_path(config_path: Path) -> None:
+    """Override the config path used by hcultctrl."""
+    global _CONFIG_PATH_OVERRIDE
+    _CONFIG_PATH_OVERRIDE = config_path
 
 
 def get_db_path() -> Path:
@@ -39,7 +49,6 @@ def get_db_path() -> Path:
     db_path = Path(configured).expanduser()
     if not db_path.is_absolute():
         db_path = repo_root / db_path
-    db_path.parent.mkdir(parents=True, exist_ok=True)
     return db_path
 
 
@@ -73,3 +82,23 @@ def get_log_stdout() -> bool:
     if value in {"0", "false", "no", "off"}:
         return False
     return DEFAULT_LOG_STDOUT
+
+
+def get_ctrl_host() -> str:
+    """Return the bind host for hcultctrl."""
+    parser, _, _ = _load_config()
+    if "ctrl" in parser and "host" in parser["ctrl"]:
+        value = parser["ctrl"]["host"].strip()
+        if value:
+            return value
+    return DEFAULT_CTRL_HOST
+
+
+def get_ctrl_port() -> int:
+    """Return the bind port for hcultctrl."""
+    parser, _, _ = _load_config()
+    if "ctrl" in parser and "port" in parser["ctrl"]:
+        value = parser["ctrl"]["port"].strip()
+        if value.isdigit():
+            return int(value)
+    return DEFAULT_CTRL_PORT

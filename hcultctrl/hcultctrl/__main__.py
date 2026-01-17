@@ -1,6 +1,8 @@
 """Entrypoint for running the hcultctrl API."""
 
+import argparse
 import logging
+from pathlib import Path
 
 import uvicorn
 
@@ -29,11 +31,37 @@ def _setup_logging():
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Run the hcultctrl API.")
+    parser.add_argument(
+        "-c",
+        "--config",
+        default=None,
+        help="Path to openhcult.conf (default: XDG config)",
+    )
+    parser.add_argument(
+        "--host",
+        "--hostname",
+        dest="host",
+        default=None,
+        help="Host/IP to bind (default: config or 127.0.0.1)",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="Port to bind (default: config or 8000)",
+    )
+    args = parser.parse_args()
+
+    if args.config:
+        config.set_config_path(Path(args.config))
+    host = args.host or config.get_ctrl_host()
+    port = args.port or config.get_ctrl_port()
     _setup_logging()
     uvicorn.run(
         "hcultctrl.api:app",
-        host="127.0.0.1",
-        port=8000,
+        host=host,
+        port=port,
         reload=False,
         log_config=None,
         log_level="info",

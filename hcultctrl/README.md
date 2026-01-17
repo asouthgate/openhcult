@@ -34,6 +34,28 @@ Or with UTC timestamps:
 curl "http://127.0.0.1:8000/timeseries?sensor=sensor1&start_utc=2026-01-16T12:00:00Z&end_utc=2026-01-16T13:00:00Z"
 ```
 
+## Config path
+
+You can pass a config path with `-c`:
+
+```bash
+python -m hcultctrl -c /opt/openhcult/openhcult.conf
+```
+
+Bind host/port:
+
+```bash
+python -m hcultctrl --host 0.0.0.0 --port 8000
+```
+
+Or configure defaults in `openhcult.conf`:
+
+```ini
+[ctrl]
+host=192.168.0.117
+port=8000
+```
+
 ## Run as a system service (systemd)
 
 1) Create the service user:

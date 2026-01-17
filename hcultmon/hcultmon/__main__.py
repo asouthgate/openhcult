@@ -1,5 +1,7 @@
+import argparse
 import asyncio
 import logging
+from pathlib import Path
 
 from . import ble
 from . import config
@@ -26,6 +28,17 @@ async def _main():
     await ble.run_monitor(db_con)
 
 def main():
+    parser = argparse.ArgumentParser(description="Run the hcultmon BLE monitor.")
+    parser.add_argument(
+        "-c",
+        "--config",
+        default=None,
+        help="Path to openhcult.conf (default: XDG config)",
+    )
+    args = parser.parse_args()
+
+    if args.config:
+        config.set_config_path(Path(args.config))
     _setup_logging()
     asyncio.run(_main())
 

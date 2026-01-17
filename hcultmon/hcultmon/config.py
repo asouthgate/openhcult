@@ -3,11 +3,13 @@
 import os
 from configparser import ConfigParser
 from pathlib import Path
+from typing import Optional
 
 
 DEFAULT_CONFIG_NAME = "openhcult.conf"
 DEFAULT_LOG_DIR = "/var/log/hcult"
 DEFAULT_LOG_STDOUT = True
+_CONFIG_PATH_OVERRIDE: Optional[Path] = None
 
 
 def _default_config_path() -> Path:
@@ -20,12 +22,18 @@ def _default_config_path() -> Path:
 def _load_config():
     """Return the parsed repo-level config and its path."""
     repo_root = Path(__file__).resolve().parents[2]
-    config_path = _default_config_path()
+    config_path = _CONFIG_PATH_OVERRIDE or _default_config_path()
     if not config_path.exists():
         raise FileNotFoundError(f"Missing config: {config_path}")
     parser = ConfigParser()
     parser.read(config_path)
     return parser, config_path, repo_root
+
+
+def set_config_path(config_path: Path) -> None:
+    """Override the config path used by hcultmon."""
+    global _CONFIG_PATH_OVERRIDE
+    _CONFIG_PATH_OVERRIDE = config_path
 
 
 def get_ble_characteristic_uuid():
