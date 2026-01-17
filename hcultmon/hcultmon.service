@@ -1,0 +1,19 @@
+[Unit]
+Description=OpenHCult monitor
+After=network.target bluetooth.target
+Requires=bluetooth.target
+
+[Service]
+Type=simple
+User=hcult
+Group=hcult
+LogsDirectory=hcult
+LogsDirectoryMode=0755
+WorkingDirectory=/opt/openhcult/hcultmon
+ExecStart=/opt/openhcult/.venv/bin/python -m hcultmon
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target
