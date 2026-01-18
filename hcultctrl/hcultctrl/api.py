@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import csv
 import io
+import time
 from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import PlainTextResponse
+from pydantic import BaseModel
 
 from . import config
 from . import database
@@ -106,6 +108,82 @@ def timeseries(
         for row in rows
     ]
     return {"count": len(data), "data": data}
+
+
+class ObservationIn(BaseModel):
+    note: str
+    observed_at: Optional[str] = None
+
+
+class ObservationUpdate(BaseModel):
+    note: Optional[str] = None
+    observed_at: Optional[str] = None
+
+
+@app.post("/observations")
+def create_observation(payload: ObservationIn):
+    note = payload.note.strip()
+    if not note:
+        raise HTTPException(status_code=400, detail="note must be non-empty")
+    observed_at_ms = (
+        _parse_utc_ms(payload.observed_at, "observed_at")
+        if payload.observed_at
+        else int(time.time() * 1000)
+    )
+    obs_id = database.insert_observation(
+        _get_db(), note=note, observed_at_ms=observed_at_ms
+    )
+    return {"id": obs_id, "observed_at": observed_at_ms, "note": note}
+
+
+@app.get("/observations")
+def list_observations(
+    start_ms: Optional[int] = Query(default=None, ge=0),
+    end_ms: Optional[int] = Query(default=None, ge=0),
+    start_utc: Optional[str] = None,
+    end_utc: Optional[str] = None,
+    limit: int = Query(default=1000, ge=1, le=100000),
+):
+    if start_utc and start_ms is not None:
+        raise HTTPException(status_code=400, detail="Use start_ms or start_utc, not both")
+    if end_utc and end_ms is not None:
+        raise HTTPException(status_code=400, detail="Use end_ms or end_utc, not both")
+
+    if start_utc:
+        start_ms = _parse_utc_ms(start_utc, "start_utc")
+    if end_utc:
+        end_ms = _parse_utc_ms(end_utc, "end_utc")
+
+    if start_ms is not None and end_ms is not None and start_ms > end_ms:
+        raise HTTPException(status_code=400, detail="start_ms must be <= end_ms")
+
+    rows = database.fetch_observations(
+        _get_db(), start_ms=start_ms, end_ms=end_ms, limit=limit
+    )
+    data = [
+        {"id": row["id"], "observed_at": row["observed_at"], "note": row["note"]}
+        for row in rows
+    ]
+    return {"count": len(data), "data": data}
+
+
+@app.patch("/observations/{obs_id}")
+def update_observation(obs_id: int, payload: ObservationUpdate):
+    note = payload.note.strip() if payload.note is not None else None
+    if payload.note is not None and not note:
+        raise HTTPException(status_code=400, detail="note must be non-empty")
+    observed_at_ms = (
+        _parse_utc_ms(payload.observed_at, "observed_at")
+        if payload.observed_at
+        else None
+    )
+    try:
+        database.update_observation(
+            _get_db(), obs_id=obs_id, observed_at_ms=observed_at_ms, note=note
+        )
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Observation not found")
+    return {"id": obs_id, "observed_at": observed_at_ms, "note": note}
 
 
 def _parse_utc_ms(value: str, field: str) -> int:

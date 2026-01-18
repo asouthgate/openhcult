@@ -59,3 +59,70 @@ def fetch_timeseries(
     params.append(limit)
     cursor = conn.execute(query, params)
     return cursor.fetchall()
+
+
+def insert_observation(
+    conn: sqlite3.Connection, *, note: str, observed_at_ms: int
+) -> int:
+    """Insert an observation and return its id."""
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO observations (observed_at, note) VALUES (?, ?)",
+        (observed_at_ms, note),
+    )
+    conn.commit()
+    return cursor.lastrowid
+
+
+def fetch_observations(
+    conn: sqlite3.Connection,
+    *,
+    start_ms: Optional[int] = None,
+    end_ms: Optional[int] = None,
+    limit: int = 1000,
+) -> Iterable[sqlite3.Row]:
+    """Return observations ordered by observed_at."""
+    conn.row_factory = sqlite3.Row
+    clauses = []
+    params = []
+    if start_ms is not None:
+        clauses.append("observed_at >= ?")
+        params.append(start_ms)
+    if end_ms is not None:
+        clauses.append("observed_at <= ?")
+        params.append(end_ms)
+    where = ""
+    if clauses:
+        where = "WHERE " + " AND ".join(clauses)
+    query = f"""
+        SELECT id, observed_at, note
+        FROM observations
+        {where}
+        ORDER BY observed_at ASC, id ASC
+        LIMIT ?
+    """
+    params.append(limit)
+    cursor = conn.execute(query, params)
+    return cursor.fetchall()
+
+
+def update_observation(
+    conn: sqlite3.Connection, *, obs_id: int, observed_at_ms: int | None, note: str | None
+) -> None:
+    """Update an observation in place."""
+    fields = []
+    params = []
+    if observed_at_ms is not None:
+        fields.append("observed_at = ?")
+        params.append(observed_at_ms)
+    if note is not None:
+        fields.append("note = ?")
+        params.append(note)
+    if not fields:
+        return
+    params.append(obs_id)
+    query = f"UPDATE observations SET {', '.join(fields)} WHERE id = ?"
+    cursor = conn.execute(query, params)
+    conn.commit()
+    if cursor.rowcount == 0:
+        raise ValueError("Observation not found")

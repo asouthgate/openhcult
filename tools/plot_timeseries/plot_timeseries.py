@@ -65,6 +65,21 @@ def _fetch_series(db_path: Path) -> Dict[str, List[Tuple[np.datetime64, int]]]:
     return series
 
 
+def _fetch_observations(db_path: Path) -> List[Tuple[np.datetime64, str]]:
+    observations: List[Tuple[np.datetime64, str]] = []
+    query = "SELECT observed_at, note FROM observations ORDER BY observed_at ASC, id ASC"
+    with sqlite3.connect(db_path) as conn:
+        try:
+            for observed_at, note in conn.execute(query):
+                if observed_at is None:
+                    continue
+                timestamp = np.datetime64(int(observed_at), "ms")
+                observations.append((timestamp, str(note)))
+        except sqlite3.OperationalError:
+            return []
+    return observations
+
+
 def _fetch_series_from_ctrl(
     ctrl_url: str,
     *,
@@ -112,6 +127,40 @@ def _fetch_series_from_ctrl(
         key = f"{device_name}:{sensor_name}"
         series.setdefault(key, []).append((timestamp, int(row.get("measurement", 0))))
     return series
+
+
+def _fetch_observations_from_ctrl(
+    ctrl_url: str,
+    *,
+    start_ms: int | None,
+    end_ms: int | None,
+    start_utc: str | None,
+    end_utc: str | None,
+    limit: int,
+) -> List[Tuple[np.datetime64, str]]:
+    params: Dict[str, str] = {"limit": str(limit)}
+    if start_ms is not None:
+        params["start_ms"] = str(start_ms)
+    if end_ms is not None:
+        params["end_ms"] = str(end_ms)
+    if start_utc:
+        params["start_utc"] = start_utc
+    if end_utc:
+        params["end_utc"] = end_utc
+
+    base_url = ctrl_url.rstrip("/")
+    url = f"{base_url}/observations?{urllib.parse.urlencode(params)}"
+    with urllib.request.urlopen(url, timeout=10) as resp:
+        payload = json.load(resp)
+
+    observations: List[Tuple[np.datetime64, str]] = []
+    for row in payload.get("data", []):
+        observed_at = row.get("observed_at")
+        if observed_at is None:
+            continue
+        timestamp = np.datetime64(int(observed_at), "ms")
+        observations.append((timestamp, str(row.get("note", ""))))
+    return observations
 
 
 def main() -> int:
@@ -184,11 +233,20 @@ def main() -> int:
     import matplotlib.pyplot as plt
     import matplotlib.dates as mdates
 
+    observations: List[Tuple[np.datetime64, str]] = []
     if args.ctrl_url:
         series = _fetch_series_from_ctrl(
             args.ctrl_url,
             sensor=args.sensor,
             device=args.device,
+            start_ms=args.start_ms,
+            end_ms=args.end_ms,
+            start_utc=args.start_utc,
+            end_utc=args.end_utc,
+            limit=args.limit,
+        )
+        observations = _fetch_observations_from_ctrl(
+            args.ctrl_url,
             start_ms=args.start_ms,
             end_ms=args.end_ms,
             start_utc=args.start_utc,
@@ -204,6 +262,7 @@ def main() -> int:
         if not db_path.exists():
             raise FileNotFoundError(f"Missing database: {db_path}")
         series = _fetch_series(db_path)
+        observations = _fetch_observations(db_path)
     if not series:
         print("No sensor readings found.")
         return 0
@@ -229,7 +288,6 @@ def main() -> int:
         ax.plot(times, values, label=name, linewidth=1.2)
 
         raw_ax = raw_axes[idx]
-        print(max(times))
         raw_ax.plot(times, values, label=name, linewidth=1.2)
         raw_ax.legend()
         raw_ax.set_title(name)
@@ -238,6 +296,24 @@ def main() -> int:
         raw_ax.xaxis.set_major_locator(locator)
         raw_ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
         raw_ax.tick_params(axis="x", rotation=30)
+
+    if observations:
+        for raw_ax in raw_axes + [ax]:
+            for obs_time, _ in observations:
+                raw_ax.axvline(obs_time, color="tab:orange", alpha=0.4, linewidth=1)
+        for obs_time, note in observations:
+            if not note:
+                continue
+            ax.annotate(
+                note,
+                xy=(obs_time, 0.99),
+                xycoords=("data", "axes fraction"),
+                rotation=90,
+                va="top",
+                ha="right",
+                fontsize=8,
+                color="black",
+            )
 
     ax.set_title("Sensor Readings")
     ax.set_xlabel("Timestamp")

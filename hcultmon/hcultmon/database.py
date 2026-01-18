@@ -1,6 +1,8 @@
 """SQLite helpers for device registry and sensor readings."""
 
+from datetime import datetime, timezone
 import sqlite3
+import time
 
 
 def setup_db(db_path):
@@ -30,6 +32,15 @@ def setup_db(db_path):
             collection_time_ms INTEGER,
             adjusted_time_ms INTEGER,
             FOREIGN KEY (device_id) REFERENCES devices(id)
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS observations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            observed_at INTEGER NOT NULL,
+            note TEXT NOT NULL
         )
         """
     )
@@ -93,3 +104,29 @@ def write_sensor_readings(conn, device_id, readings):
             rows,
         )
     conn.commit()
+
+
+def _parse_observed_at_ms(value):
+    if value.endswith("Z"):
+        parsed = datetime.fromisoformat(value[:-1]).replace(tzinfo=timezone.utc)
+    else:
+        parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return int(parsed.timestamp() * 1000)
+
+
+def add_observation(conn, note, observed_at=None):
+    """Insert an observation and return its id."""
+    cursor = conn.cursor()
+    observed_at_ms = (
+        _parse_observed_at_ms(observed_at)
+        if observed_at is not None
+        else int(time.time() * 1000)
+    )
+    cursor.execute(
+        "INSERT INTO observations (observed_at, note) VALUES (?, ?)",
+        (observed_at_ms, note),
+    )
+    conn.commit()
+    return cursor.lastrowid
