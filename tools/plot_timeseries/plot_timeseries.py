@@ -96,6 +96,12 @@ def _fetch_series_from_ctrl(
     with urllib.request.urlopen(url, timeout=10) as resp:
         payload = json.load(resp)
 
+    if payload.get("count") == limit:
+        print(
+            "Warning: reached the row limit; results may be truncated. "
+            "Try --limit or a narrower time window."
+        )
+
     for row in payload.get("data", []):
         time_ms = row.get("adjusted_time_ms")
         if time_ms is None:
@@ -162,7 +168,7 @@ def main() -> int:
     parser.add_argument(
         "--limit",
         type=int,
-        default=10000,
+        default=100000,
         help="Limit number of rows when querying hcultctrl",
     )
     parser.add_argument(
@@ -223,6 +229,7 @@ def main() -> int:
         ax.plot(times, values, label=name, linewidth=1.2)
 
         raw_ax = raw_axes[idx]
+        print(max(times))
         raw_ax.plot(times, values, label=name, linewidth=1.2)
         raw_ax.legend()
         raw_ax.set_title(name)
