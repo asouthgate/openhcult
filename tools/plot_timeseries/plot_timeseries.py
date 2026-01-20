@@ -80,6 +80,43 @@ def _fetch_observations(db_path: Path) -> List[Tuple[np.datetime64, str]]:
     return observations
 
 
+def _compute_diff(values: np.ndarray, lag: int) -> np.ndarray:
+    if lag <= 0:
+        raise ValueError("lag must be >= 1")
+    out = np.full(values.shape, np.nan, dtype=float)
+    if values.size > lag:
+        out[lag:] = values[lag:] - values[:-lag]
+    return out
+
+
+def _rolling_mad(values: np.ndarray, window: int) -> np.ndarray:
+    if window <= 0:
+        raise ValueError("window must be >= 1")
+    out = np.full(values.shape, np.nan, dtype=float)
+    for idx in range(values.size):
+        start = max(0, idx - window + 1)
+        window_slice = values[start : idx + 1]
+        window_slice = window_slice[np.isfinite(window_slice)]
+        if window_slice.size == 0:
+            continue
+        median = np.median(window_slice)
+        mad = np.median(np.abs(window_slice - median))
+        out[idx] = mad
+    return out
+
+
+def _compute_zscore(
+    values: np.ndarray, *, lag: int, window: int, c: float
+) -> np.ndarray:
+    diffs = _compute_diff(values, lag)
+    mads = _rolling_mad(diffs, window)
+    sigma = c * mads
+    z = np.full(values.shape, np.nan, dtype=float)
+    valid = np.isfinite(diffs) & np.isfinite(sigma) & (sigma > 0)
+    z[valid] = diffs[valid] / sigma[valid]
+    return z
+
+
 def _fetch_series_from_ctrl(
     ctrl_url: str,
     *,
@@ -221,6 +258,24 @@ def main() -> int:
         help="Limit number of rows when querying hcultctrl",
     )
     parser.add_argument(
+        "--diff-lag",
+        type=int,
+        default=1,
+        help="Lag (in samples) for d(t) = s(t) - s(t-h)",
+    )
+    parser.add_argument(
+        "--mad-window",
+        type=int,
+        default=50,
+        help="Window size (in samples) for rolling MAD",
+    )
+    parser.add_argument(
+        "--mad-scale",
+        type=float,
+        default=1.4826,
+        help="Scale factor for MAD -> sigma",
+    )
+    parser.add_argument(
         "--out",
         default=None,
         help="Write PNG to this path instead of showing a window",
@@ -293,6 +348,7 @@ def main() -> int:
         raw_ax.set_title(name)
         raw_ax.set_xlabel("Timestamp")
         raw_ax.set_ylabel("Value")
+        raw_ax.set_yscale("log")
         raw_ax.xaxis.set_major_locator(locator)
         raw_ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
         raw_ax.tick_params(axis="x", rotation=30)
@@ -318,17 +374,60 @@ def main() -> int:
     ax.set_title("Sensor Readings")
     ax.set_xlabel("Timestamp")
     ax.set_ylabel("Value")
+    ax.set_yscale("log")
     ax.xaxis.set_major_locator(locator)
     ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
     ax.legend()
     fig.autofmt_xdate()
     fig.tight_layout()
 
+    zfig = plt.figure(figsize=(14, 4 + 4 * math.ceil(len(sensor_names) / 2)))
+    zgrid = zfig.add_gridspec(rows + 1, cols)
+    zraw_axes = []
+    for i in range(len(sensor_names)):
+        r = i // cols
+        c = i % cols
+        zraw_axes.append(zfig.add_subplot(zgrid[r, c]))
+    zax = zfig.add_subplot(zgrid[rows, :])
+
+    for idx, name in enumerate(sensor_names):
+        points = series[name]
+        times = np.array([t for t, _ in points])
+        values = np.array([v for _, v in points], dtype=float)
+        zscores = _compute_zscore(
+            values, lag=args.diff_lag, window=args.mad_window, c=args.mad_scale
+        )
+        zax.plot(times, zscores, label=name, linewidth=1.2)
+
+        raw_ax = zraw_axes[idx]
+        raw_ax.plot(times, zscores, label=name, linewidth=1.2)
+        raw_ax.legend()
+        raw_ax.set_title(f"{name} z(t)")
+        raw_ax.set_xlabel("Timestamp")
+        raw_ax.set_ylabel("z(t)")
+        raw_ax.set_yscale("symlog", linthresh=1.0)
+        raw_ax.xaxis.set_major_locator(locator)
+        raw_ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
+        raw_ax.tick_params(axis="x", rotation=30)
+
+    zax.set_title("z(t) = d(t) / (c * MAD)")
+    zax.set_xlabel("Timestamp")
+    zax.set_ylabel("z(t)")
+    zax.set_yscale("symlog", linthresh=1.0)
+    zax.xaxis.set_major_locator(locator)
+    zax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
+    zax.legend()
+    zfig.autofmt_xdate()
+    zfig.tight_layout()
+
     if args.out:
         out_path = Path(args.out)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(out_path, dpi=150)
         print(f"Wrote {out_path}")
+        z_out = out_path.with_name(f"{out_path.stem}_z{out_path.suffix}")
+        zfig.savefig(z_out, dpi=150)
+        print(f"Wrote {z_out}")
     else:
         plt.show()
 
