@@ -11,6 +11,7 @@ import os
 import sqlite3
 import urllib.parse
 import urllib.request
+from math import erf, sqrt
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -115,6 +116,65 @@ def _compute_zscore(
     valid = np.isfinite(diffs) & np.isfinite(sigma) & (sigma > 0)
     z[valid] = diffs[valid] / sigma[valid]
     return z
+
+
+def _compute_ewma(values: np.ndarray, alpha: float) -> np.ndarray:
+    if not (0 < alpha <= 1):
+        raise ValueError("alpha must be in (0, 1]")
+    out = np.empty(values.shape, dtype=float)
+    if values.size == 0:
+        return out
+    out[0] = values[0]
+    for idx in range(1, values.size):
+        out[idx] = alpha * values[idx] + (1 - alpha) * out[idx - 1]
+    return out
+
+
+def _zscore_pvalues(zscores: np.ndarray) -> np.ndarray:
+    out = np.full(zscores.shape, 1.0, dtype=float)
+    finite = np.isfinite(zscores)
+    if not np.any(finite):
+        return out
+    abs_z = np.abs(zscores[finite])
+    erf_vec = np.vectorize(erf)
+    cdf = 0.5 * (1.0 + erf_vec(abs_z / sqrt(2.0)))
+    out[finite] = 2.0 * (1.0 - cdf)
+    return out
+
+
+def _detect_z_triggers(zscores: np.ndarray, p_thresh: float) -> np.ndarray:
+    pvals = _zscore_pvalues(zscores)
+    return np.flatnonzero(pvals < p_thresh)
+
+
+def _detect_hysteresis(
+    values: np.ndarray,
+    baseline: np.ndarray,
+    triggers: np.ndarray,
+    *,
+    window: int,
+    threshold: float,
+    k: int,
+) -> Tuple[np.ndarray, np.ndarray]:
+    if window <= 0:
+        raise ValueError("window must be >= 1")
+    if k <= 0:
+        raise ValueError("k must be >= 1")
+    n = values.size
+    confirmed = []
+    flags = []
+    for idx in triggers:
+        if idx < 0 or idx >= n:
+            continue
+        start = idx
+        end = min(n, idx + window)
+        baseline_at_trigger = baseline[idx]
+        window_slice = values[start:end] - baseline_at_trigger
+        hits = np.sum(np.abs(window_slice) > threshold)
+        ok = hits >= k
+        confirmed.append(idx)
+        flags.append(ok)
+    return np.array(confirmed, dtype=int), np.array(flags, dtype=bool)
 
 
 def _fetch_series_from_ctrl(
@@ -276,6 +336,36 @@ def main() -> int:
         help="Scale factor for MAD -> sigma",
     )
     parser.add_argument(
+        "--ewma-alpha",
+        type=float,
+        default=0.1,
+        help="EWMA alpha for baseline (0 < alpha <= 1)",
+    )
+    parser.add_argument(
+        "--z-pvalue",
+        type=float,
+        default=0.000001,
+        help="Two-sided p-value threshold for z(t) triggers",
+    )
+    parser.add_argument(
+        "--resid-threshold",
+        type=float,
+        default=15.0,
+        help="Absolute residual threshold for hysteresis test",
+    )
+    parser.add_argument(
+        "--hyst-window",
+        type=int,
+        default=20,
+        help="Window size (in samples) around trigger for hysteresis",
+    )
+    parser.add_argument(
+        "--hyst-k",
+        type=int,
+        default=3,
+        help="Required count of |r(t)| > threshold within window",
+    )
+    parser.add_argument(
         "--out",
         default=None,
         help="Write PNG to this path instead of showing a window",
@@ -335,15 +425,29 @@ def main() -> int:
         c = i % cols
         raw_axes.append(fig.add_subplot(grid[r, c]))
     ax = fig.add_subplot(grid[rows, :])
+    zscores_map: Dict[str, np.ndarray] = {}
+    values_map: Dict[str, np.ndarray] = {}
+    baseline_map: Dict[str, np.ndarray] = {}
+    times_map: Dict[str, np.ndarray] = {}
 
     for idx, name in enumerate(sensor_names):
         points = series[name]
-        times = [t for t, _ in points]
+        times = np.array([t for t, _ in points])
         values = np.array([v for _, v in points], dtype=float)
+        ewma = _compute_ewma(values, args.ewma_alpha)
+        zscores = _compute_zscore(
+            values, lag=args.diff_lag, window=args.mad_window, c=args.mad_scale
+        )
+        zscores_map[name] = zscores
+        values_map[name] = values
+        baseline_map[name] = ewma
+        times_map[name] = times
         ax.plot(times, values, label=name, linewidth=1.2)
+        ax.plot(times, ewma, label=f"{name} EWMA", linewidth=1.2, linestyle="--")
 
         raw_ax = raw_axes[idx]
         raw_ax.plot(times, values, label=name, linewidth=1.2)
+        raw_ax.plot(times, ewma, label="EWMA", linewidth=1.2, linestyle="--")
         raw_ax.legend()
         raw_ax.set_title(name)
         raw_ax.set_xlabel("Timestamp")
@@ -371,6 +475,36 @@ def main() -> int:
                 color="black",
             )
 
+    trigger_results: Dict[str, Tuple[np.ndarray, np.ndarray]] = {}
+    triggers_map: Dict[str, np.ndarray] = {}
+    for name in sensor_names:
+        triggers = _detect_z_triggers(zscores_map[name], args.z_pvalue)
+        confirmed, flags = _detect_hysteresis(
+            values_map[name],
+            baseline_map[name],
+            triggers,
+            window=args.hyst_window,
+            threshold=args.resid_threshold,
+            k=args.hyst_k,
+        )
+        triggers_map[name] = triggers
+        trigger_results[name] = (confirmed, flags)
+        confirmed_count = int(np.sum(flags))
+        print(
+            f"{name}: triggers={triggers.size}, hysteresis_confirmed={confirmed_count}"
+        )
+
+    for idx, name in enumerate(sensor_names):
+        times = times_map[name]
+        confirmed, flags = trigger_results[name]
+        raw_ax = raw_axes[idx]
+        for idx_t, t_idx in enumerate(confirmed):
+            if t_idx < 0 or t_idx >= times.size:
+                continue
+            if flags[idx_t]:
+                raw_ax.axvline(times[t_idx], color="0.5", linestyle="-", linewidth=1)
+                ax.axvline(times[t_idx], color="0.5", linestyle="-", linewidth=1)
+
     ax.set_title("Sensor Readings")
     ax.set_xlabel("Timestamp")
     ax.set_ylabel("Value")
@@ -390,14 +524,21 @@ def main() -> int:
         zraw_axes.append(zfig.add_subplot(zgrid[r, c]))
     zax = zfig.add_subplot(zgrid[rows, :])
 
+    rfig = plt.figure(figsize=(14, 4 + 4 * math.ceil(len(sensor_names) / 2)))
+    rgrid = rfig.add_gridspec(rows + 1, cols)
+    rraw_axes = []
+    for i in range(len(sensor_names)):
+        r = i // cols
+        c = i % cols
+        rraw_axes.append(rfig.add_subplot(rgrid[r, c]))
+    rax = rfig.add_subplot(rgrid[rows, :])
+
     for idx, name in enumerate(sensor_names):
-        points = series[name]
-        times = np.array([t for t, _ in points])
-        values = np.array([v for _, v in points], dtype=float)
-        zscores = _compute_zscore(
-            values, lag=args.diff_lag, window=args.mad_window, c=args.mad_scale
-        )
+        times = times_map[name]
+        zscores = zscores_map[name]
+        residuals = values_map[name] - baseline_map[name]
         zax.plot(times, zscores, label=name, linewidth=1.2)
+        rax.plot(times, residuals, label=name, linewidth=1.2)
 
         raw_ax = zraw_axes[idx]
         raw_ax.plot(times, zscores, label=name, linewidth=1.2)
@@ -409,6 +550,27 @@ def main() -> int:
         raw_ax.xaxis.set_major_locator(locator)
         raw_ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
         raw_ax.tick_params(axis="x", rotation=30)
+        for t_idx in triggers_map[name]:
+            if t_idx < 0 or t_idx >= times.size:
+                continue
+            raw_ax.axvline(times[t_idx], color="0.6", linestyle="--", linewidth=1)
+            zax.axvline(times[t_idx], color="0.6", linestyle="--", linewidth=1)
+
+        r_raw_ax = rraw_axes[idx]
+        r_raw_ax.plot(times, residuals, label=name, linewidth=1.2)
+        r_raw_ax.legend()
+        r_raw_ax.set_title(f"{name} residuals")
+        r_raw_ax.set_xlabel("Timestamp")
+        r_raw_ax.set_ylabel("x(t) - B(t)")
+        r_raw_ax.xaxis.set_major_locator(locator)
+        r_raw_ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
+        r_raw_ax.tick_params(axis="x", rotation=30)
+        for idx_t, t_idx in enumerate(trigger_results[name][0]):
+            if t_idx < 0 or t_idx >= times.size:
+                continue
+            if trigger_results[name][1][idx_t]:
+                r_raw_ax.axvline(times[t_idx], color="0.5", linestyle="-", linewidth=1)
+                rax.axvline(times[t_idx], color="0.5", linestyle="-", linewidth=1)
 
     zax.set_title("z(t) = d(t) / (c * MAD)")
     zax.set_xlabel("Timestamp")
@@ -420,6 +582,15 @@ def main() -> int:
     zfig.autofmt_xdate()
     zfig.tight_layout()
 
+    rax.set_title("Residuals x(t) - B(t)")
+    rax.set_xlabel("Timestamp")
+    rax.set_ylabel("x(t) - B(t)")
+    rax.xaxis.set_major_locator(locator)
+    rax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
+    rax.legend()
+    rfig.autofmt_xdate()
+    rfig.tight_layout()
+
     if args.out:
         out_path = Path(args.out)
         out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -428,6 +599,9 @@ def main() -> int:
         z_out = out_path.with_name(f"{out_path.stem}_z{out_path.suffix}")
         zfig.savefig(z_out, dpi=150)
         print(f"Wrote {z_out}")
+        r_out = out_path.with_name(f"{out_path.stem}_resid{out_path.suffix}")
+        rfig.savefig(r_out, dpi=150)
+        print(f"Wrote {r_out}")
     else:
         plt.show()
 
