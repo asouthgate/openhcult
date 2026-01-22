@@ -72,16 +72,16 @@ def _fetch_series(db_path: Path) -> Dict[str, List[Tuple[np.datetime64, int]]]:
     return series
 
 
-def _fetch_observations(db_path: Path) -> List[Tuple[np.datetime64, str]]:
-    observations: List[Tuple[np.datetime64, str]] = []
-    query = "SELECT observed_at, note FROM observations ORDER BY observed_at ASC, id ASC"
+def _fetch_observations(db_path: Path) -> List[Tuple[int, np.datetime64, str]]:
+    observations: List[Tuple[int, np.datetime64, str]] = []
+    query = "SELECT id, observed_at, note FROM observations ORDER BY observed_at ASC, id ASC"
     with sqlite3.connect(db_path) as conn:
         try:
-            for observed_at, note in conn.execute(query):
+            for obs_id, observed_at, note in conn.execute(query):
                 if observed_at is None:
                     continue
                 timestamp = np.datetime64(int(observed_at), "ms")
-                observations.append((timestamp, str(note)))
+                observations.append((int(obs_id), timestamp, str(note)))
         except sqlite3.OperationalError:
             return []
     return observations
@@ -144,7 +144,7 @@ def _fetch_observations_from_ctrl(
     start_utc: str | None,
     end_utc: str | None,
     limit: int,
-) -> List[Tuple[np.datetime64, str]]:
+) -> List[Tuple[int, np.datetime64, str]]:
     params: Dict[str, str] = {"limit": str(limit)}
     if start_ms is not None:
         params["start_ms"] = str(start_ms)
@@ -160,13 +160,13 @@ def _fetch_observations_from_ctrl(
     with urllib.request.urlopen(url, timeout=10) as resp:
         payload = json.load(resp)
 
-    observations: List[Tuple[np.datetime64, str]] = []
+    observations: List[Tuple[int, np.datetime64, str]] = []
     for row in payload.get("data", []):
         observed_at = row.get("observed_at")
         if observed_at is None:
             continue
         timestamp = np.datetime64(int(observed_at), "ms")
-        observations.append((timestamp, str(row.get("note", ""))))
+        observations.append((int(row.get("id", 0)), timestamp, str(row.get("note", ""))))
     return observations
 
 
@@ -288,7 +288,7 @@ def main() -> int:
     import matplotlib.pyplot as plt
     import matplotlib.dates as mdates
 
-    observations: List[Tuple[np.datetime64, str]] = []
+    observations: List[Tuple[int, np.datetime64, str]] = []
     if args.ctrl_url:
         series = _fetch_series_from_ctrl(
             args.ctrl_url,
@@ -370,13 +370,15 @@ def main() -> int:
 
     if observations:
         for raw_ax in raw_axes + [ax]:
-            for obs_time, _ in observations:
+            for _, obs_time, _ in observations:
                 raw_ax.axvline(obs_time, color="tab:orange", alpha=0.4, linewidth=1)
-        for obs_time, note in observations:
+        for obs_id, obs_time, note in observations:
             if not note:
                 continue
+            short_note = note[:10]
+            label = f"{obs_id}:{short_note}"
             ax.annotate(
-                note,
+                label,
                 xy=(obs_time, 0.99),
                 xycoords=("data", "axes fraction"),
                 rotation=90,
@@ -385,6 +387,17 @@ def main() -> int:
                 fontsize=8,
                 color="black",
             )
+            for raw_ax in raw_axes:
+                raw_ax.annotate(
+                    label,
+                    xy=(obs_time, 0.99),
+                    xycoords=("data", "axes fraction"),
+                    rotation=90,
+                    va="top",
+                    ha="right",
+                    fontsize=8,
+                    color="black",
+                )
 
     trigger_results: Dict[str, Tuple[np.ndarray, np.ndarray]] = {}
     triggers_map: Dict[str, np.ndarray] = {}
