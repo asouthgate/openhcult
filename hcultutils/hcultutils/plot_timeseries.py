@@ -20,9 +20,6 @@ import numpy as np
 from hcultutils.inference import (
     compute_ewma,
     compute_zscore,
-    detect_hysteresis,
-    detect_z_triggers,
-    merge_events,
 )
 
 
@@ -253,36 +250,6 @@ def main() -> int:
         help="EWMA alpha for baseline (0 < alpha <= 1)",
     )
     parser.add_argument(
-        "--z-pvalue",
-        type=float,
-        default=0.000001,
-        help="Two-sided p-value threshold for z(t) triggers",
-    )
-    parser.add_argument(
-        "--resid-threshold",
-        type=float,
-        default=15.0,
-        help="Absolute residual threshold for hysteresis test",
-    )
-    parser.add_argument(
-        "--hyst-window",
-        type=int,
-        default=20,
-        help="Window size (in samples) around trigger for hysteresis",
-    )
-    parser.add_argument(
-        "--hyst-k",
-        type=int,
-        default=3,
-        help="Required count of |r(t)| > threshold within window",
-    )
-    parser.add_argument(
-        "--merge-distance-sec",
-        type=int,
-        default=240,
-        help="Minimum seconds between confirmed events",
-    )
-    parser.add_argument(
         "--out",
         default=None,
         help="Write PNG to this path instead of showing a window",
@@ -376,9 +343,8 @@ def main() -> int:
         raw_ax.tick_params(axis="x", rotation=30)
 
     if observations:
-        for raw_ax in raw_axes + [ax]:
-            for _, obs_time, _ in observations:
-                raw_ax.axvline(obs_time, color="tab:orange", alpha=0.4, linewidth=1)
+        for _, obs_time, _ in observations:
+            ax.axvline(obs_time, color="tab:orange", alpha=0.4, linewidth=1)
         for obs_id, obs_time, note in observations:
             if not note:
                 continue
@@ -394,7 +360,15 @@ def main() -> int:
                 fontsize=8,
                 color="black",
             )
-            for raw_ax in raw_axes:
+        for idx, name in enumerate(sensor_names):
+            raw_ax = raw_axes[idx]
+            key_tag = f"{name} "
+            for obs_id, obs_time, note in observations:
+                if not note or key_tag not in note:
+                    continue
+                raw_ax.axvline(obs_time, color="tab:orange", alpha=0.4, linewidth=1)
+                short_note = note[:10]
+                label = f"{obs_id}:{short_note}"
                 raw_ax.annotate(
                     label,
                     xy=(obs_time, 0.99),
@@ -405,40 +379,6 @@ def main() -> int:
                     fontsize=8,
                     color="black",
                 )
-
-    trigger_results: Dict[str, Tuple[np.ndarray, np.ndarray]] = {}
-    triggers_map: Dict[str, np.ndarray] = {}
-    for name in sensor_names:
-        triggers = detect_z_triggers(zscores_map[name], args.z_pvalue)
-        confirmed, flags = detect_hysteresis(
-            values_map[name],
-            baseline_map[name],
-            triggers,
-            window=args.hyst_window,
-            threshold=args.resid_threshold,
-            k=args.hyst_k,
-        )
-        confirmed = confirmed[flags]
-        merged = merge_events(
-            times_map[name], confirmed, args.merge_distance_sec * 1000
-        )
-        triggers_map[name] = triggers
-        trigger_results[name] = (merged, np.ones(merged.shape, dtype=bool))
-        confirmed_count = int(merged.size)
-        print(
-            f"{name}: triggers={triggers.size}, hysteresis_confirmed={confirmed_count}"
-        )
-
-    for idx, name in enumerate(sensor_names):
-        times = times_map[name]
-        confirmed, flags = trigger_results[name]
-        raw_ax = raw_axes[idx]
-        for idx_t, t_idx in enumerate(confirmed):
-            if t_idx < 0 or t_idx >= times.size:
-                continue
-            if flags[idx_t]:
-                raw_ax.axvline(times[t_idx], color="0.5", linestyle="-", linewidth=1)
-                ax.axvline(times[t_idx], color="0.5", linestyle="-", linewidth=1)
 
     ax.set_title("Sensor Readings")
     ax.set_xlabel("Timestamp")
@@ -486,11 +426,6 @@ def main() -> int:
         raw_ax.xaxis.set_major_locator(locator)
         raw_ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
         raw_ax.tick_params(axis="x", rotation=30)
-        for t_idx in triggers_map[name]:
-            if t_idx < 0 or t_idx >= times.size:
-                continue
-            raw_ax.axvline(times[t_idx], color="0.6", linestyle="--", linewidth=1)
-            zax.axvline(times[t_idx], color="0.6", linestyle="--", linewidth=1)
 
         r_raw_ax = rraw_axes[idx]
         r_raw_ax.plot(times, residuals, label=name, linewidth=1.2)
@@ -501,12 +436,6 @@ def main() -> int:
         r_raw_ax.xaxis.set_major_locator(locator)
         r_raw_ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
         r_raw_ax.tick_params(axis="x", rotation=30)
-        for idx_t, t_idx in enumerate(trigger_results[name][0]):
-            if t_idx < 0 or t_idx >= times.size:
-                continue
-            if trigger_results[name][1][idx_t]:
-                r_raw_ax.axvline(times[t_idx], color="0.5", linestyle="-", linewidth=1)
-                rax.axvline(times[t_idx], color="0.5", linestyle="-", linewidth=1)
 
     zax.set_title("z(t) = d(t) / (c * MAD)")
     zax.set_xlabel("Timestamp")

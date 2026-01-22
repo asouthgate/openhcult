@@ -69,6 +69,31 @@ def _post_observation(ctrl_url: str, note: str, observed_at: str) -> None:
         resp.read()
 
 
+def _fetch_observations_from_ctrl(
+    ctrl_url: str,
+    *,
+    start_utc: str,
+    end_utc: str,
+    limit: int,
+) -> List[Tuple[int, str]]:
+    params: Dict[str, str] = {
+        "limit": str(limit),
+        "start_utc": start_utc,
+        "end_utc": end_utc,
+    }
+    base_url = ctrl_url.rstrip("/")
+    url = f"{base_url}/observations?{urllib.parse.urlencode(params)}"
+    with urllib.request.urlopen(url, timeout=10) as resp:
+        payload = json.load(resp)
+    observations: List[Tuple[int, str]] = []
+    for row in payload.get("data", []):
+        observed_at = row.get("observed_at")
+        if observed_at is None:
+            continue
+        observations.append((int(observed_at), str(row.get("note", ""))))
+    return observations
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Infer events from recent sensor data and store observations."
@@ -158,6 +183,20 @@ def main() -> int:
         print("No sensor readings found.")
         return 0
 
+    obs_start = (start - timedelta(seconds=args.merge_distance_sec)).isoformat().replace(
+        "+00:00", "Z"
+    )
+    obs_end = (end + timedelta(seconds=args.merge_distance_sec)).isoformat().replace(
+        "+00:00", "Z"
+    )
+    observations = _fetch_observations_from_ctrl(
+        args.ctrl_url, start_utc=obs_start, end_utc=obs_end, limit=args.limit
+    )
+    auto_times = sorted(
+        obs_time for obs_time, note in observations if note.startswith("AUTO:")
+    )
+    auto_times_np = np.array(auto_times, dtype=np.int64)
+
     inserted = 0
     for key, points in series.items():
         times_ms = np.array([t for t, _ in points], dtype=np.int64)
@@ -181,6 +220,16 @@ def main() -> int:
             if trigger_idx < 0 or trigger_idx >= times_ms.size:
                 continue
             observed_at = _iso_utc(int(times_ms[trigger_idx]))
+            if auto_times_np.size:
+                candidate = int(times_ms[trigger_idx])
+                pos = int(np.searchsorted(auto_times_np, candidate))
+                nearby = []
+                if pos > 0:
+                    nearby.append(auto_times_np[pos - 1])
+                if pos < auto_times_np.size:
+                    nearby.append(auto_times_np[pos])
+                if any(abs(candidate - t) <= args.merge_distance_sec * 1000 for t in nearby):
+                    continue
             note = (
                 "AUTO: "
                 f"{key} "
