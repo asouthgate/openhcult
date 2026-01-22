@@ -18,6 +18,7 @@ from hcultutils.inference import (
     compute_zscore,
     detect_hysteresis,
     detect_z_triggers,
+    merge_events,
 )
 
 
@@ -137,6 +138,12 @@ def main() -> int:
         default=3,
         help="Required count of |r(t)| > threshold within window",
     )
+    parser.add_argument(
+        "--merge-distance-sec",
+        type=int,
+        default=240,
+        help="Minimum seconds between stored events",
+    )
     args = parser.parse_args()
 
     end = datetime.now(timezone.utc)
@@ -168,9 +175,9 @@ def main() -> int:
             threshold=args.resid_threshold,
             k=args.hyst_k,
         )
-        for idx, trigger_idx in enumerate(confirmed):
-            if not flags[idx]:
-                continue
+        confirmed = confirmed[flags]
+        merged = merge_events(times_ms, confirmed, args.merge_distance_sec * 1000)
+        for trigger_idx in merged:
             if trigger_idx < 0 or trigger_idx >= times_ms.size:
                 continue
             observed_at = _iso_utc(int(times_ms[trigger_idx]))

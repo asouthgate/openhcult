@@ -100,3 +100,28 @@ def detect_hysteresis(
         confirmed.append(idx)
         flags.append(ok)
     return np.array(confirmed, dtype=int), np.array(flags, dtype=bool)
+
+
+def merge_events(
+    times_ms: np.ndarray, event_indices: np.ndarray, distance_ms: int
+) -> np.ndarray:
+    """Merge events by minimum separation distance."""
+    if distance_ms <= 0:
+        raise ValueError("distance_ms must be >= 1")
+    if event_indices.size == 0:
+        return event_indices
+    ordered = event_indices[np.argsort(times_ms[event_indices])]
+    kept = []
+    last_time = None
+    for idx in ordered:
+        raw_time = times_ms[idx]
+        if isinstance(raw_time, np.datetime64):
+            event_time = int(raw_time.astype("datetime64[ms]").astype("int64"))
+        elif hasattr(raw_time, "timestamp"):
+            event_time = int(raw_time.timestamp() * 1000)
+        else:
+            event_time = int(raw_time)
+        if last_time is None or event_time - last_time > distance_ms:
+            kept.append(idx)
+        last_time = event_time
+    return np.array(kept, dtype=int)

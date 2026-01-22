@@ -22,6 +22,7 @@ from hcultutils.inference import (
     compute_zscore,
     detect_hysteresis,
     detect_z_triggers,
+    merge_events,
 )
 
 
@@ -276,6 +277,12 @@ def main() -> int:
         help="Required count of |r(t)| > threshold within window",
     )
     parser.add_argument(
+        "--merge-distance-sec",
+        type=int,
+        default=240,
+        help="Minimum seconds between confirmed events",
+    )
+    parser.add_argument(
         "--out",
         default=None,
         help="Write PNG to this path instead of showing a window",
@@ -411,9 +418,13 @@ def main() -> int:
             threshold=args.resid_threshold,
             k=args.hyst_k,
         )
+        confirmed = confirmed[flags]
+        merged = merge_events(
+            times_map[name], confirmed, args.merge_distance_sec * 1000
+        )
         triggers_map[name] = triggers
-        trigger_results[name] = (confirmed, flags)
-        confirmed_count = int(np.sum(flags))
+        trigger_results[name] = (merged, np.ones(merged.shape, dtype=bool))
+        confirmed_count = int(merged.size)
         print(
             f"{name}: triggers={triggers.size}, hysteresis_confirmed={confirmed_count}"
         )
