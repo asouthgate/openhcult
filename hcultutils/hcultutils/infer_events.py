@@ -13,7 +13,7 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 
-from hcultutils.inference import (
+from hcultinf.inference import (
     compute_ewma,
     compute_zscore,
     detect_hysteresis,

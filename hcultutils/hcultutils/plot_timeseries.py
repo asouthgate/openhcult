@@ -15,12 +15,12 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 import matplotlib
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 import numpy as np
 
-from hcultutils.inference import (
-    compute_ewma,
-    compute_zscore,
-)
+
+from hcultinf.inference import compute_ewma, compute_zscore
 
 
 def _repo_root() -> Path:
@@ -90,8 +90,8 @@ def _fetch_series_from_ctrl(
     *,
     sensor: str | None,
     device: str | None,
-    start_ms: int | None,
-    end_ms: int | None,
+    # start_ms: int | None,
+    # end_ms: int | None,
     start_utc: str | None,
     end_utc: str | None,
     limit: int,
@@ -102,10 +102,10 @@ def _fetch_series_from_ctrl(
         params["sensor"] = sensor
     if device:
         params["device"] = device
-    if start_ms is not None:
-        params["start_ms"] = str(start_ms)
-    if end_ms is not None:
-        params["end_ms"] = str(end_ms)
+    # if start_ms is not None:
+    #     params["start_ms"] = str(start_ms)
+    # if end_ms is not None:
+    #     params["end_ms"] = str(end_ms)
     if start_utc:
         params["start_utc"] = start_utc
     if end_utc:
@@ -137,17 +137,17 @@ def _fetch_series_from_ctrl(
 def _fetch_observations_from_ctrl(
     ctrl_url: str,
     *,
-    start_ms: int | None,
-    end_ms: int | None,
+    # start_ms: int | None,
+    # end_ms: int | None,
     start_utc: str | None,
     end_utc: str | None,
     limit: int,
 ) -> List[Tuple[int, np.datetime64, str]]:
     params: Dict[str, str] = {"limit": str(limit)}
-    if start_ms is not None:
-        params["start_ms"] = str(start_ms)
-    if end_ms is not None:
-        params["end_ms"] = str(end_ms)
+    # if start_ms is not None:
+    #     params["start_ms"] = str(start_ms)
+    # if end_ms is not None:
+    #     params["end_ms"] = str(end_ms)
     if start_utc:
         params["start_utc"] = start_utc
     if end_utc:
@@ -168,99 +168,11 @@ def _fetch_observations_from_ctrl(
     return observations
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Plot sensor time series from the configured SQLite database."
-    )
-    parser.add_argument(
-        "--config",
-        default=str(_default_config_path()),
-        help="Path to openhcult.conf (default: XDG config)",
-    )
-    parser.add_argument(
-        "--db",
-        default=None,
-        help="Override database path (otherwise read from config)",
-    )
-    parser.add_argument(
-        "--ctrl-url",
-        default=None,
-        help="Query data from hcultctrl instead of SQLite (e.g. http://127.0.0.1:8000)",
-    )
-    parser.add_argument(
-        "--sensor",
-        default=None,
-        help="Filter to a single sensor name (e.g. sensor1)",
-    )
-    parser.add_argument(
-        "--device",
-        default=None,
-        help="Filter to a device name or BLE address",
-    )
-    parser.add_argument(
-        "--start-ms",
-        type=int,
-        default=None,
-        help="Start time in epoch milliseconds",
-    )
-    parser.add_argument(
-        "--end-ms",
-        type=int,
-        default=None,
-        help="End time in epoch milliseconds",
-    )
-    parser.add_argument(
-        "--start-utc",
-        default=None,
-        help="Start time in UTC (ISO 8601, e.g. 2026-01-16T12:00:00Z)",
-    )
-    parser.add_argument(
-        "--end-utc",
-        default=None,
-        help="End time in UTC (ISO 8601, e.g. 2026-01-16T13:00:00Z)",
-    )
-    parser.add_argument(
-        "--limit",
-        type=int,
-        default=100000,
-        help="Limit number of rows when querying hcultctrl",
-    )
-    parser.add_argument(
-        "--diff-lag",
-        type=int,
-        default=1,
-        help="Lag (in samples) for d(t) = s(t) - s(t-h)",
-    )
-    parser.add_argument(
-        "--mad-window",
-        type=int,
-        default=50,
-        help="Window size (in samples) for rolling MAD",
-    )
-    parser.add_argument(
-        "--mad-scale",
-        type=float,
-        default=1.4826,
-        help="Scale factor for MAD -> sigma",
-    )
-    parser.add_argument(
-        "--ewma-alpha",
-        type=float,
-        default=0.1,
-        help="EWMA alpha for baseline (0 < alpha <= 1)",
-    )
-    parser.add_argument(
-        "--out",
-        default=None,
-        help="Write PNG to this path instead of showing a window",
-    )
-    args = parser.parse_args()
 
+
+def main(args) -> int:
     if args.out:
         matplotlib.use("Agg")
-
-    import matplotlib.pyplot as plt
-    import matplotlib.dates as mdates
 
     observations: List[Tuple[int, np.datetime64, str]] = []
     if args.ctrl_url:
@@ -268,16 +180,12 @@ def main() -> int:
             args.ctrl_url,
             sensor=args.sensor,
             device=args.device,
-            start_ms=args.start_ms,
-            end_ms=args.end_ms,
             start_utc=args.start_utc,
             end_utc=args.end_utc,
             limit=args.limit,
         )
         observations = _fetch_observations_from_ctrl(
             args.ctrl_url,
-            start_ms=args.start_ms,
-            end_ms=args.end_ms,
             start_utc=args.start_utc,
             end_utc=args.end_utc,
             limit=args.limit,

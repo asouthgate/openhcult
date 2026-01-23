@@ -16,8 +16,10 @@ authors = [
 dependencies = [
     "matplotlib",
     "numpy",
+    "hcultinf",
 ]
 
 [project.scripts]
 plot_timeseries = "hcultutils.plot_timeseries:main"
 infer_events = "hcultutils.infer_events:main"
+hcultutils = "hcultutils.cli:main"
