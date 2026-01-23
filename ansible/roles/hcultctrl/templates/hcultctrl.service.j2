@@ -1,0 +1,18 @@
+[Unit]
+Description=OpenHCult control API
+After=network.target
+
+[Service]
+Type=simple
+User={{ openhcult_user }}
+Group={{ openhcult_group }}
+LogsDirectory=hcult
+LogsDirectoryMode=0755
+WorkingDirectory={{ openhcult_install_dir }}/hcultctrl
+ExecStart={{ openhcult_install_dir }}/.venv/bin/python -m hcultctrl -c {{ openhcult_config_path }}
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target

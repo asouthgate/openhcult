@@ -1,0 +1,56 @@
+- name: Ensure Postgres packages are installed
+  ansible.builtin.apt:
+    name:
+      - postgresql
+      - postgresql-client
+    state: present
+    update_cache: true
+
+- name: Ensure Postgres is enabled and running
+  ansible.builtin.systemd:
+    name: postgresql
+    enabled: true
+    state: started
+
+- name: Load Postgres password from environment when unset
+  ansible.builtin.set_fact:
+    openhcult_postgres_password: "{{ lookup('env', 'OPENHCULT_POSTGRES_PASSWORD') }}"
+  when: openhcult_postgres_password | length == 0
+  no_log: true
+
+- name: Fail when Postgres password is missing
+  ansible.builtin.fail:
+    msg: "Set the prompt or OPENHCULT_POSTGRES_PASSWORD."
+  when: openhcult_postgres_password | length == 0
+
+- name: Fail when Postgres password is missing
+  ansible.builtin.fail:
+    msg: "Set OPENHCULT_POSTGRES_PASSWORD or openhcult_postgres_password."
+  when: openhcult_postgres_password | length == 0
+
+- name: Check for OpenHCult DB user
+  ansible.builtin.command:
+    cmd: psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='{{ openhcult_postgres_user }}'"
+  become_user: postgres
+  register: openhcult_pg_user
+  changed_when: false
+
+- name: Create OpenHCult DB user
+  ansible.builtin.command:
+    cmd: psql -c "CREATE USER {{ openhcult_postgres_user }} WITH PASSWORD '{{ openhcult_postgres_password }}';"
+  become_user: postgres
+  when: openhcult_pg_user.stdout.strip() != "1"
+  no_log: true
+
+- name: Check for OpenHCult database
+  ansible.builtin.command:
+    cmd: psql -tAc "SELECT 1 FROM pg_database WHERE datname='{{ openhcult_postgres_db }}'"
+  become_user: postgres
+  register: openhcult_pg_db
+  changed_when: false
+
+- name: Create OpenHCult database
+  ansible.builtin.command:
+    cmd: psql -c "CREATE DATABASE {{ openhcult_postgres_db }} OWNER {{ openhcult_postgres_user }};"
+  become_user: postgres
+  when: openhcult_pg_db.stdout.strip() != "1"

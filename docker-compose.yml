@@ -1,0 +1,60 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: hcult
+      POSTGRES_PASSWORD: hcult
+      POSTGRES_DB: hcult
+    ports:
+      - "5432:5432"
+    volumes:
+      - hcult_postgres:/var/lib/postgresql/data
+
+  hcultctrl:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dev
+    command:
+      [
+        "python",
+        "-m",
+        "hcultctrl",
+        "-c",
+        "/config/openhcult.conf",
+        "--host",
+        "0.0.0.0"
+      ]
+    environment:
+      PYTHONPATH: /app/hcultctrl:/app/hcultmon
+    volumes:
+      - .:/app
+      - ./docker/openhcult.conf:/config/openhcult.conf:ro
+      - hcult_data:/data
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+
+  hcultmon:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dev
+    command:
+      ["python", "-m", "hcultmon", "-c", "/config/openhcult.conf"]
+    environment:
+      PYTHONPATH: /app/hcultctrl:/app/hcultmon
+      DBUS_SYSTEM_BUS_ADDRESS: unix:path=/var/run/dbus/system_bus_socket
+    volumes:
+      - .:/app
+      - ./docker/openhcult.conf:/config/openhcult.conf:ro
+      - /var/run/dbus:/var/run/dbus
+      - hcult_data:/data
+    devices:
+      - /dev/bus/usb:/dev/bus/usb
+    privileged: true
+    depends_on:
+      - postgres
+
+volumes:
+  hcult_postgres:
+  hcult_data:

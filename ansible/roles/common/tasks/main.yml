@@ -1,0 +1,142 @@
+- name: Ensure apt packages are installed
+  ansible.builtin.apt:
+    name:
+      - bluez
+      - dbus
+      - git
+      - python3
+      - python3-pip
+      - python3-venv
+    state: present
+    update_cache: true
+
+- name: Ensure service group exists
+  ansible.builtin.group:
+    name: "{{ openhcult_group }}"
+    system: true
+    state: present
+
+- name: Ensure service user exists
+  ansible.builtin.user:
+    name: "{{ openhcult_user }}"
+    group: "{{ openhcult_group }}"
+    home: "{{ openhcult_install_dir }}"
+    shell: /usr/sbin/nologin
+    system: true
+    state: present
+    groups: bluetooth
+    append: true
+
+- name: Ensure install directory exists
+  ansible.builtin.file:
+    path: "{{ openhcult_install_dir }}"
+    state: directory
+    owner: "{{ openhcult_user }}"
+    group: "{{ openhcult_group }}"
+    mode: "0755"
+
+- name: Ensure data directory exists
+  ansible.builtin.file:
+    path: "{{ openhcult_data_dir }}"
+    state: directory
+    owner: "{{ openhcult_user }}"
+    group: "{{ openhcult_group }}"
+    mode: "0755"
+
+- name: Load database password from environment when unset
+  ansible.builtin.set_fact:
+    openhcult_database_password: "{{ lookup('env', 'OPENHCULT_DATABASE_PASSWORD') }}"
+  when: openhcult_database_password | length == 0
+  no_log: true
+
+- name: Fail when database password is missing
+  ansible.builtin.fail:
+    msg: "Set OPENHCULT_DATABASE_PASSWORD or openhcult_database_password."
+  when:
+    - openhcult_database_scheme != "sqlite"
+    - openhcult_database_password | length == 0
+
+- name: Build database URL for Postgres
+  ansible.builtin.set_fact:
+    openhcult_database_url: >-
+      {{ openhcult_database_scheme }}://{{ openhcult_database_user }}:{{ openhcult_database_password }}@{{ openhcult_database_host }}:{{ openhcult_database_port }}/{{ openhcult_database_name }}
+  when: openhcult_database_scheme != "sqlite"
+  no_log: true
+
+- name: Build database URL for SQLite
+  ansible.builtin.set_fact:
+    openhcult_database_url: "sqlite:////{{ openhcult_database_path | regex_replace('^/', '') }}"
+  when: openhcult_database_scheme == "sqlite"
+
+- name: Mark repo as safe for git (root)
+  ansible.builtin.command:
+    cmd: git config --global --add safe.directory "{{ openhcult_install_dir }}"
+  when: openhcult_repo_url | length > 0
+  changed_when: false
+
+- name: Fetch OpenHCult repo
+  ansible.builtin.git:
+    repo: "{{ openhcult_repo_url }}"
+    dest: "{{ openhcult_install_dir }}"
+    version: "{{ openhcult_repo_version }}"
+    update: true
+    force: true
+    key_file: "{{ openhcult_repo_key_file }}"
+    accept_hostkey: "{{ openhcult_repo_accept_hostkey }}"
+  when: openhcult_repo_url | length > 0
+
+- name: Ensure repo ownership
+  ansible.builtin.file:
+    path: "{{ openhcult_install_dir }}"
+    state: directory
+    owner: "{{ openhcult_user }}"
+    group: "{{ openhcult_group }}"
+    recurse: true
+
+- name: Check for OpenHCult repo content
+  ansible.builtin.stat:
+    path: "{{ openhcult_install_dir }}/hcultmon"
+  register: openhcult_repo_stat
+
+- name: Fail if OpenHCult repo is missing
+  ansible.builtin.fail:
+    msg: "OpenHCult repo not found at {{ openhcult_install_dir }}. Set openhcult_repo_url or pre-populate the directory."
+  when: not openhcult_repo_stat.stat.exists
+
+- name: Ensure virtualenv exists
+  ansible.builtin.command:
+    cmd: python3 -m venv "{{ openhcult_install_dir }}/.venv"
+    creates: "{{ openhcult_install_dir }}/.venv/bin/python"
+  become_user: "{{ openhcult_user }}"
+
+- name: Check for pip in virtualenv
+  ansible.builtin.stat:
+    path: "{{ openhcult_install_dir }}/.venv/bin/pip"
+  register: openhcult_venv_pip
+
+- name: Bootstrap pip in virtualenv
+  ansible.builtin.command:
+    cmd: "{{ openhcult_install_dir }}/.venv/bin/python -m ensurepip --upgrade"
+  when: not openhcult_venv_pip.stat.exists
+  become_user: "{{ openhcult_user }}"
+
+- name: Install OpenHCult Python packages
+  ansible.builtin.pip:
+    virtualenv: "{{ openhcult_install_dir }}/.venv"
+    virtualenv_command: python3 -m venv
+    name:
+      - "{{ openhcult_install_dir }}/hcultmon"
+      - "{{ openhcult_install_dir }}/hcultctrl"
+    editable: true
+  become_user: "{{ openhcult_user }}"
+
+- name: Install OpenHCult config
+  ansible.builtin.template:
+    src: openhcult.conf.j2
+    dest: "{{ openhcult_config_path }}"
+    owner: "{{ openhcult_user }}"
+    group: "{{ openhcult_group }}"
+    mode: "0644"
+  notify:
+    - restart hcultmon
+    - restart hcultctrl

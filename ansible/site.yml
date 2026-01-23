@@ -1,0 +1,28 @@
+- name: Deploy OpenHCult services
+  hosts: openhcult
+  become: true
+  vars:
+    openhcult_postgres_password: "{{ openhcult_database_password }}"
+  vars_prompt:
+    - name: openhcult_database_password
+      prompt: "OpenHCult database password"
+      private: true
+  roles:
+    - role: common
+    - role: postgres
+    - role: hcultmon
+    - role: hcultctrl
+  handlers:
+    - name: reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: true
+    - name: restart hcultmon
+      ansible.builtin.systemd:
+        name: hcultmon
+        state: restarted
+      listen: restart hcultmon
+    - name: restart hcultctrl
+      ansible.builtin.systemd:
+        name: hcultctrl
+        state: restarted
+      listen: restart hcultctrl

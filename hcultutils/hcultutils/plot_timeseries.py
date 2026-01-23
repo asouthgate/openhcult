@@ -130,7 +130,6 @@ def _fetch_series_from_ctrl(
 
 def _fetch_observations_from_ctrl(
     ctrl_url: str,
-    *,
     start_utc: str | None,
     end_utc: str | None,
     limit: int,
@@ -193,6 +192,44 @@ def _plot_residual_subsensor_readings(ax, r_raw_ax, times, residuals, name, args
     r_raw_ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
     r_raw_ax.tick_params(axis="x", rotation=30)
 
+def _plot_observations(observations, sensor_names, ax, raw_axes):
+    for _, obs_time, _ in observations:
+        ax.axvline(obs_time, color="tab:orange", alpha=0.4, linewidth=1)
+    for obs_id, obs_time, note in observations:
+        if not note:
+            continue
+        short_note = note[:10]
+        label = f"{obs_id}:{short_note}"
+        ax.annotate(
+            label,
+            xy=(obs_time, 0.99),
+            xycoords=("data", "axes fraction"),
+            rotation=90,
+            va="top",
+            ha="right",
+            fontsize=8,
+            color="black",
+        )
+    for idx, name in enumerate(sensor_names):
+        raw_ax = raw_axes[idx]
+        key_tag = f"{name} "
+        for obs_id, obs_time, note in observations:
+            if not note or key_tag not in note:
+                continue
+            raw_ax.axvline(obs_time, color="tab:orange", alpha=0.4, linewidth=1)
+            short_note = note[:10]
+            label = f"{obs_id}:{short_note}"
+            raw_ax.annotate(
+                label,
+                xy=(obs_time, 0.99),
+                xycoords=("data", "axes fraction"),
+                rotation=90,
+                va="top",
+                ha="right",
+                fontsize=8,
+                color="black",
+            )
+
 
 def _fetch_data(args):
     observations: List[Tuple[int, np.datetime64, str]] = []
@@ -223,7 +260,7 @@ def _fetch_data(args):
         observations = _fetch_observations(db_path)
     if not series:
         print("No sensor readings found.")
-        return 0
+        return None
     return series, observations
 
 
@@ -231,7 +268,10 @@ def main(args) -> int:
     if args.out:
         matplotlib.use("Agg")
 
-    series, observations = _fetch_data(args)
+    fetched = _fetch_data(args)
+    if not fetched:
+        return 1
+    series, observations = fetched
     sensor_names = sorted(series.keys())
 
     locator = mdates.AutoDateLocator()
@@ -265,42 +305,7 @@ def main(args) -> int:
         _plot_raw_subsensor_readings(ax, raw_axes[idx], times, values, ewma, name, args, locator)
 
     if observations:
-        for _, obs_time, _ in observations:
-            ax.axvline(obs_time, color="tab:orange", alpha=0.4, linewidth=1)
-        for obs_id, obs_time, note in observations:
-            if not note:
-                continue
-            short_note = note[:10]
-            label = f"{obs_id}:{short_note}"
-            ax.annotate(
-                label,
-                xy=(obs_time, 0.99),
-                xycoords=("data", "axes fraction"),
-                rotation=90,
-                va="top",
-                ha="right",
-                fontsize=8,
-                color="black",
-            )
-        for idx, name in enumerate(sensor_names):
-            raw_ax = raw_axes[idx]
-            key_tag = f"{name} "
-            for obs_id, obs_time, note in observations:
-                if not note or key_tag not in note:
-                    continue
-                raw_ax.axvline(obs_time, color="tab:orange", alpha=0.4, linewidth=1)
-                short_note = note[:10]
-                label = f"{obs_id}:{short_note}"
-                raw_ax.annotate(
-                    label,
-                    xy=(obs_time, 0.99),
-                    xycoords=("data", "axes fraction"),
-                    rotation=90,
-                    va="top",
-                    ha="right",
-                    fontsize=8,
-                    color="black",
-                )
+        _plot_observations(observations, sensor_names, ax, raw_axes)
 
     ax.set_title("Sensor Readings")
     ax.set_xlabel("Timestamp")
