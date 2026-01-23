@@ -94,90 +94,29 @@ def _fetch_observations_from_ctrl(
     return observations
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Infer events from recent sensor data and store observations."
-    )
-    parser.add_argument(
-        "--ctrl-url",
-        default="http://127.0.0.1:8000",
-        help="hcultctrl base URL",
-    )
-    parser.add_argument(
-        "--hours",
-        type=float,
-        default=1.0,
-        help="Lookback window in hours",
-    )
-    parser.add_argument(
-        "--limit",
-        type=int,
-        default=100000,
-        help="Limit number of rows when querying hcultctrl",
-    )
-    parser.add_argument(
-        "--diff-lag",
-        type=int,
-        default=1,
-        help="Lag (in samples) for d(t) = s(t) - s(t-h)",
-    )
-    parser.add_argument(
-        "--mad-window",
-        type=int,
-        default=50,
-        help="Window size (in samples) for rolling MAD",
-    )
-    parser.add_argument(
-        "--mad-scale",
-        type=float,
-        default=1.4826,
-        help="Scale factor for MAD -> sigma",
-    )
-    parser.add_argument(
-        "--ewma-alpha",
-        type=float,
-        default=0.1,
-        help="EWMA alpha for baseline (0 < alpha <= 1)",
-    )
-    parser.add_argument(
-        "--z-pvalue",
-        type=float,
-        default=0.000001,
-        help="Two-sided p-value threshold for z(t) triggers",
-    )
-    parser.add_argument(
-        "--resid-threshold",
-        type=float,
-        default=15.0,
-        help="Absolute residual threshold for hysteresis test",
-    )
-    parser.add_argument(
-        "--hyst-window",
-        type=int,
-        default=20,
-        help="Window size (in samples) around trigger for hysteresis",
-    )
-    parser.add_argument(
-        "--hyst-k",
-        type=int,
-        default=3,
-        help="Required count of |r(t)| > threshold within window",
-    )
-    parser.add_argument(
-        "--merge-distance-sec",
-        type=int,
-        default=240,
-        help="Minimum seconds between stored events",
-    )
-    args = parser.parse_args()
+def _parse_utc(value: str) -> datetime:
+    if value.endswith("Z"):
+        parsed = datetime.fromisoformat(value[:-1]).replace(tzinfo=timezone.utc)
+    else:
+        parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
-    end = datetime.now(timezone.utc)
-    start = end - timedelta(hours=args.hours)
+
+def run(args: argparse.Namespace) -> int:
+    ctrl_url = args.ctrl_url or "http://127.0.0.1:8000"
+    if args.start_utc or args.end_utc:
+        end = _parse_utc(args.end_utc) if args.end_utc else datetime.now(timezone.utc)
+        start = _parse_utc(args.start_utc) if args.start_utc else end - timedelta(hours=args.hours)
+    else:
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(hours=args.hours)
     start_utc = start.isoformat().replace("+00:00", "Z")
     end_utc = end.isoformat().replace("+00:00", "Z")
 
     series = _fetch_series_from_ctrl(
-        args.ctrl_url, start_utc=start_utc, end_utc=end_utc, limit=args.limit
+        ctrl_url, start_utc=start_utc, end_utc=end_utc, limit=args.limit
     )
     if not series:
         print("No sensor readings found.")
@@ -190,7 +129,7 @@ def main() -> int:
         "+00:00", "Z"
     )
     observations = _fetch_observations_from_ctrl(
-        args.ctrl_url, start_utc=obs_start, end_utc=obs_end, limit=args.limit
+        ctrl_url, start_utc=obs_start, end_utc=obs_end, limit=args.limit
     )
     auto_times = sorted(
         obs_time for obs_time, note in observations if note.startswith("AUTO:")
@@ -242,12 +181,8 @@ def main() -> int:
                 f"hwin={args.hyst_window} "
                 f"hk={args.hyst_k}"
             )
-            _post_observation(args.ctrl_url, note, observed_at)
+            _post_observation(ctrl_url, note, observed_at)
             inserted += 1
 
     print(f"Inserted {inserted} AUTO observations.")
     return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

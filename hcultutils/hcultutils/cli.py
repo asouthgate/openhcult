@@ -124,6 +124,22 @@ def _print_usage_examples(parser: argparse.ArgumentParser) -> None:
     print("  hcult plot_timeseries --ctrl-url http://127.0.0.1:8000")
     print("  hcult infer_events --hours 1")
 
+def _add_base_args(parser):
+    parser.add_argument(
+        "--start-utc",
+        default=None,
+        help="Start time in UTC (ISO 8601, e.g. 2026-01-16T12:00:00Z)",
+    )
+    parser.add_argument(
+        "--end-utc",
+        default=None,
+        help="End time in UTC (ISO 8601, e.g. 2026-01-16T13:00:00Z)",
+    )
+    parser.add_argument(
+        "--ctrl-url",
+        default=None,
+        help="Query data from hcultctrl instead of SQLite (e.g. http://127.0.0.1:8000)",
+    )
 
 def _add_plotter_args(parser):
     parser.add_argument(
@@ -137,11 +153,6 @@ def _add_plotter_args(parser):
         help="Override database path (otherwise read from config)",
     )
     parser.add_argument(
-        "--ctrl-url",
-        default=None,
-        help="Query data from hcultctrl instead of SQLite (e.g. http://127.0.0.1:8000)",
-    )
-    parser.add_argument(
         "--sensor",
         default=None,
         help="Filter to a single sensor name (e.g. sensor1)",
@@ -150,16 +161,6 @@ def _add_plotter_args(parser):
         "--device",
         default=None,
         help="Filter to a device name or BLE address",
-    )
-    parser.add_argument(
-        "--start-utc",
-        default=None,
-        help="Start time in UTC (ISO 8601, e.g. 2026-01-16T12:00:00Z)",
-    )
-    parser.add_argument(
-        "--end-utc",
-        default=None,
-        help="End time in UTC (ISO 8601, e.g. 2026-01-16T13:00:00Z)",
     )
     parser.add_argument(
         "--limit",
@@ -197,16 +198,94 @@ def _add_plotter_args(parser):
         help="Write PNG to this path instead of showing a window",
     )
 
+def _add_infer_args(parser):
+    parser.add_argument(
+        "--hours",
+        type=float,
+        default=1.0,
+        help="Lookback window in hours",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=100000,
+        help="Limit number of rows when querying hcultctrl",
+    )
+    parser.add_argument(
+        "--diff-lag",
+        type=int,
+        default=1,
+        help="Lag (in samples) for d(t) = s(t) - s(t-h)",
+    )
+    parser.add_argument(
+        "--mad-window",
+        type=int,
+        default=50,
+        help="Window size (in samples) for rolling MAD",
+    )
+    parser.add_argument(
+        "--mad-scale",
+        type=float,
+        default=1.4826,
+        help="Scale factor for MAD -> sigma",
+    )
+    parser.add_argument(
+        "--ewma-alpha",
+        type=float,
+        default=0.1,
+        help="EWMA alpha for baseline (0 < alpha <= 1)",
+    )
+    parser.add_argument(
+        "--z-pvalue",
+        type=float,
+        default=0.000001,
+        help="Two-sided p-value threshold for z(t) triggers",
+    )
+    parser.add_argument(
+        "--resid-threshold",
+        type=float,
+        default=15.0,
+        help="Absolute residual threshold for hysteresis test",
+    )
+    parser.add_argument(
+        "--hyst-window",
+        type=int,
+        default=20,
+        help="Window size (in samples) around trigger for hysteresis",
+    )
+    parser.add_argument(
+        "--hyst-k",
+        type=int,
+        default=3,
+        help="Required count of |r(t)| > threshold within window",
+    )
+    parser.add_argument(
+        "--merge-distance-sec",
+        type=int,
+        default=240,
+        help="Minimum seconds between stored events",
+    )
 
 def main() -> int:
     parser = argparse.ArgumentParser(prog='hcultutils')
-    parser.add_argument('--example-base-arg', action='store_true', help='foo help')
-    subparsers = parser.add_subparsers(help='subcommand help')
+    subparsers = parser.add_subparsers(help='subcommand help', dest='command')
+    subparsers.required = True
     plot_timeseries_parser = subparsers.add_parser('plot_timeseries')
+    _add_base_args(plot_timeseries_parser)
     _add_plotter_args(plot_timeseries_parser)
-    args = parser.parse_args()
 
-    plot_timeseries.main(args)
+    infer_events_parser = subparsers.add_parser('infer_events')
+    _add_base_args(infer_events_parser)
+    _add_infer_args(infer_events_parser)
+
+    args = parser.parse_args()
+    if args.command == 'plot_timeseries':
+        plot_timeseries.main(args)
+        return 0
+    if args.command == 'infer_events':
+        return infer_events.run(args)
+    parser.print_help()
+    return 1
 
 
 
