@@ -155,6 +155,7 @@ def _fetch_observations_from_ctrl(
         observations.append((int(row.get("id", 0)), timestamp, str(row.get("note", ""))))
     return observations
 
+
 def _plot_raw_subsensor_readings(ax, raw_ax, times, values, ewma, name, args, locator):
     ax.plot(times, values, label=name, linewidth=1.2)
     ax.plot(times, ewma, label=f"{name} EWMA", linewidth=1.2, linestyle="--")
@@ -169,6 +170,28 @@ def _plot_raw_subsensor_readings(ax, raw_ax, times, values, ewma, name, args, lo
     raw_ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
     raw_ax.tick_params(axis="x", rotation=30)
 
+def _plot_z_subsensor_readings(ax, raw_ax, times, zscores, name, args, locator):
+    ax.plot(times, zscores, label=name, linewidth=1.2)
+    raw_ax.plot(times, zscores, label=name, linewidth=1.2)
+    raw_ax.legend()
+    raw_ax.set_title(f"{name} z(t)")
+    raw_ax.set_xlabel("Timestamp")
+    raw_ax.set_ylabel("z(t)")
+    raw_ax.set_yscale("symlog", linthresh=1.0)
+    raw_ax.xaxis.set_major_locator(locator)
+    raw_ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
+    raw_ax.tick_params(axis="x", rotation=30)
+
+def _plot_residual_subsensor_readings(ax, r_raw_ax, times, residuals, name, args, locator):
+    ax.plot(times, residuals, label=name, linewidth=1.2)
+    r_raw_ax.plot(times, residuals, label=name, linewidth=1.2)
+    r_raw_ax.legend()
+    r_raw_ax.set_title(f"{name} residuals")
+    r_raw_ax.set_xlabel("Timestamp")
+    r_raw_ax.set_ylabel("x(t) - B(t)")
+    r_raw_ax.xaxis.set_major_locator(locator)
+    r_raw_ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
+    r_raw_ax.tick_params(axis="x", rotation=30)
 
 
 def main(args) -> int:
@@ -224,7 +247,6 @@ def main(args) -> int:
     times_map: Dict[str, np.ndarray] = {}
 
     for idx, name in enumerate(sensor_names):
-        # _plot_raw_subsensor_readings(idx, name, points, args, ax, raw_axes[idx], locator)
         points = series[name]
         times = np.array([t for t, _ in points])
         values = np.array([v for _, v in points], dtype=float)
@@ -237,19 +259,6 @@ def main(args) -> int:
         baseline_map[name] = ewma
         times_map[name] = times
         _plot_raw_subsensor_readings(ax, raw_axes[idx], times, values, ewma, name, args, locator)
-        # ax.plot(times, values, label=name, linewidth=1.2)
-        # ax.plot(times, ewma, label=f"{name} EWMA", linewidth=1.2, linestyle="--")
-        # raw_ax = raw_axes[idx]
-        # raw_ax.plot(times, values, label=name, linewidth=1.2)
-        # raw_ax.plot(times, ewma, label="EWMA", linewidth=1.2, linestyle="--")
-        # raw_ax.legend()
-        # raw_ax.set_title(name)
-        # raw_ax.set_xlabel("Timestamp")
-        # raw_ax.set_ylabel("Value")
-        # raw_ax.set_ylim(1, 2500)
-        # raw_ax.xaxis.set_major_locator(locator)
-        # raw_ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
-        # raw_ax.tick_params(axis="x", rotation=30)
 
     if observations:
         for _, obs_time, _ in observations:
@@ -315,35 +324,15 @@ def main(args) -> int:
         r = i // cols
         c = i % cols
         rraw_axes.append(rfig.add_subplot(rgrid[r, c]))
+
     rax = rfig.add_subplot(rgrid[rows, :])
 
     for idx, name in enumerate(sensor_names):
         times = times_map[name]
         zscores = zscores_map[name]
         residuals = values_map[name] - baseline_map[name]
-        zax.plot(times, zscores, label=name, linewidth=1.2)
-        rax.plot(times, residuals, label=name, linewidth=1.2)
-
-        raw_ax = zraw_axes[idx]
-        raw_ax.plot(times, zscores, label=name, linewidth=1.2)
-        raw_ax.legend()
-        raw_ax.set_title(f"{name} z(t)")
-        raw_ax.set_xlabel("Timestamp")
-        raw_ax.set_ylabel("z(t)")
-        raw_ax.set_yscale("symlog", linthresh=1.0)
-        raw_ax.xaxis.set_major_locator(locator)
-        raw_ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
-        raw_ax.tick_params(axis="x", rotation=30)
-
-        r_raw_ax = rraw_axes[idx]
-        r_raw_ax.plot(times, residuals, label=name, linewidth=1.2)
-        r_raw_ax.legend()
-        r_raw_ax.set_title(f"{name} residuals")
-        r_raw_ax.set_xlabel("Timestamp")
-        r_raw_ax.set_ylabel("x(t) - B(t)")
-        r_raw_ax.xaxis.set_major_locator(locator)
-        r_raw_ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
-        r_raw_ax.tick_params(axis="x", rotation=30)
+        _plot_z_subsensor_readings(zax, zraw_axes[idx], times, zscores, name, args, locator)    
+        _plot_residual_subsensor_readings(rax, rraw_axes[idx], times, residuals, name, args, locator)   
 
     zax.set_title("z(t) = d(t) / (c * MAD)")
     zax.set_xlabel("Timestamp")
