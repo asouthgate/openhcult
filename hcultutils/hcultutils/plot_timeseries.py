@@ -231,36 +231,6 @@ def main(args) -> int:
     if args.out:
         matplotlib.use("Agg")
 
-    # observations: List[Tuple[int, np.datetime64, str]] = []
-    # if args.ctrl_url:
-    #     series = _fetch_series_from_ctrl(
-    #         args.ctrl_url,
-    #         sensor=args.sensor,
-    #         device=args.device,
-    #         start_utc=args.start_utc,
-    #         end_utc=args.end_utc,
-    #         limit=args.limit,
-    #     )
-    #     observations = _fetch_observations_from_ctrl(
-    #         args.ctrl_url,
-    #         start_utc=args.start_utc,
-    #         end_utc=args.end_utc,
-    #         limit=args.limit,
-    #     )
-    # else:
-    #     config_path = Path(args.config)
-    #     if not config_path.exists():
-    #         raise FileNotFoundError(f"Missing config: {config_path}")
-
-    #     db_path = Path(args.db) if args.db else _load_db_path(config_path)
-    #     if not db_path.exists():
-    #         raise FileNotFoundError(f"Missing database: {db_path}")
-    #     series = _fetch_series(db_path)
-    #     observations = _fetch_observations(db_path)
-    # if not series:
-    #     print("No sensor readings found.")
-    #     return 0
-
     series, observations = _fetch_data(args)
     sensor_names = sorted(series.keys())
 
