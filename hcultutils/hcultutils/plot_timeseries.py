@@ -90,8 +90,6 @@ def _fetch_series_from_ctrl(
     *,
     sensor: str | None,
     device: str | None,
-    # start_ms: int | None,
-    # end_ms: int | None,
     start_utc: str | None,
     end_utc: str | None,
     limit: int,
@@ -102,10 +100,6 @@ def _fetch_series_from_ctrl(
         params["sensor"] = sensor
     if device:
         params["device"] = device
-    # if start_ms is not None:
-    #     params["start_ms"] = str(start_ms)
-    # if end_ms is not None:
-    #     params["end_ms"] = str(end_ms)
     if start_utc:
         params["start_utc"] = start_utc
     if end_utc:
@@ -137,17 +131,11 @@ def _fetch_series_from_ctrl(
 def _fetch_observations_from_ctrl(
     ctrl_url: str,
     *,
-    # start_ms: int | None,
-    # end_ms: int | None,
     start_utc: str | None,
     end_utc: str | None,
     limit: int,
 ) -> List[Tuple[int, np.datetime64, str]]:
     params: Dict[str, str] = {"limit": str(limit)}
-    # if start_ms is not None:
-    #     params["start_ms"] = str(start_ms)
-    # if end_ms is not None:
-    #     params["end_ms"] = str(end_ms)
     if start_utc:
         params["start_utc"] = start_utc
     if end_utc:
@@ -167,6 +155,19 @@ def _fetch_observations_from_ctrl(
         observations.append((int(row.get("id", 0)), timestamp, str(row.get("note", ""))))
     return observations
 
+def _plot_raw_subsensor_readings(ax, raw_ax, times, values, ewma, name, args, locator):
+    ax.plot(times, values, label=name, linewidth=1.2)
+    ax.plot(times, ewma, label=f"{name} EWMA", linewidth=1.2, linestyle="--")
+    raw_ax.plot(times, values, label=name, linewidth=1.2)
+    raw_ax.plot(times, ewma, label="EWMA", linewidth=1.2, linestyle="--")
+    raw_ax.legend()
+    raw_ax.set_title(name)
+    raw_ax.set_xlabel("Timestamp")
+    raw_ax.set_ylabel("Value")
+    raw_ax.set_ylim(1, 2500)
+    raw_ax.xaxis.set_major_locator(locator)
+    raw_ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
+    raw_ax.tick_params(axis="x", rotation=30)
 
 
 
@@ -223,6 +224,7 @@ def main(args) -> int:
     times_map: Dict[str, np.ndarray] = {}
 
     for idx, name in enumerate(sensor_names):
+        # _plot_raw_subsensor_readings(idx, name, points, args, ax, raw_axes[idx], locator)
         points = series[name]
         times = np.array([t for t, _ in points])
         values = np.array([v for _, v in points], dtype=float)
@@ -234,21 +236,20 @@ def main(args) -> int:
         values_map[name] = values
         baseline_map[name] = ewma
         times_map[name] = times
-        ax.plot(times, values, label=name, linewidth=1.2)
-        ax.plot(times, ewma, label=f"{name} EWMA", linewidth=1.2, linestyle="--")
-
-        raw_ax = raw_axes[idx]
-        raw_ax.plot(times, values, label=name, linewidth=1.2)
-        raw_ax.plot(times, ewma, label="EWMA", linewidth=1.2, linestyle="--")
-        raw_ax.legend()
-        raw_ax.set_title(name)
-        raw_ax.set_xlabel("Timestamp")
-        raw_ax.set_ylabel("Value")
-#        raw_ax.set_yscale("log")
-        raw_ax.set_ylim(1, 2500)
-        raw_ax.xaxis.set_major_locator(locator)
-        raw_ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
-        raw_ax.tick_params(axis="x", rotation=30)
+        _plot_raw_subsensor_readings(ax, raw_axes[idx], times, values, ewma, name, args, locator)
+        # ax.plot(times, values, label=name, linewidth=1.2)
+        # ax.plot(times, ewma, label=f"{name} EWMA", linewidth=1.2, linestyle="--")
+        # raw_ax = raw_axes[idx]
+        # raw_ax.plot(times, values, label=name, linewidth=1.2)
+        # raw_ax.plot(times, ewma, label="EWMA", linewidth=1.2, linestyle="--")
+        # raw_ax.legend()
+        # raw_ax.set_title(name)
+        # raw_ax.set_xlabel("Timestamp")
+        # raw_ax.set_ylabel("Value")
+        # raw_ax.set_ylim(1, 2500)
+        # raw_ax.xaxis.set_major_locator(locator)
+        # raw_ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
+        # raw_ax.tick_params(axis="x", rotation=30)
 
     if observations:
         for _, obs_time, _ in observations:
@@ -291,7 +292,6 @@ def main(args) -> int:
     ax.set_title("Sensor Readings")
     ax.set_xlabel("Timestamp")
     ax.set_ylabel("Value")
-#    ax.set_yscale("log")
     ax.set_ylim(1, 2500)
     ax.xaxis.set_major_locator(locator)
     ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
