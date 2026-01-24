@@ -7,7 +7,11 @@ url={{ openhcult_database_url }}
 
 [logging]
 stdout={{ openhcult_log_stdout | ternary("true", "false") }}
+{% if openhcult_log_file %}
 file={{ openhcult_log_file }}
+{% elif openhcult_log_path %}
+path={{ openhcult_log_path }}
+{% endif %}
 
 [ctrl]
 host={{ openhcult_ctrl_host }}

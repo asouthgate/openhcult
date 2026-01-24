@@ -4,6 +4,7 @@
       - bluez
       - dbus
       - git
+      - logrotate
       - python3
       - python3-pip
       - python3-venv
@@ -141,3 +142,19 @@
   notify:
     - restart hcultmon
     - restart hcultctrl
+
+- name: Install logrotate config
+  ansible.builtin.template:
+    src: openhcult.logrotate.j2
+    dest: /etc/logrotate.d/openhcult
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install logrotate cron schedule
+  ansible.builtin.template:
+    src: openhcult-logrotate.cron.j2
+    dest: /etc/cron.d/openhcult-logrotate
+    owner: root
+    group: root
+    mode: "0644"

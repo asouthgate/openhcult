@@ -12,3 +12,7 @@
     name: hcultmon
     enabled: true
     state: started
+
+- name: Verify hcultmon is running
+  ansible.builtin.command:
+    cmd: systemctl is-active --quiet hcultmon

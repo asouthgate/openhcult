@@ -20,7 +20,8 @@ openhcult_database_password: ""
 openhcult_database_path: "/var/lib/openhcult/sensor_readings.db"
 
 openhcult_log_stdout: true
-openhcult_log_file: none
+openhcult_log_path: /var/log/hcult
+openhcult_log_file: ""
 
 openhcult_ctrl_host: 0.0.0.0
 openhcult_ctrl_port: 8000

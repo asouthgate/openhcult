@@ -12,3 +12,7 @@
     name: hcultctrl
     enabled: true
     state: started
+
+- name: Verify hcultctrl is running
+  ansible.builtin.command:
+    cmd: systemctl is-active --quiet hcultctrl
