@@ -3,12 +3,7 @@ service_uuid={{ openhcult_ble_service_uuid }}
 characteristic_uuid={{ openhcult_ble_characteristic_uuid }}
 
 [database]
-{% if openhcult_database_url %}
 url={{ openhcult_database_url }}
-{% endif %}
-{% if openhcult_database_path %}
-path={{ openhcult_database_path }}
-{% endif %}
 
 [logging]
 stdout={{ openhcult_log_stdout | ternary("true", "false") }}

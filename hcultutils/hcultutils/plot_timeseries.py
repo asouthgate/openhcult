@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plot sensor time series from the configured SQLite database."""
+"""Plot sensor time series from the configured database."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ import sqlite3
 import urllib.parse
 import urllib.request
 from pathlib import Path
+from urllib.parse import urlparse, unquote
 from typing import Dict, List, Tuple
 
 import matplotlib
@@ -34,21 +35,33 @@ def _default_config_path() -> Path:
     return Path.home() / ".config" / "openhcult" / "openhcult.conf"
 
 
-def _load_db_path(config_path: Path) -> Path:
+def _load_db_url(config_path: Path) -> str:
     parser = configparser.ConfigParser()
     parser.read(config_path)
-    if "database" not in parser or "path" not in parser["database"]:
-        raise ValueError(f"Missing database.path in {config_path}")
-    configured = parser["database"]["path"].strip()
-    if not configured:
-        raise ValueError(f"Empty database.path in {config_path}")
-    db_path = Path(configured).expanduser()
-    if not db_path.is_absolute():
-        db_path = config_path.parent / db_path
-    return db_path
+    if "database" not in parser or "url" not in parser["database"]:
+        raise ValueError(f"Missing database.url in {config_path}")
+    url = parser["database"]["url"].strip()
+    if not url:
+        raise ValueError(f"Empty database.url in {config_path}")
+    return url
 
 
-def _fetch_series(db_path: Path) -> Dict[str, List[Tuple[np.datetime64, int]]]:
+def _connect_db(db_url: str):
+    parsed = urlparse(db_url)
+    if parsed.scheme in ("", "file", "sqlite"):
+        if parsed.scheme in ("file", "sqlite"):
+            db_path = Path(unquote(parsed.path))
+        else:
+            db_path = Path(db_url)
+        return sqlite3.connect(str(db_path))
+    if parsed.scheme.startswith("postgres"):
+        import psycopg
+
+        return psycopg.connect(db_url)
+    raise ValueError(f"Unsupported database URL: {db_url}")
+
+
+def _fetch_series(db_url: str) -> Dict[str, List[Tuple[np.datetime64, int]]]:
     series: Dict[str, List[Tuple[np.datetime64, int]]] = {}
     query = (
         "SELECT sr.adjusted_time_ms, d.name, d.tag, d.address, sr.sensor, sr.measurement "
@@ -56,8 +69,10 @@ def _fetch_series(db_path: Path) -> Dict[str, List[Tuple[np.datetime64, int]]]:
         "JOIN devices d ON sr.device_id = d.id "
         "ORDER BY sr.adjusted_time_ms ASC, sr.id ASC"
     )
-    with sqlite3.connect(db_path) as conn:
-        for time_ms, device_name, device_tag, device_addr, sensor_name, value in conn.execute(query):
+    with _connect_db(db_url) as conn:
+        cursor = conn.cursor()
+        cursor.execute(query)
+        for time_ms, device_name, device_tag, device_addr, sensor_name, value in cursor.fetchall():
             if time_ms is None:
                 continue
             timestamp = np.datetime64(int(time_ms), "ms")
@@ -70,17 +85,19 @@ def _fetch_series(db_path: Path) -> Dict[str, List[Tuple[np.datetime64, int]]]:
     return series
 
 
-def _fetch_observations(db_path: Path) -> List[Tuple[int, np.datetime64, str]]:
+def _fetch_observations(db_url: str) -> List[Tuple[int, np.datetime64, str]]:
     observations: List[Tuple[int, np.datetime64, str]] = []
     query = "SELECT id, observed_at, note FROM observations ORDER BY observed_at ASC, id ASC"
-    with sqlite3.connect(db_path) as conn:
+    with _connect_db(db_url) as conn:
+        cursor = conn.cursor()
         try:
-            for obs_id, observed_at, note in conn.execute(query):
+            cursor.execute(query)
+            for obs_id, observed_at, note in cursor.fetchall():
                 if observed_at is None:
                     continue
                 timestamp = np.datetime64(int(observed_at), "ms")
                 observations.append((int(obs_id), timestamp, str(note)))
-        except sqlite3.OperationalError:
+        except Exception:
             return []
     return observations
 
@@ -253,11 +270,13 @@ def _fetch_data(args):
         if not config_path.exists():
             raise FileNotFoundError(f"Missing config: {config_path}")
 
-        db_path = Path(args.db) if args.db else _load_db_path(config_path)
-        if not db_path.exists():
-            raise FileNotFoundError(f"Missing database: {db_path}")
-        series = _fetch_series(db_path)
-        observations = _fetch_observations(db_path)
+        db_url = args.db if args.db else _load_db_url(config_path)
+        if db_url.startswith("sqlite:////"):
+            db_path = Path(db_url.replace("sqlite:////", "/"))
+            if not db_path.exists():
+                raise FileNotFoundError(f"Missing database: {db_path}")
+        series = _fetch_series(db_url)
+        observations = _fetch_observations(db_url)
     if not series:
         print("No sensor readings found.")
         return None

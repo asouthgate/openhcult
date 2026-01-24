@@ -1,49 +1,113 @@
-"""SQLite helpers for device registry and sensor readings."""
+"""Database helpers for device registry and sensor readings."""
 
 from datetime import datetime, timezone
-import sqlite3
 import time
+from pathlib import Path
+from urllib.parse import urlparse, unquote
+
+import sqlite3
 
 
-def setup_db(db_path):
+def _is_postgres(conn) -> bool:
+    module = conn.__class__.__module__
+    return "psycopg" in module or "psycopg2" in module
+
+
+def _placeholder(conn) -> str:
+    return "%s" if _is_postgres(conn) else "?"
+
+
+def _connect(db_url: str):
+    parsed = urlparse(db_url)
+    if parsed.scheme in ("", "file", "sqlite"):
+        if parsed.scheme in ("file", "sqlite"):
+            db_path = Path(unquote(parsed.path))
+        else:
+            db_path = Path(db_url)
+        return sqlite3.connect(str(db_path))
+    if parsed.scheme.startswith("postgres"):
+        import psycopg
+
+        return psycopg.connect(db_url)
+    raise ValueError(f"Unsupported database URL: {db_url}")
+
+
+def setup_db(db_url: str):
     """Create or migrate the database schema and return an open connection."""
-    conn = sqlite3.connect(db_path)
+    conn = _connect(db_url)
     cursor = conn.cursor()
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS devices (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT,
-            tag TEXT,
-            address TEXT UNIQUE,
-            first_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
-            last_seen DATETIME DEFAULT CURRENT_TIMESTAMP
+    if _is_postgres(conn):
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS devices (
+                id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                name TEXT,
+                tag TEXT,
+                address TEXT UNIQUE,
+                first_seen TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                last_seen TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+            )
+            """
         )
-        """
-    )
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS sensor_readings (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            device_id INTEGER NOT NULL,
-            sensor TEXT NOT NULL,
-            measurement INTEGER NOT NULL,
-            measurement_time_us INTEGER,
-            collection_time_ms INTEGER,
-            adjusted_time_ms INTEGER,
-            FOREIGN KEY (device_id) REFERENCES devices(id)
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS sensor_readings (
+                id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                device_id INTEGER NOT NULL,
+                sensor TEXT NOT NULL,
+                measurement INTEGER NOT NULL,
+                measurement_time_us BIGINT,
+                collection_time_ms BIGINT,
+                adjusted_time_ms BIGINT,
+                FOREIGN KEY (device_id) REFERENCES devices(id)
+            )
+            """
         )
-        """
-    )
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS observations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            observed_at INTEGER NOT NULL,
-            note TEXT NOT NULL
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS observations (
+                id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                observed_at BIGINT NOT NULL,
+                note TEXT NOT NULL
+            )
+            """
         )
-        """
-    )
+    else:
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS devices (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT,
+                tag TEXT,
+                address TEXT UNIQUE,
+                first_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
+                last_seen DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS sensor_readings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_id INTEGER NOT NULL,
+                sensor TEXT NOT NULL,
+                measurement INTEGER NOT NULL,
+                measurement_time_us INTEGER,
+                collection_time_ms INTEGER,
+                adjusted_time_ms INTEGER,
+                FOREIGN KEY (device_id) REFERENCES devices(id)
+            )
+            """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS observations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                observed_at INTEGER NOT NULL,
+                note TEXT NOT NULL
+            )
+            """
+        )
     conn.commit()
     return conn
 
@@ -51,20 +115,28 @@ def setup_db(db_path):
 def register_device(conn, name, address):
     """Insert or update a device row and return its device_id."""
     cursor = conn.cursor()
-    cursor.execute("SELECT id FROM devices WHERE address = ?", (address,))
+    placeholder = _placeholder(conn)
+    cursor.execute(f"SELECT id FROM devices WHERE address = {placeholder}", (address,))
     row = cursor.fetchone()
     if row:
         device_id = row[0]
         cursor.execute(
-            "UPDATE devices SET name = ?, last_seen = CURRENT_TIMESTAMP WHERE id = ?",
+            f"UPDATE devices SET name = {placeholder}, last_seen = CURRENT_TIMESTAMP WHERE id = {placeholder}",
             (name, device_id),
         )
     else:
-        cursor.execute(
-            "INSERT INTO devices (name, address) VALUES (?, ?)",
-            (name, address),
-        )
-        device_id = cursor.lastrowid
+        if _is_postgres(conn):
+            cursor.execute(
+                "INSERT INTO devices (name, address) VALUES (%s, %s) RETURNING id",
+                (name, address),
+            )
+            device_id = cursor.fetchone()[0]
+        else:
+            cursor.execute(
+                f"INSERT INTO devices (name, address) VALUES ({placeholder}, {placeholder})",
+                (name, address),
+            )
+            device_id = cursor.lastrowid
     conn.commit()
     return device_id
 
@@ -72,10 +144,12 @@ def register_device(conn, name, address):
 def write_sensor_readings(conn, device_id, readings):
     """Insert one row per sensor reading for the given device."""
     cursor = conn.cursor()
+    placeholder = _placeholder(conn)
     if isinstance(readings, dict):
         rows = [(device_id, key, value) for key, value in readings.items()]
         cursor.executemany(
-            "INSERT INTO sensor_readings (device_id, sensor, measurement) VALUES (?, ?, ?)",
+            "INSERT INTO sensor_readings (device_id, sensor, measurement) "
+            f"VALUES ({placeholder}, {placeholder}, {placeholder})",
             rows,
         )
     else:
@@ -100,7 +174,7 @@ def write_sensor_readings(conn, device_id, readings):
             "INSERT INTO sensor_readings "
             "(device_id, sensor, measurement, measurement_time_us, "
             "adjusted_time_ms, collection_time_ms) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            f"VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})",
             rows,
         )
     conn.commit()
@@ -124,9 +198,18 @@ def add_observation(conn, note, observed_at=None):
         if observed_at is not None
         else int(time.time() * 1000)
     )
-    cursor.execute(
-        "INSERT INTO observations (observed_at, note) VALUES (?, ?)",
-        (observed_at_ms, note),
-    )
+    if _is_postgres(conn):
+        cursor.execute(
+            "INSERT INTO observations (observed_at, note) VALUES (%s, %s) RETURNING id",
+            (observed_at_ms, note),
+        )
+        obs_id = cursor.fetchone()[0]
+    else:
+        placeholder = _placeholder(conn)
+        cursor.execute(
+            f"INSERT INTO observations (observed_at, note) VALUES ({placeholder}, {placeholder})",
+            (observed_at_ms, note),
+        )
+        obs_id = cursor.lastrowid
     conn.commit()
-    return cursor.lastrowid
+    return obs_id

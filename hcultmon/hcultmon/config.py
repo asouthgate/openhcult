@@ -52,19 +52,15 @@ def get_ble_service_uuid():
     return parser["ble"]["service_uuid"].strip()
 
 
-def get_db_path():
-    """Fetch the database path from the config."""
-    parser, config_path, repo_root = _load_config()
-    if "database" not in parser or "path" not in parser["database"]:
-        raise ValueError(f"Missing database.path in {config_path}")
-    configured = parser["database"]["path"].strip()
-    if not configured:
-        raise ValueError(f"Empty database.path in {config_path}")
-    db_path = Path(configured).expanduser()
-    if not db_path.is_absolute():
-        db_path = repo_root / db_path
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    return db_path
+def get_db_url() -> str:
+    """Fetch the database URL from config."""
+    parser, config_path, _ = _load_config()
+    if "database" not in parser or "url" not in parser["database"]:
+        raise ValueError(f"Missing database.url in {config_path}")
+    url = parser["database"]["url"].strip()
+    if not url:
+        raise ValueError(f"Empty database.url in {config_path}")
+    return url
 
 
 def get_log_path(service_name: str) -> Path:

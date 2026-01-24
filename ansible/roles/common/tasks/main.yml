@@ -128,6 +128,7 @@
       - "{{ openhcult_install_dir }}/hcultmon"
       - "{{ openhcult_install_dir }}/hcultctrl"
     editable: true
+    extra_args: --upgrade
   become_user: "{{ openhcult_user }}"
 
 - name: Install OpenHCult config

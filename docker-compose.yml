@@ -10,6 +10,20 @@ services:
     volumes:
       - hcult_postgres:/var/lib/postgresql/data
 
+  grafana:
+    image: grafana/grafana:10.4.3
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/provisioning/dashboards/openhcult-dashboard.json
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - postgres
+
   hcultctrl:
     build:
       context: .
@@ -58,3 +72,4 @@ services:
 volumes:
   hcult_postgres:
   hcult_data:
+  grafana_data:

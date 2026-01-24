@@ -24,8 +24,8 @@ _db_conn = None
 def _get_db():
     global _db_conn
     if _db_conn is None:
-        db_path = config.get_db_path()
-        _db_conn = database.connect(str(db_path))
+        db_url = config.get_db_url()
+        _db_conn = database.connect(db_url)
     return _db_conn
 
 

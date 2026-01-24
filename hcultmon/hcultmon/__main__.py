@@ -23,8 +23,8 @@ def _setup_logging():
     )
 
 async def _main():
-    db_path = config.get_db_path()
-    db_con = database.setup_db(str(db_path))
+    db_url = config.get_db_url()
+    db_con = database.setup_db(db_url)
     await ble.run_monitor(db_con)
 
 def main():

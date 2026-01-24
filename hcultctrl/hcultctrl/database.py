@@ -1,14 +1,45 @@
-"""SQLite helpers for serving sensor data."""
+"""Database helpers for serving sensor data."""
 
 from __future__ import annotations
 
 import sqlite3
+from pathlib import Path
 from typing import Iterable, Optional
+from urllib.parse import urlparse, unquote
 
 
-def connect(db_path: str) -> sqlite3.Connection:
-    """Open a SQLite connection for read queries."""
-    return sqlite3.connect(db_path, check_same_thread=False)
+def _is_postgres(conn) -> bool:
+    module = conn.__class__.__module__
+    return "psycopg" in module or "psycopg2" in module
+
+
+def _placeholder(conn) -> str:
+    return "%s" if _is_postgres(conn) else "?"
+
+
+def _connect(db_url: str):
+    parsed = urlparse(db_url)
+    if parsed.scheme in ("", "file", "sqlite"):
+        if parsed.scheme in ("file", "sqlite"):
+            db_path = Path(unquote(parsed.path))
+        else:
+            db_path = Path(db_url)
+        return sqlite3.connect(str(db_path), check_same_thread=False)
+    if parsed.scheme.startswith("postgres"):
+        import psycopg
+
+        return psycopg.connect(db_url)
+    raise ValueError(f"Unsupported database URL: {db_url}")
+
+
+def _fetchall_dicts(cursor) -> list[dict]:
+    columns = [col[0] for col in cursor.description]
+    return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+
+def connect(db_url: str):
+    """Open a database connection for read queries."""
+    return _connect(db_url)
 
 
 def fetch_timeseries(
@@ -19,22 +50,22 @@ def fetch_timeseries(
     start_ms: Optional[int] = None,
     end_ms: Optional[int] = None,
     limit: int = 10000,
-) -> Iterable[sqlite3.Row]:
+) -> Iterable[dict]:
     """Return sensor readings matching the filter criteria."""
-    conn.row_factory = sqlite3.Row
     clauses = []
     params = []
+    placeholder = _placeholder(conn)
     if sensor:
-        clauses.append("sensor_readings.sensor = ?")
+        clauses.append(f"sensor_readings.sensor = {placeholder}")
         params.append(sensor)
     if device:
-        clauses.append("(devices.name = ? OR devices.address = ?)")
+        clauses.append(f"(devices.name = {placeholder} OR devices.address = {placeholder})")
         params.extend([device, device])
     if start_ms is not None:
-        clauses.append("sensor_readings.adjusted_time_ms >= ?")
+        clauses.append(f"sensor_readings.adjusted_time_ms >= {placeholder}")
         params.append(start_ms)
     if end_ms is not None:
-        clauses.append("sensor_readings.adjusted_time_ms <= ?")
+        clauses.append(f"sensor_readings.adjusted_time_ms <= {placeholder}")
         params.append(end_ms)
 
     where = ""
@@ -54,24 +85,32 @@ def fetch_timeseries(
         JOIN devices ON devices.id = sensor_readings.device_id
         {where}
         ORDER BY sensor_readings.adjusted_time_ms ASC
-        LIMIT ?
+        LIMIT {placeholder}
     """
     params.append(limit)
-    cursor = conn.execute(query, params)
-    return cursor.fetchall()
+    cursor = conn.cursor()
+    cursor.execute(query, params)
+    return _fetchall_dicts(cursor)
 
 
-def insert_observation(
-    conn: sqlite3.Connection, *, note: str, observed_at_ms: int
-) -> int:
+def insert_observation(conn, *, note: str, observed_at_ms: int) -> int:
     """Insert an observation and return its id."""
     cursor = conn.cursor()
-    cursor.execute(
-        "INSERT INTO observations (observed_at, note) VALUES (?, ?)",
-        (observed_at_ms, note),
-    )
+    if _is_postgres(conn):
+        cursor.execute(
+            "INSERT INTO observations (observed_at, note) VALUES (%s, %s) RETURNING id",
+            (observed_at_ms, note),
+        )
+        obs_id = cursor.fetchone()[0]
+    else:
+        placeholder = _placeholder(conn)
+        cursor.execute(
+            f"INSERT INTO observations (observed_at, note) VALUES ({placeholder}, {placeholder})",
+            (observed_at_ms, note),
+        )
+        obs_id = cursor.lastrowid
     conn.commit()
-    return cursor.lastrowid
+    return obs_id
 
 
 def fetch_observations(
@@ -80,16 +119,16 @@ def fetch_observations(
     start_ms: Optional[int] = None,
     end_ms: Optional[int] = None,
     limit: int = 1000,
-) -> Iterable[sqlite3.Row]:
+) -> Iterable[dict]:
     """Return observations ordered by observed_at."""
-    conn.row_factory = sqlite3.Row
     clauses = []
     params = []
+    placeholder = _placeholder(conn)
     if start_ms is not None:
-        clauses.append("observed_at >= ?")
+        clauses.append(f"observed_at >= {placeholder}")
         params.append(start_ms)
     if end_ms is not None:
-        clauses.append("observed_at <= ?")
+        clauses.append(f"observed_at <= {placeholder}")
         params.append(end_ms)
     where = ""
     if clauses:
@@ -99,30 +138,33 @@ def fetch_observations(
         FROM observations
         {where}
         ORDER BY observed_at ASC, id ASC
-        LIMIT ?
+        LIMIT {placeholder}
     """
     params.append(limit)
-    cursor = conn.execute(query, params)
-    return cursor.fetchall()
+    cursor = conn.cursor()
+    cursor.execute(query, params)
+    return _fetchall_dicts(cursor)
 
 
 def update_observation(
-    conn: sqlite3.Connection, *, obs_id: int, observed_at_ms: int | None, note: str | None
+    conn, *, obs_id: int, observed_at_ms: int | None, note: str | None
 ) -> None:
     """Update an observation in place."""
     fields = []
     params = []
+    placeholder = _placeholder(conn)
     if observed_at_ms is not None:
-        fields.append("observed_at = ?")
+        fields.append(f"observed_at = {placeholder}")
         params.append(observed_at_ms)
     if note is not None:
-        fields.append("note = ?")
+        fields.append(f"note = {placeholder}")
         params.append(note)
     if not fields:
         return
     params.append(obs_id)
-    query = f"UPDATE observations SET {', '.join(fields)} WHERE id = ?"
-    cursor = conn.execute(query, params)
+    query = f"UPDATE observations SET {', '.join(fields)} WHERE id = {placeholder}"
+    cursor = conn.cursor()
+    cursor.execute(query, params)
     conn.commit()
     if cursor.rowcount == 0:
         raise ValueError("Observation not found")

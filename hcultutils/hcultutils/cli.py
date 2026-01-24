@@ -7,6 +7,7 @@ from configparser import ConfigParser
 import os
 from pathlib import Path
 import sqlite3
+from urllib.parse import urlparse, unquote
 import sys
 
 from hcultutils import infer_events, plot_timeseries
@@ -32,18 +33,34 @@ def _load_config():
     return parser, config_path, repo_root
 
 
-def _get_db_path() -> Path:
-    parser, config_path, repo_root = _load_config()
-    if "database" not in parser or "path" not in parser["database"]:
-        raise ValueError(f"Missing database.path in {config_path}")
-    configured = parser["database"]["path"].strip()
-    if not configured:
-        raise ValueError(f"Empty database.path in {config_path}")
-    db_path = Path(configured).expanduser()
-    if not db_path.is_absolute():
-        db_path = repo_root / db_path
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    return db_path
+def _get_db_url() -> str:
+    parser, config_path, _ = _load_config()
+    if "database" not in parser or "url" not in parser["database"]:
+        raise ValueError(f"Missing database.url in {config_path}")
+    url = parser["database"]["url"].strip()
+    if not url:
+        raise ValueError(f"Empty database.url in {config_path}")
+    return url
+
+
+def _connect_db(db_url: str):
+    parsed = urlparse(db_url)
+    if parsed.scheme in ("", "file", "sqlite"):
+        if parsed.scheme in ("file", "sqlite"):
+            db_path = Path(unquote(parsed.path))
+        else:
+            db_path = Path(db_url)
+        return sqlite3.connect(str(db_path))
+    if parsed.scheme.startswith("postgres"):
+        import psycopg
+
+        return psycopg.connect(db_url)
+    raise ValueError(f"Unsupported database URL: {db_url}")
+
+
+def _placeholder(conn) -> str:
+    module = conn.__class__.__module__
+    return "%s" if "psycopg" in module or "psycopg2" in module else "?"
 
 
 def _parse_device_id(value: str) -> tuple[str, str]:
@@ -55,18 +72,19 @@ def _parse_device_id(value: str) -> tuple[str, str]:
 
 
 def _update_device_tag(device_key: str, device_value: str, new_tag: str) -> int:
-    db_path = _get_db_path()
-    conn = sqlite3.connect(db_path)
+    db_url = _get_db_url()
+    conn = _connect_db(db_url)
     try:
         cursor = conn.cursor()
+        placeholder = _placeholder(conn)
         if device_key == "id":
             cursor.execute(
-                "SELECT id, address, tag FROM devices WHERE id = ?",
+                f"SELECT id, address, tag FROM devices WHERE id = {placeholder}",
                 (device_value,),
             )
         else:
             cursor.execute(
-                "SELECT id, address, tag FROM devices WHERE address = ?",
+                f"SELECT id, address, tag FROM devices WHERE address = {placeholder}",
                 (device_value,),
             )
         row = cursor.fetchone()
@@ -75,7 +93,7 @@ def _update_device_tag(device_key: str, device_value: str, new_tag: str) -> int:
             return 1
         device_id, address, old_tag = row
         cursor.execute(
-            "UPDATE devices SET tag = ?, last_seen = CURRENT_TIMESTAMP WHERE id = ?",
+            f"UPDATE devices SET tag = {placeholder}, last_seen = CURRENT_TIMESTAMP WHERE id = {placeholder}",
             (new_tag, device_id),
         )
         conn.commit()
@@ -86,8 +104,8 @@ def _update_device_tag(device_key: str, device_value: str, new_tag: str) -> int:
 
 
 def _list_devices() -> int:
-    db_path = _get_db_path()
-    conn = sqlite3.connect(db_path)
+    db_url = _get_db_url()
+    conn = _connect_db(db_url)
     try:
         cursor = conn.cursor()
         cursor.execute(
@@ -150,7 +168,7 @@ def _add_plotter_args(parser):
     parser.add_argument(
         "--db",
         default=None,
-        help="Override database path (otherwise read from config)",
+        help="Override database URL (otherwise read from config)",
     )
     parser.add_argument(
         "--sensor",

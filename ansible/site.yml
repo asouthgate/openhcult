@@ -7,9 +7,13 @@
     - name: openhcult_database_password
       prompt: "OpenHCult database password"
       private: true
+    - name: grafana_admin_password
+      prompt: "Grafana admin password"
+      private: true
   roles:
     - role: common
     - role: postgres
+    - role: grafana
     - role: hcultmon
     - role: hcultctrl
   handlers:

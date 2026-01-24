@@ -15,6 +15,7 @@ authors = [
 
 dependencies = [
     "bleak",
+    "psycopg[binary]",
 ]
 
 [project.optional-dependencies]

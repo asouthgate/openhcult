@@ -17,6 +17,7 @@ dependencies = [
     "matplotlib",
     "numpy",
     "hcultinf",
+    "psycopg[binary]",
 ]
 
 [project.scripts]
