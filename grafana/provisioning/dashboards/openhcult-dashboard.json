@@ -1,0 +1,82 @@
+{
+  "uid": "openhcult-main",
+  "title": "OpenHCult Sensors",
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "datasource",
+          "uid": "grafana"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      },
+      {
+        "datasource": "OpenHCult Postgres",
+        "enable": true,
+        "hide": false,
+        "iconColor": "rgba(255, 166, 0, 1)",
+        "name": "Events",
+        "type": "dashboard",
+        "target": {
+          "rawSql": "SELECT to_timestamp(observed_at / 1000.0) AS time, note AS text FROM observations WHERE $__unixEpochFilter(observed_at / 1000.0) ORDER BY 1",
+          "format": "table"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Sensor Readings",
+      "datasource": "OpenHCult Postgres",
+      "gridPos": {
+        "h": 18,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "SELECT to_timestamp(sr.adjusted_time_ms / 1000.0) AS time, sr.measurement AS value, concat(COALESCE(d.tag, d.name, d.address, 'device'), ' ', sr.sensor) AS metric FROM sensor_readings sr JOIN devices d ON d.id = sr.device_id WHERE $__unixEpochFilter(sr.adjusted_time_ms / 1000.0) ORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "lineWidth": 2,
+          "fillOpacity": 10
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      }
+    }
+  ],
+  "templating": {
+    "list": []
+  }
+}

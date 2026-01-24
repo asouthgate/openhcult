@@ -1,0 +1,105 @@
+- name: Ensure Grafana apt dependencies are installed
+  ansible.builtin.apt:
+    name:
+      - apt-transport-https
+      - ca-certificates
+      - gnupg
+      - software-properties-common
+      - wget
+    state: present
+    update_cache: true
+
+- name: Add Grafana apt key
+  ansible.builtin.apt_key:
+    url: https://apt.grafana.com/gpg.key
+    state: present
+
+- name: Add Grafana apt repo
+  ansible.builtin.apt_repository:
+    repo: deb https://apt.grafana.com stable main
+    state: present
+
+- name: Install Grafana
+  ansible.builtin.apt:
+    name: grafana
+    state: present
+    update_cache: true
+
+- name: Configure Grafana server address
+  ansible.builtin.ini_file:
+    path: /etc/grafana/grafana.ini
+    section: server
+    option: http_addr
+    value: "{{ grafana_http_addr }}"
+  notify: restart grafana
+
+- name: Configure Grafana server port
+  ansible.builtin.ini_file:
+    path: /etc/grafana/grafana.ini
+    section: server
+    option: http_port
+    value: "{{ grafana_http_port }}"
+  notify: restart grafana
+
+- name: Configure Grafana admin user
+  ansible.builtin.ini_file:
+    path: /etc/grafana/grafana.ini
+    section: security
+    option: admin_user
+    value: "{{ grafana_admin_user }}"
+  notify: restart grafana
+
+- name: Configure Grafana admin password
+  ansible.builtin.ini_file:
+    path: /etc/grafana/grafana.ini
+    section: security
+    option: admin_password
+    value: "{{ grafana_admin_password }}"
+  notify: restart grafana
+
+- name: Configure Grafana default home dashboard
+  ansible.builtin.ini_file:
+    path: /etc/grafana/grafana.ini
+    section: dashboards
+    option: default_home_dashboard_path
+    value: "{{ grafana_default_home_dashboard }}"
+  notify: restart grafana
+
+- name: Configure Grafana database path
+  ansible.builtin.ini_file:
+    path: /etc/grafana/grafana.ini
+    section: database
+    option: path
+    value: /var/lib/grafana/grafana.db
+  notify: restart grafana
+
+- name: Configure Grafana defaults
+  ansible.builtin.template:
+    src: grafana-server.defaults.j2
+    dest: /etc/default/grafana-server
+    mode: "0640"
+    owner: root
+    group: grafana
+  notify:
+    - restart grafana
+
+- name: Copy Grafana provisioning
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../grafana/provisioning/"
+    dest: /etc/grafana/provisioning/
+    owner: grafana
+    group: grafana
+    mode: "0644"
+  notify: restart grafana
+
+- name: Ensure Grafana is enabled and started
+  ansible.builtin.systemd:
+    name: grafana-server
+    enabled: true
+    state: started
+
+- name: Reset Grafana admin password
+  ansible.builtin.command:
+    cmd: grafana-cli admin reset-admin-password "{{ grafana_admin_password }}"
+  when: grafana_admin_password | length > 0
+  notify: restart grafana
