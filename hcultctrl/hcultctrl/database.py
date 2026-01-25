@@ -168,3 +168,198 @@ def update_observation(
     conn.commit()
     if cursor.rowcount == 0:
         raise ValueError("Observation not found")
+
+
+def fetch_species(
+    conn,
+    *,
+    limit: int = 1000,
+) -> Iterable[dict]:
+    """Return species rows ordered by id."""
+    placeholder = _placeholder(conn)
+    query = f"""
+        SELECT id, name, common_name, metadata
+        FROM species
+        ORDER BY id ASC
+        LIMIT {placeholder}
+    """
+    cursor = conn.cursor()
+    cursor.execute(query, [limit])
+    return _fetchall_dicts(cursor)
+
+
+def insert_species(
+    conn, *, name: str, common_name: str | None, metadata: str | None
+) -> int:
+    """Insert a species and return its id."""
+    cursor = conn.cursor()
+    if _is_postgres(conn):
+        cursor.execute(
+            "INSERT INTO species (name, common_name, metadata) VALUES (%s, %s, %s) RETURNING id",
+            (name, common_name, metadata),
+        )
+        species_id = cursor.fetchone()[0]
+    else:
+        placeholder = _placeholder(conn)
+        cursor.execute(
+            f"INSERT INTO species (name, common_name, metadata) VALUES ({placeholder}, {placeholder}, {placeholder})",
+            (name, common_name, metadata),
+        )
+        species_id = cursor.lastrowid
+    conn.commit()
+    return species_id
+
+
+def update_species(
+    conn,
+    *,
+    species_id: int,
+    name: str | None,
+    common_name: str | None,
+    metadata: str | None,
+) -> None:
+    """Update a species row."""
+    placeholder = _placeholder(conn)
+    fields = []
+    params = []
+    if name is not None:
+        fields.append(f"name = {placeholder}")
+        params.append(name)
+    if common_name is not None:
+        fields.append(f"common_name = {placeholder}")
+        params.append(common_name)
+    if metadata is not None:
+        fields.append(f"metadata = {placeholder}")
+        params.append(metadata)
+    if not fields:
+        return
+    params.append(species_id)
+    query = f"UPDATE species SET {', '.join(fields)} WHERE id = {placeholder}"
+    cursor = conn.cursor()
+    cursor.execute(query, params)
+    conn.commit()
+    if cursor.rowcount == 0:
+        raise ValueError("Species not found")
+
+
+def delete_species(conn, *, species_id: int) -> None:
+    """Delete a species row."""
+    placeholder = _placeholder(conn)
+    cursor = conn.cursor()
+    cursor.execute(f"DELETE FROM species WHERE id = {placeholder}", (species_id,))
+    conn.commit()
+    if cursor.rowcount == 0:
+        raise ValueError("Species not found")
+
+
+def delete_species_by_name(conn, *, name: str) -> None:
+    """Delete a species row."""
+    placeholder = _placeholder(conn)
+    cursor = conn.cursor()
+    cursor.execute(f"DELETE FROM species WHERE name = {placeholder}", (name,))
+    conn.commit()
+    if cursor.rowcount == 0:
+        raise ValueError("Species not found")
+
+def fetch_species_id(conn, *, name: str) -> int | None:
+    """Return a species id for a given name."""
+    placeholder = _placeholder(conn)
+    cursor = conn.cursor()
+    cursor.execute(f"SELECT id FROM species WHERE name = {placeholder}", (name,))
+    row = cursor.fetchone()
+    if row is None:
+        return None
+    return row[0]
+
+
+def fetch_plants(
+    conn,
+    *,
+    limit: int = 1000,
+) -> Iterable[dict]:
+    """Return plant rows ordered by id."""
+    placeholder = _placeholder(conn)
+    query = f"""
+        SELECT p.id, p.plant_name, p.species_id, s.name AS species_name, p.tag, p.metadata
+        FROM plants p
+        LEFT JOIN species s ON s.id = p.species_id
+        ORDER BY p.id ASC
+        LIMIT {placeholder}
+    """
+    cursor = conn.cursor()
+    cursor.execute(query, [limit])
+    return _fetchall_dicts(cursor)
+
+
+def insert_plant(
+    conn, *, plant_name: str, species_id: int | None, tag: str | None, metadata: str | None
+) -> int:
+    """Insert a plant and return its id."""
+    cursor = conn.cursor()
+    if _is_postgres(conn):
+        cursor.execute(
+            "INSERT INTO plants (plant_name, species_id, tag, metadata) VALUES (%s, %s, %s, %s) RETURNING id",
+            (plant_name, species_id, tag, metadata),
+        )
+        plant_id = cursor.fetchone()[0]
+    else:
+        placeholder = _placeholder(conn)
+        cursor.execute(
+            f"INSERT INTO plants (plant_name, species_id, tag, metadata) VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder})",
+            (plant_name, species_id, tag, metadata),
+        )
+        plant_id = cursor.lastrowid
+    conn.commit()
+    return plant_id
+
+
+def update_plant(
+    conn,
+    *,
+    plant_id: int,
+    species_id: int | None,
+    tag: str | None,
+    metadata: str | None,
+) -> None:
+    """Update a plant row."""
+    placeholder = _placeholder(conn)
+    fields = []
+    params = []
+    if species_id is not None:
+        fields.append(f"species_id = {placeholder}")
+        params.append(species_id)
+    if tag is not None:
+        fields.append(f"tag = {placeholder}")
+        params.append(tag)
+    if metadata is not None:
+        fields.append(f"metadata = {placeholder}")
+        params.append(metadata)
+    if not fields:
+        return
+    params.append(plant_id)
+    query = f"UPDATE plants SET {', '.join(fields)} WHERE id = {placeholder}"
+    cursor = conn.cursor()
+    cursor.execute(query, params)
+    conn.commit()
+    if cursor.rowcount == 0:
+        raise ValueError("Plant not found")
+
+
+def delete_plant(conn, *, plant_id: int) -> None:
+    """Delete a plant row."""
+    placeholder = _placeholder(conn)
+    cursor = conn.cursor()
+    cursor.execute(f"DELETE FROM plants WHERE id = {placeholder}", (plant_id,))
+    conn.commit()
+    if cursor.rowcount == 0:
+        raise ValueError("Plant not found")
+
+
+def delete_plant_by_name(conn, *, plant_name: int) -> None:
+    """Delete a plant row."""
+    placeholder = _placeholder(conn)
+    cursor = conn.cursor()
+    cursor.execute(f"DELETE FROM plants WHERE plant_name = {placeholder}", (plant_name,))
+    conn.commit()
+    if cursor.rowcount == 0:
+        raise ValueError("Plant not found")

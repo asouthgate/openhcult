@@ -21,5 +21,4 @@ dependencies = [
 ]
 
 [project.scripts]
-infer_events = "hcultutils.infer_events:main"
 hcultutils = "hcultutils.cli:main"

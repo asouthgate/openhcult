@@ -157,6 +157,7 @@ def _add_metadata_arg(parser):
 
 def _request_ctrl(method: str, url: str, payload: dict | None = None):
     import json as _json
+    import urllib.error as _error
     import urllib.request as _request
 
     data = None
@@ -165,8 +166,17 @@ def _request_ctrl(method: str, url: str, payload: dict | None = None):
         data = _json.dumps(payload).encode("utf-8")
         headers["Content-Type"] = "application/json"
     req = _request.Request(url, data=data, method=method, headers=headers)
-    with _request.urlopen(req, timeout=10) as resp:
-        return _json.loads(resp.read().decode("utf-8"))
+    try:
+        with _request.urlopen(req, timeout=10) as resp:
+            return _json.loads(resp.read().decode("utf-8"))
+    except _error.HTTPError as exc:
+        body = exc.read().decode("utf-8")
+        try:
+            detail = _json.loads(body).get("detail")
+        except ValueError:
+            detail = None
+        message = detail or body or exc.reason
+        raise SystemExit(f"hcultutils: {exc.code} {message}") from exc
 
 
 def _species_via_ctrl(ctrl_url: str, action: str, args) -> int:
@@ -211,11 +221,12 @@ def _plants_via_ctrl(ctrl_url: str, action: str, args) -> int:
         payload = _request_ctrl("GET", f"{base}/plants")
         for row in payload.get("data", []):
             print(
-                f"{row.get('id')}\t{row.get('species_id') or ''}\t{row.get('species_name') or ''}\t{row.get('tag') or ''}\t{row.get('metadata') or ''}"
+                f"{row.get('id')}\t{row.get('plant_name')}\t{row.get('species_id') or ''}\t{row.get('species_name') or ''}\t{row.get('tag') or ''}\t{row.get('metadata') or ''}"
             )
         return 0
     if action == "add":
         payload = {
+            "plant_name": args.plant_name,
             "species_name": args.species_name,
             "tag": args.tag,
             "metadata": json.loads(args.metadata) if args.metadata else None,
@@ -235,8 +246,8 @@ def _plants_via_ctrl(ctrl_url: str, action: str, args) -> int:
         print(f"Updated plant {updated.get('id')}")
         return 0
     if action == "rm":
-        deleted = _request_ctrl("DELETE", f"{base}/plants/{args.id}")
-        print(f"Deleted plant {deleted.get('id')}")
+        deleted = _request_ctrl("DELETE", f"{base}/plants/{args.plant_name}")
+        print(f"Deleted plant {deleted.get('plant_name')}")
         return 0
     return 1
 
@@ -273,7 +284,8 @@ def main() -> int:
     plants_sub = plants_parser.add_subparsers(dest='action')
     plants_sub.required = True
     plants_add = plants_sub.add_parser('add')
-    plants_add.add_argument("species_name", type=str)
+    plants_add.add_argument("plant_name", type=str)
+    plants_add.add_argument("--species_name", type=str)
     plants_add.add_argument("--tag", default=None)
     _add_metadata_arg(plants_add)
     plants_sub.add_parser('ls')
@@ -283,7 +295,7 @@ def main() -> int:
     plants_update.add_argument("--tag", default=None)
     _add_metadata_arg(plants_update)
     plants_rm = plants_sub.add_parser('rm')
-    plants_rm.add_argument("id", type=int)
+    plants_rm.add_argument("plant_name", type=str)
 
     args = parser.parse_args()
     if args.command == 'plot_timeseries':

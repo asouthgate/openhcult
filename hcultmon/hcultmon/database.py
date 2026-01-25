@@ -72,6 +72,30 @@ def setup_db(db_url: str):
             )
             """
         )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS species (
+                id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                name TEXT NOT NULL,
+                common_name TEXT,
+                metadata JSONB
+            )
+            """
+        )
+        cursor.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS species_name_unique ON species (name)"
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS plants (
+                id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                plant_name TEXT NOT NULL,
+                species_id INTEGER REFERENCES species(id),
+                tag TEXT,
+                metadata JSONB
+            )
+            """
+        )
     else:
         cursor.execute(
             """
@@ -105,6 +129,29 @@ def setup_db(db_url: str):
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 observed_at INTEGER NOT NULL,
                 note TEXT NOT NULL
+            )
+            """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS species (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                common_name TEXT,
+                metadata TEXT
+            )
+            """
+        )
+        cursor.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS species_name_unique ON species (name)"
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS plants (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                species_id INTEGER REFERENCES species(id),
+                tag TEXT,
+                metadata TEXT
             )
             """
         )

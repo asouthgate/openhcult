@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import csv
 import io
+import json
+import logging
 import time
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
@@ -17,20 +19,40 @@ from . import database
 
 
 app = FastAPI(title="hcultctrl", version="0.1.0")
+logger = logging.getLogger(__name__)
 
-_db_conn = None
+
+def _get_db_conn():
+    db_url = config.get_db_url()
+    conn = database.connect(db_url)
+    try:
+        yield conn
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        conn.close()
 
 
-def _get_db():
-    global _db_conn
-    if _db_conn is None:
-        db_url = config.get_db_url()
-        _db_conn = database.connect(db_url)
-    return _db_conn
+def _normalize_metadata(value):
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return value
+    return value
 
 
 @app.get("/")
 def root():
+    logger.info("GET /")
     return {"service": "hcultctrl", "status": "ok"}
 
 
@@ -44,7 +66,19 @@ def timeseries(
     end_utc: Optional[str] = None,
     limit: int = Query(default=10000, ge=1, le=100000),
     format: str = Query(default="json", pattern="^(json|csv)$"),
+    conn=Depends(_get_db_conn),
 ):
+    logger.info(
+        "GET /timeseries sensor=%s device=%s start_ms=%s end_ms=%s start_utc=%s end_utc=%s limit=%s format=%s",
+        sensor,
+        device,
+        start_ms,
+        end_ms,
+        start_utc,
+        end_utc,
+        limit,
+        format,
+    )
     if start_utc and start_ms is not None:
         raise HTTPException(status_code=400, detail="Use start_ms or start_utc, not both")
     if end_utc and end_ms is not None:
@@ -59,7 +93,7 @@ def timeseries(
         raise HTTPException(status_code=400, detail="start_ms must be <= end_ms")
 
     rows = database.fetch_timeseries(
-        _get_db(),
+        conn,
         sensor=sensor,
         device=device,
         start_ms=start_ms,
@@ -121,7 +155,12 @@ class ObservationUpdate(BaseModel):
 
 
 @app.post("/observations")
-def create_observation(payload: ObservationIn):
+def create_observation(payload: ObservationIn, conn=Depends(_get_db_conn)):
+    logger.info(
+        "POST /observations observed_at=%s note_length=%s",
+        payload.observed_at,
+        len(payload.note or ""),
+    )
     note = payload.note.strip()
     if not note:
         raise HTTPException(status_code=400, detail="note must be non-empty")
@@ -130,9 +169,7 @@ def create_observation(payload: ObservationIn):
         if payload.observed_at
         else int(time.time() * 1000)
     )
-    obs_id = database.insert_observation(
-        _get_db(), note=note, observed_at_ms=observed_at_ms
-    )
+    obs_id = database.insert_observation(conn, note=note, observed_at_ms=observed_at_ms)
     return {"id": obs_id, "observed_at": observed_at_ms, "note": note}
 
 
@@ -143,7 +180,16 @@ def list_observations(
     start_utc: Optional[str] = None,
     end_utc: Optional[str] = None,
     limit: int = Query(default=1000, ge=1, le=100000),
+    conn=Depends(_get_db_conn),
 ):
+    logger.info(
+        "GET /observations start_ms=%s end_ms=%s start_utc=%s end_utc=%s limit=%s",
+        start_ms,
+        end_ms,
+        start_utc,
+        end_utc,
+        limit,
+    )
     if start_utc and start_ms is not None:
         raise HTTPException(status_code=400, detail="Use start_ms or start_utc, not both")
     if end_utc and end_ms is not None:
@@ -157,9 +203,7 @@ def list_observations(
     if start_ms is not None and end_ms is not None and start_ms > end_ms:
         raise HTTPException(status_code=400, detail="start_ms must be <= end_ms")
 
-    rows = database.fetch_observations(
-        _get_db(), start_ms=start_ms, end_ms=end_ms, limit=limit
-    )
+    rows = database.fetch_observations(conn, start_ms=start_ms, end_ms=end_ms, limit=limit)
     data = [
         {"id": row["id"], "observed_at": row["observed_at"], "note": row["note"]}
         for row in rows
@@ -168,7 +212,13 @@ def list_observations(
 
 
 @app.patch("/observations/{obs_id}")
-def update_observation(obs_id: int, payload: ObservationUpdate):
+def update_observation(obs_id: int, payload: ObservationUpdate, conn=Depends(_get_db_conn)):
+    logger.info(
+        "PATCH /observations/%s observed_at=%s note_set=%s",
+        obs_id,
+        payload.observed_at,
+        payload.note is not None,
+    )
     note = payload.note.strip() if payload.note is not None else None
     if payload.note is not None and not note:
         raise HTTPException(status_code=400, detail="note must be non-empty")
@@ -179,7 +229,7 @@ def update_observation(obs_id: int, payload: ObservationUpdate):
     )
     try:
         database.update_observation(
-            _get_db(), obs_id=obs_id, observed_at_ms=observed_at_ms, note=note
+            conn, obs_id=obs_id, observed_at_ms=observed_at_ms, note=note
         )
     except ValueError:
         raise HTTPException(status_code=404, detail="Observation not found")
@@ -197,3 +247,213 @@ def _parse_utc_ms(value: str, field: str) -> int:
         return int(parsed.timestamp() * 1000)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=f"Invalid {field}: {value}") from exc
+
+
+class SpeciesIn(BaseModel):
+    name: str
+    common_name: Optional[str] = None
+    metadata: Optional[dict] = None
+
+
+class SpeciesUpdate(BaseModel):
+    name: Optional[str] = None
+    common_name: Optional[str] = None
+    metadata: Optional[dict] = None
+
+
+class PlantIn(BaseModel):
+    plant_name: str
+    species_id: Optional[int] = None
+    species_name: Optional[str] = None
+    tag: Optional[str] = None
+    metadata: Optional[dict] = None
+
+
+class PlantUpdate(BaseModel):
+    species_id: Optional[int] = None
+    species_name: Optional[str] = None
+    tag: Optional[str] = None
+    metadata: Optional[dict] = None
+
+
+@app.get("/species")
+def list_species(limit: int = Query(default=1000, ge=1, le=100000), conn=Depends(_get_db_conn)):
+    logger.info("GET /species limit=%s", limit)
+    rows = database.fetch_species(conn, limit=limit)
+    data = [
+        {
+            "id": row["id"],
+            "name": row["name"],
+            "common_name": row["common_name"],
+            "metadata": _normalize_metadata(row["metadata"]),
+        }
+        for row in rows
+    ]
+    return {"count": len(data), "data": data}
+
+
+@app.post("/species")
+def create_species(payload: SpeciesIn, conn=Depends(_get_db_conn)):
+    logger.info(
+        "POST /species name=%s common_name=%s metadata_set=%s",
+        payload.name,
+        payload.common_name,
+        payload.metadata is not None,
+    )
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name must be non-empty")
+    metadata = json.dumps(payload.metadata) if payload.metadata is not None else None
+    try:
+        species_id = database.insert_species(
+            conn,
+            name=name,
+            common_name=payload.common_name,
+            metadata=metadata,
+        )
+    except Exception as exc:
+        message = str(exc).lower()
+        if "unique" in message or "duplicate" in message:
+            raise HTTPException(status_code=409, detail="Species already exists") from exc
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"id": species_id, "name": name, "common_name": payload.common_name, "metadata": payload.metadata}
+
+
+@app.patch("/species/{species_id}")
+def update_species(species_id: int, payload: SpeciesUpdate, conn=Depends(_get_db_conn)):
+    logger.info(
+        "PATCH /species/%s name_set=%s common_name_set=%s metadata_set=%s",
+        species_id,
+        payload.name is not None,
+        payload.common_name is not None,
+        payload.metadata is not None,
+    )
+    name = payload.name.strip() if payload.name is not None else None
+    if payload.name is not None and not name:
+        raise HTTPException(status_code=400, detail="name must be non-empty")
+    metadata = json.dumps(payload.metadata) if payload.metadata is not None else None
+    try:
+        database.update_species(
+            conn,
+            species_id=species_id,
+            name=name,
+            common_name=payload.common_name,
+            metadata=metadata,
+        )
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Species not found")
+    return {"id": species_id, "name": name, "common_name": payload.common_name, "metadata": payload.metadata}
+
+
+@app.delete("/species/{species_name}")
+def delete_species(species_name: str, conn=Depends(_get_db_conn)):
+    logger.info("DELETE /species/%s", species_name)
+    try:
+        database.delete_species_by_name(conn, name=species_name)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Species not found")
+    except Exception as exc:
+        message = str(exc).lower()
+        if "foreign key" in message or "violates" in message:
+            raise HTTPException(
+                status_code=409, detail="Species has plants; delete plants first"
+            ) from exc
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"id": species_name}
+
+
+@app.get("/plants")
+def list_plants(limit: int = Query(default=1000, ge=1, le=100000), conn=Depends(_get_db_conn)):
+    logger.info("GET /plants limit=%s", limit)
+    rows = database.fetch_plants(conn, limit=limit)
+    data = [
+        {
+            "id": row["id"],
+            "plant_name": row["plant_name"],
+            "species_id": row["species_id"],
+            "species_name": row["species_name"],
+            "tag": row["tag"],
+            "metadata": _normalize_metadata(row["metadata"]),
+        }
+        for row in rows
+    ]
+    return {"count": len(data), "data": data}
+
+
+@app.post("/plants")
+def create_plant(payload: PlantIn, conn=Depends(_get_db_conn)):
+    logger.info(
+        "POST /plants plant_name=%s species_id=%s species_name=%s tag=%s metadata_set=%s",
+        payload.plant_name,
+        payload.species_id,
+        payload.species_name,
+        payload.tag,
+        payload.metadata is not None,
+    )
+    metadata = json.dumps(payload.metadata) if payload.metadata is not None else None
+    plant_name = payload.plant_name
+    species_id = payload.species_id
+    if payload.species_name:
+        species_id = database.fetch_species_id(conn, name=payload.species_name)
+        if species_id is None:
+            raise HTTPException(status_code=404, detail="Species not found")
+    try:
+        plant_id = database.insert_plant(
+            conn,
+            plant_name=plant_name,
+            species_id=species_id,
+            tag=payload.tag,
+            metadata=metadata,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "id": plant_id,
+        "species_id": species_id,
+        "tag": payload.tag,
+        "metadata": payload.metadata,
+    }
+
+
+@app.patch("/plants/{plant_id}")
+def update_plant(plant_id: int, payload: PlantUpdate, conn=Depends(_get_db_conn)):
+    logger.info(
+        "PATCH /plants/%s species_id=%s species_name=%s tag=%s metadata_set=%s",
+        plant_id,
+        payload.species_id,
+        payload.species_name,
+        payload.tag,
+        payload.metadata is not None,
+    )
+    metadata = json.dumps(payload.metadata) if payload.metadata is not None else None
+    species_id = payload.species_id
+    if payload.species_name:
+        species_id = database.fetch_species_id(conn, name=payload.species_name)
+        if species_id is None:
+            raise HTTPException(status_code=404, detail="Species not found")
+    try:
+        database.update_plant(
+            conn,
+            plant_id=plant_id,
+            species_id=species_id,
+            tag=payload.tag,
+            metadata=metadata,
+        )
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Plant not found")
+    return {
+        "id": plant_id,
+        "species_id": species_id,
+        "tag": payload.tag,
+        "metadata": payload.metadata,
+    }
+
+
+@app.delete("/plants/{plant_name}")
+def delete_plant(plant_name: str, conn=Depends(_get_db_conn)):
+    logger.info("DELETE /plants/%s", plant_name)
+    try:
+        database.delete_plant_by_name(conn, plant_name=plant_name)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Plant not found")
+    return {"plant_name": plant_name}
