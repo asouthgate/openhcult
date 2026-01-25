@@ -8,10 +8,16 @@ import json
 import os
 from pathlib import Path
 import sqlite3
-from urllib.parse import urlparse, unquote
+from urllib.parse import urlparse, unquote, quote
 import sys
 
 from hcultutils import infer_events, plot_timeseries
+
+
+class HcultArgumentParser(argparse.ArgumentParser):
+    def error(self, message):
+        self.print_help(sys.stderr)
+        self.exit(2, f"\nerror: {message}\n")
 
 
 def _add_base_args(parser):
@@ -251,20 +257,80 @@ def _plants_via_ctrl(ctrl_url: str, action: str, args) -> int:
         return 0
     return 1
 
+
+def _devices_via_ctrl(ctrl_url: str, action: str, args) -> int:
+    base = ctrl_url.rstrip("/")
+    if action == "ls":
+        payload = _request_ctrl("GET", f"{base}/devices")
+        for row in payload.get("data", []):
+            print(
+                f"{row.get('id')}\t{row.get('name') or ''}\t{row.get('tag') or ''}\t{row.get('address') or ''}\t{row.get('first_seen') or ''}\t{row.get('last_seen') or ''}"
+            )
+        return 0
+    if action == "name":
+        payload = {"name": args.name}
+        address = quote(args.address, safe="")
+        updated = _request_ctrl("PATCH", f"{base}/devices/{address}", payload)
+        print(f"Updated device {updated.get('address')} name={updated.get('name')}")
+        return 0
+    return 1
+
 def main() -> int:
-    parser = argparse.ArgumentParser(prog='hcultutils')
+    parser = HcultArgumentParser(
+        prog="hcultutils",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  hcultutils --ctrl-url http://127.0.0.1:8000 devices ls\n"
+            "  hcultutils --ctrl-url http://127.0.0.1:8000 devices name AA:BB:CC:DD:EE:FF \"My Device\"\n"
+            "  hcultutils plot_timeseries --sensor sensor1 --device AA:BB:CC:DD:EE:FF --start-utc 2026-01-16T12:00:00Z --end-utc 2026-01-16T13:00:00Z\n"
+            "  hcultutils infer_events --hours 6\n"
+            "  hcultutils species add pothos --common-name \"Golden Pothos\"\n"
+            "  hcultutils plants add kitchen-herb --species_name pothos\n"
+        ),
+    )
     _add_base_args(parser)
-    subparsers = parser.add_subparsers(help='subcommand help', dest='command')
+    subparsers = parser.add_subparsers(
+        help="subcommand help",
+        dest="command",
+        parser_class=HcultArgumentParser,
+    )
     subparsers.required = True
-    plot_timeseries_parser = subparsers.add_parser('plot_timeseries')
+    plot_timeseries_parser = subparsers.add_parser(
+        "plot_timeseries",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  hcultutils plot_timeseries --sensor sensor1 --device AA:BB:CC:DD:EE:FF --start-utc 2026-01-16T12:00:00Z --end-utc 2026-01-16T13:00:00Z\n"
+            "  hcultutils --ctrl-url http://127.0.0.1:8000 plot_timeseries --sensor sensor1 --limit 5000\n"
+        ),
+    )
     _add_base_args(plot_timeseries_parser)
     _add_plotter_args(plot_timeseries_parser)
 
-    infer_events_parser = subparsers.add_parser('infer_events')
+    infer_events_parser = subparsers.add_parser(
+        "infer_events",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  hcultutils infer_events --hours 6\n"
+            "  hcultutils --ctrl-url http://127.0.0.1:8000 infer_events --hours 12 --z-pvalue 0.0001\n"
+        ),
+    )
     _add_base_args(infer_events_parser)
     _add_infer_args(infer_events_parser)
 
-    species_parser = subparsers.add_parser('species')
+    species_parser = subparsers.add_parser(
+        "species",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  hcultutils species ls\n"
+            "  hcultutils species add pothos --common-name \"Golden Pothos\"\n"
+            "  hcultutils species update 1 --name pothos\n"
+            "  hcultutils species rm pothos\n"
+        ),
+    )
     species_sub = species_parser.add_subparsers(dest='action')
     species_sub.required = True
     species_add = species_sub.add_parser('add')
@@ -280,7 +346,17 @@ def main() -> int:
     species_rm = species_sub.add_parser('rm')
     species_rm.add_argument("species_name", type=str)
 
-    plants_parser = subparsers.add_parser('plants')
+    plants_parser = subparsers.add_parser(
+        "plants",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  hcultutils plants ls\n"
+            "  hcultutils plants add kitchen-herb --species_name pothos\n"
+            "  hcultutils plants update 1 --tag windowsill\n"
+            "  hcultutils plants rm kitchen-herb\n"
+        ),
+    )
     plants_sub = plants_parser.add_subparsers(dest='action')
     plants_sub.required = True
     plants_add = plants_sub.add_parser('add')
@@ -297,6 +373,22 @@ def main() -> int:
     plants_rm = plants_sub.add_parser('rm')
     plants_rm.add_argument("plant_name", type=str)
 
+    devices_parser = subparsers.add_parser(
+        "devices",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  hcultutils devices ls\n"
+            "  hcultutils devices name AA:BB:CC:DD:EE:FF \"My Device\"\n"
+        ),
+    )
+    devices_sub = devices_parser.add_subparsers(dest='action')
+    devices_sub.required = True
+    devices_sub.add_parser('ls')
+    devices_name = devices_sub.add_parser('name')
+    devices_name.add_argument("address", type=str)
+    devices_name.add_argument("name", type=str)
+
     args = parser.parse_args()
     if args.command == 'plot_timeseries':
         plot_timeseries.main(args)
@@ -307,6 +399,8 @@ def main() -> int:
         return _species_via_ctrl(args.ctrl_url, args.action, args)
     if args.command == 'plants':
         return _plants_via_ctrl(args.ctrl_url, args.action, args)
+    if args.command == 'devices':
+        return _devices_via_ctrl(args.ctrl_url, args.action, args)
     parser.print_help()
     return 1
 

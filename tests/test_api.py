@@ -5,12 +5,13 @@ from urllib import parse, request
 
 
 BASE_URL = os.environ.get("OPENHCULT_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
-SEED_DSN = os.environ.get("OPENHCULT_SEED_DSN")
+SEED_DSN = os.environ.get(
+    "OPENHCULT_SEED_DSN",
+    "postgresql://hcult:hcult@127.0.0.1:5432/hcult",
+)
 
 
 def _seed_postgres():
-    if not SEED_DSN:
-        return
     try:
         import psycopg
     except ImportError as exc:
@@ -80,8 +81,6 @@ def test_create_and_list_observations():
 
 
 def test_postgres_sensor_readings_seeded():
-    if not SEED_DSN:
-        return
     try:
         import psycopg
     except ImportError as exc:
@@ -128,3 +127,25 @@ def test_plants_smoke_flow():
     assert deleted["plant_name"] == plant_name
 
     _request_json(f"/species/{species_name}", method="DELETE")
+
+
+def test_devices_smoke_flow():
+    try:
+        import psycopg
+    except ImportError as exc:
+        raise RuntimeError("psycopg is required for OPENHCULT_SEED_DSN") from exc
+
+    address = f"AA:BB:CC:DD:{uuid.uuid4().hex[:4].upper()}"
+    name = f"pytest-device-{uuid.uuid4().hex[:8]}"
+    with psycopg.connect(SEED_DSN) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO devices (name, address) VALUES (%s, %s) "
+                "ON CONFLICT (address) DO UPDATE SET name = EXCLUDED.name",
+                (name, address),
+            )
+        conn.commit()
+
+    listed = _request_json("/devices?limit=10000")
+    addresses = [item["address"] for item in listed.get("data", [])]
+    assert address in addresses

@@ -154,6 +154,10 @@ class ObservationUpdate(BaseModel):
     observed_at: Optional[str] = None
 
 
+class DeviceNameUpdate(BaseModel):
+    name: str
+
+
 @app.post("/observations")
 def create_observation(payload: ObservationIn, conn=Depends(_get_db_conn)):
     logger.info(
@@ -211,6 +215,24 @@ def list_observations(
     return {"count": len(data), "data": data}
 
 
+@app.get("/devices")
+def list_devices(limit: int = Query(default=1000, ge=1, le=100000), conn=Depends(_get_db_conn)):
+    logger.info("GET /devices limit=%s", limit)
+    rows = database.fetch_devices(conn, limit=limit)
+    data = [
+        {
+            "id": row["id"],
+            "name": row["name"],
+            "tag": row["tag"],
+            "address": row["address"],
+            "first_seen": row["first_seen"],
+            "last_seen": row["last_seen"],
+        }
+        for row in rows
+    ]
+    return {"count": len(data), "data": data}
+
+
 @app.patch("/observations/{obs_id}")
 def update_observation(obs_id: int, payload: ObservationUpdate, conn=Depends(_get_db_conn)):
     logger.info(
@@ -234,6 +256,19 @@ def update_observation(obs_id: int, payload: ObservationUpdate, conn=Depends(_ge
     except ValueError:
         raise HTTPException(status_code=404, detail="Observation not found")
     return {"id": obs_id, "observed_at": observed_at_ms, "note": note}
+
+
+@app.patch("/devices/{device_address}")
+def update_device(device_address: str, payload: DeviceNameUpdate, conn=Depends(_get_db_conn)):
+    logger.info("PATCH /devices/%s name_set=%s", device_address, payload.name is not None)
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name must be non-empty")
+    try:
+        database.update_device_name(conn, address=device_address, name=name)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Device not found")
+    return {"address": device_address, "name": name}
 
 
 def _parse_utc_ms(value: str, field: str) -> int:

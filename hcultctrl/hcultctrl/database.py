@@ -146,6 +146,24 @@ def fetch_observations(
     return _fetchall_dicts(cursor)
 
 
+def fetch_devices(
+    conn,
+    *,
+    limit: int = 1000,
+) -> Iterable[dict]:
+    """Return device rows ordered by id."""
+    placeholder = _placeholder(conn)
+    query = f"""
+        SELECT id, name, tag, address, first_seen, last_seen
+        FROM devices
+        ORDER BY id ASC
+        LIMIT {placeholder}
+    """
+    cursor = conn.cursor()
+    cursor.execute(query, [limit])
+    return _fetchall_dicts(cursor)
+
+
 def update_observation(
     conn, *, obs_id: int, observed_at_ms: int | None, note: str | None
 ) -> None:
@@ -168,6 +186,19 @@ def update_observation(
     conn.commit()
     if cursor.rowcount == 0:
         raise ValueError("Observation not found")
+
+
+def update_device_name(conn, *, address: str, name: str) -> None:
+    """Update a device name by BLE address."""
+    placeholder = _placeholder(conn)
+    cursor = conn.cursor()
+    cursor.execute(
+        f"UPDATE devices SET name = {placeholder} WHERE address = {placeholder}",
+        (name, address),
+    )
+    conn.commit()
+    if cursor.rowcount == 0:
+        raise ValueError("Device not found")
 
 
 def fetch_species(
