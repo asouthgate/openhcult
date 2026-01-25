@@ -199,7 +199,7 @@ def _species_via_ctrl(ctrl_url: str, action: str, args) -> int:
         print(f"Updated species {updated.get('id')}")
         return 0
     if action == "rm":
-        deleted = _request_ctrl("DELETE", f"{base}/species/{args.id}")
+        deleted = _request_ctrl("DELETE", f"{base}/species/{args.species_name}")
         print(f"Deleted species {deleted.get('id')}")
         return 0
     return 1
@@ -267,7 +267,7 @@ def main() -> int:
     species_update.add_argument("--common-name", default=None)
     _add_metadata_arg(species_update)
     species_rm = species_sub.add_parser('rm')
-    species_rm.add_argument("id", type=int)
+    species_rm.add_argument("species_name", type=str)
 
     plants_parser = subparsers.add_parser('plants')
     plants_sub = plants_parser.add_subparsers(dest='action')
