@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from configparser import ConfigParser
+import json
 import os
 from pathlib import Path
 import sqlite3
@@ -12,135 +13,6 @@ import sys
 
 from hcultutils import infer_events, plot_timeseries
 
-
-DEFAULT_CONFIG_NAME = "openhcult.conf"
-
-
-def _default_config_path() -> Path:
-    base = os.environ.get("XDG_CONFIG_HOME")
-    if base:
-        return Path(base) / "openhcult" / DEFAULT_CONFIG_NAME
-    return Path.home() / ".config" / "openhcult" / DEFAULT_CONFIG_NAME
-
-
-def _load_config():
-    repo_root = Path(__file__).resolve().parents[2]
-    config_path = _default_config_path()
-    if not config_path.exists():
-        raise FileNotFoundError(f"Missing config: {config_path}")
-    parser = ConfigParser()
-    parser.read(config_path)
-    return parser, config_path, repo_root
-
-
-def _get_db_url() -> str:
-    parser, config_path, _ = _load_config()
-    if "database" not in parser or "url" not in parser["database"]:
-        raise ValueError(f"Missing database.url in {config_path}")
-    url = parser["database"]["url"].strip()
-    if not url:
-        raise ValueError(f"Empty database.url in {config_path}")
-    return url
-
-
-def _connect_db(db_url: str):
-    parsed = urlparse(db_url)
-    if parsed.scheme in ("", "file", "sqlite"):
-        if parsed.scheme in ("file", "sqlite"):
-            db_path = Path(unquote(parsed.path))
-        else:
-            db_path = Path(db_url)
-        return sqlite3.connect(str(db_path))
-    if parsed.scheme.startswith("postgres"):
-        import psycopg
-
-        return psycopg.connect(db_url)
-    raise ValueError(f"Unsupported database URL: {db_url}")
-
-
-def _placeholder(conn) -> str:
-    module = conn.__class__.__module__
-    return "%s" if "psycopg" in module or "psycopg2" in module else "?"
-
-
-def _parse_device_id(value: str) -> tuple[str, str]:
-    try:
-        device_id = int(value)
-    except ValueError:
-        return "address", value
-    return "id", str(device_id)
-
-
-def _update_device_tag(device_key: str, device_value: str, new_tag: str) -> int:
-    db_url = _get_db_url()
-    conn = _connect_db(db_url)
-    try:
-        cursor = conn.cursor()
-        placeholder = _placeholder(conn)
-        if device_key == "id":
-            cursor.execute(
-                f"SELECT id, address, tag FROM devices WHERE id = {placeholder}",
-                (device_value,),
-            )
-        else:
-            cursor.execute(
-                f"SELECT id, address, tag FROM devices WHERE address = {placeholder}",
-                (device_value,),
-            )
-        row = cursor.fetchone()
-        if not row:
-            print(f"No device found for {device_key}={device_value}", file=sys.stderr)
-            return 1
-        device_id, address, old_tag = row
-        cursor.execute(
-            f"UPDATE devices SET tag = {placeholder}, last_seen = CURRENT_TIMESTAMP WHERE id = {placeholder}",
-            (new_tag, device_id),
-        )
-        conn.commit()
-        print(f"Updated device {device_id} ({address}): {old_tag} -> {new_tag}")
-        return 0
-    finally:
-        conn.close()
-
-
-def _list_devices() -> int:
-    db_url = _get_db_url()
-    conn = _connect_db(db_url)
-    try:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT id, name, tag, address, last_seen FROM devices ORDER BY id ASC"
-        )
-        rows = cursor.fetchall()
-        if not rows:
-            print("No devices found.")
-            return 0
-        print("id\tname\ttag\taddress\tlast_seen")
-        for device_id, name, tag, address, last_seen in rows:
-            safe_name = "" if name is None else name
-            safe_tag = "" if tag is None else tag
-            safe_address = "" if address is None else address
-            safe_last_seen = "" if last_seen is None else last_seen
-            print(
-                f"{device_id}\t{safe_name}\t{safe_tag}\t{safe_address}\t{safe_last_seen}"
-            )
-        return 0
-    finally:
-        conn.close()
-
-
-def _build_parser() -> argparse.ArgumentParser:
-    return parser
-
-
-def _print_usage_examples(parser: argparse.ArgumentParser) -> None:
-    parser.print_help()
-    print("\nExamples:")
-    print("  hcult sensor ls")
-    print("  hcult sensor tag 3 Kitchen_Sink")
-    print("  hcult sensor tag AA:BB:CC:DD:EE:FF Garden")
-    print("  hcult plot_timeseries --ctrl-url http://127.0.0.1:8000")
-    print("  hcult infer_events --hours 1")
 
 def _add_base_args(parser):
     parser.add_argument(
@@ -160,16 +32,6 @@ def _add_base_args(parser):
     )
 
 def _add_plotter_args(parser):
-    parser.add_argument(
-        "--config",
-        default=str(_default_config_path()),
-        help="Path to openhcult.conf (default: XDG config)",
-    )
-    parser.add_argument(
-        "--db",
-        default=None,
-        help="Override database URL (otherwise read from config)",
-    )
     parser.add_argument(
         "--sensor",
         default=None,
@@ -284,8 +146,103 @@ def _add_infer_args(parser):
         help="Minimum seconds between stored events",
     )
 
+
+def _add_metadata_arg(parser):
+    parser.add_argument(
+        "--metadata",
+        default=None,
+        help="JSON metadata payload",
+    )
+
+
+def _request_ctrl(method: str, url: str, payload: dict | None = None):
+    import json as _json
+    import urllib.request as _request
+
+    data = None
+    headers = {"Accept": "application/json"}
+    if payload is not None:
+        data = _json.dumps(payload).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    req = _request.Request(url, data=data, method=method, headers=headers)
+    with _request.urlopen(req, timeout=10) as resp:
+        return _json.loads(resp.read().decode("utf-8"))
+
+
+def _species_via_ctrl(ctrl_url: str, action: str, args) -> int:
+    base = ctrl_url.rstrip("/")
+    if action == "ls":
+        payload = _request_ctrl("GET", f"{base}/species")
+        for row in payload.get("data", []):
+            print(
+                f"{row.get('id')}\t{row.get('name')}\t{row.get('common_name') or ''}\t{row.get('metadata') or ''}"
+            )
+        return 0
+    if action == "add":
+        payload = {
+            "name": args.name,
+            "common_name": args.common_name,
+            "metadata": json.loads(args.metadata) if args.metadata else None,
+        }
+        created = _request_ctrl("POST", f"{base}/species", payload)
+        print(f"Created species {created.get('id')}")
+        return 0
+    if action == "update":
+        payload = {}
+        if args.name is not None:
+            payload["name"] = args.name
+        if args.common_name is not None:
+            payload["common_name"] = args.common_name
+        if args.metadata is not None:
+            payload["metadata"] = json.loads(args.metadata)
+        updated = _request_ctrl("PATCH", f"{base}/species/{args.id}", payload)
+        print(f"Updated species {updated.get('id')}")
+        return 0
+    if action == "rm":
+        deleted = _request_ctrl("DELETE", f"{base}/species/{args.id}")
+        print(f"Deleted species {deleted.get('id')}")
+        return 0
+    return 1
+
+
+def _plants_via_ctrl(ctrl_url: str, action: str, args) -> int:
+    base = ctrl_url.rstrip("/")
+    if action == "ls":
+        payload = _request_ctrl("GET", f"{base}/plants")
+        for row in payload.get("data", []):
+            print(
+                f"{row.get('id')}\t{row.get('species_id') or ''}\t{row.get('species_name') or ''}\t{row.get('tag') or ''}\t{row.get('metadata') or ''}"
+            )
+        return 0
+    if action == "add":
+        payload = {
+            "species_name": args.species_name,
+            "tag": args.tag,
+            "metadata": json.loads(args.metadata) if args.metadata else None,
+        }
+        created = _request_ctrl("POST", f"{base}/plants", payload)
+        print(f"Created plant {created.get('id')}")
+        return 0
+    if action == "update":
+        payload = {}
+        if args.species_id is not None:
+            payload["species_id"] = args.species_id
+        if args.tag is not None:
+            payload["tag"] = args.tag
+        if args.metadata is not None:
+            payload["metadata"] = json.loads(args.metadata)
+        updated = _request_ctrl("PATCH", f"{base}/plants/{args.id}", payload)
+        print(f"Updated plant {updated.get('id')}")
+        return 0
+    if action == "rm":
+        deleted = _request_ctrl("DELETE", f"{base}/plants/{args.id}")
+        print(f"Deleted plant {deleted.get('id')}")
+        return 0
+    return 1
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog='hcultutils')
+    _add_base_args(parser)
     subparsers = parser.add_subparsers(help='subcommand help', dest='command')
     subparsers.required = True
     plot_timeseries_parser = subparsers.add_parser('plot_timeseries')
@@ -296,15 +253,50 @@ def main() -> int:
     _add_base_args(infer_events_parser)
     _add_infer_args(infer_events_parser)
 
+    species_parser = subparsers.add_parser('species')
+    species_sub = species_parser.add_subparsers(dest='action')
+    species_sub.required = True
+    species_add = species_sub.add_parser('add')
+    species_add.add_argument("name")
+    species_add.add_argument("--common-name", default=None)
+    _add_metadata_arg(species_add)
+    species_sub.add_parser('ls')
+    species_update = species_sub.add_parser('update')
+    species_update.add_argument("id", type=int)
+    species_update.add_argument("--name", default=None)
+    species_update.add_argument("--common-name", default=None)
+    _add_metadata_arg(species_update)
+    species_rm = species_sub.add_parser('rm')
+    species_rm.add_argument("id", type=int)
+
+    plants_parser = subparsers.add_parser('plants')
+    plants_sub = plants_parser.add_subparsers(dest='action')
+    plants_sub.required = True
+    plants_add = plants_sub.add_parser('add')
+    plants_add.add_argument("species_name", type=str)
+    plants_add.add_argument("--tag", default=None)
+    _add_metadata_arg(plants_add)
+    plants_sub.add_parser('ls')
+    plants_update = plants_sub.add_parser('update')
+    plants_update.add_argument("id", type=str)
+    plants_update.add_argument("--species-id", type=int, default=None)
+    plants_update.add_argument("--tag", default=None)
+    _add_metadata_arg(plants_update)
+    plants_rm = plants_sub.add_parser('rm')
+    plants_rm.add_argument("id", type=int)
+
     args = parser.parse_args()
     if args.command == 'plot_timeseries':
         plot_timeseries.main(args)
         return 0
     if args.command == 'infer_events':
         return infer_events.run(args)
+    if args.command == 'species':
+        return _species_via_ctrl(args.ctrl_url, args.action, args)
+    if args.command == 'plants':
+        return _plants_via_ctrl(args.ctrl_url, args.action, args)
     parser.print_help()
     return 1
-
 
 
 if __name__ == "__main__":
