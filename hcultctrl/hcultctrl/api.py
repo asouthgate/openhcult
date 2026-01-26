@@ -533,3 +533,8 @@ def plant_health(plant_name: str, conn=Depends(_get_db_conn)):
         {"id": 3, "observed_at": now_ms - 600_000, "note": "PLACEHOLDER Light levels low"},
     ]
     return {"plant_name": plant_name, "health": "LOW", "recent_observations": recent}
+
+
+@app.post("/plants/{plant_name}/health")
+def plant_health_post(plant_name: str, conn=Depends(_get_db_conn)):
+    return plant_health(plant_name, conn=conn)

@@ -25,6 +25,13 @@
     state: present
     update_cache: true
 
+- name: Install Grafana plugins
+  ansible.builtin.command:
+    cmd: grafana-cli plugins install "{{ item }}"
+    creates: "/var/lib/grafana/plugins/{{ item }}"
+  loop: "{{ grafana_plugins }}"
+  notify: restart grafana
+
 - name: Configure Grafana server address
   ansible.builtin.ini_file:
     path: /etc/grafana/grafana.ini
