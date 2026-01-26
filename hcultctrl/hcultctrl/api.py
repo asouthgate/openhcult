@@ -147,11 +147,13 @@ def timeseries(
 class ObservationIn(BaseModel):
     note: str
     observed_at: Optional[str] = None
+    plant_id: Optional[int] = None
 
 
 class ObservationUpdate(BaseModel):
     note: Optional[str] = None
     observed_at: Optional[str] = None
+    plant_id: Optional[int] = None
 
 
 class DeviceNameUpdate(BaseModel):
@@ -173,8 +175,18 @@ def create_observation(payload: ObservationIn, conn=Depends(_get_db_conn)):
         if payload.observed_at
         else int(time.time() * 1000)
     )
-    obs_id = database.insert_observation(conn, note=note, observed_at_ms=observed_at_ms)
-    return {"id": obs_id, "observed_at": observed_at_ms, "note": note}
+    obs_id = database.insert_observation(
+        conn,
+        note=note,
+        observed_at_ms=observed_at_ms,
+        plant_id=payload.plant_id,
+    )
+    return {
+        "id": obs_id,
+        "observed_at": observed_at_ms,
+        "note": note,
+        "plant_id": payload.plant_id,
+    }
 
 
 @app.get("/observations")
@@ -209,7 +221,12 @@ def list_observations(
 
     rows = database.fetch_observations(conn, start_ms=start_ms, end_ms=end_ms, limit=limit)
     data = [
-        {"id": row["id"], "observed_at": row["observed_at"], "note": row["note"]}
+        {
+            "id": row["id"],
+            "observed_at": row["observed_at"],
+            "note": row["note"],
+            "plant_id": row.get("plant_id"),
+        }
         for row in rows
     ]
     return {"count": len(data), "data": data}
@@ -251,11 +268,20 @@ def update_observation(obs_id: int, payload: ObservationUpdate, conn=Depends(_ge
     )
     try:
         database.update_observation(
-            conn, obs_id=obs_id, observed_at_ms=observed_at_ms, note=note
+            conn,
+            obs_id=obs_id,
+            observed_at_ms=observed_at_ms,
+            note=note,
+            plant_id=payload.plant_id,
         )
     except ValueError:
         raise HTTPException(status_code=404, detail="Observation not found")
-    return {"id": obs_id, "observed_at": observed_at_ms, "note": note}
+    return {
+        "id": obs_id,
+        "observed_at": observed_at_ms,
+        "note": note,
+        "plant_id": payload.plant_id,
+    }
 
 
 @app.patch("/devices/{device_address}")
@@ -492,3 +518,18 @@ def delete_plant(plant_name: str, conn=Depends(_get_db_conn)):
     except ValueError:
         raise HTTPException(status_code=404, detail="Plant not found")
     return {"plant_name": plant_name}
+
+
+@app.get("/plants/{plant_name}/health")
+def plant_health(plant_name: str, conn=Depends(_get_db_conn)):
+    logger.info("GET /plants/%s/health", plant_name)
+    plant = database.fetch_plant_by_name(conn, plant_name=plant_name)
+    if plant is None:
+        raise HTTPException(status_code=404, detail="Plant not found")
+    now_ms = int(time.time() * 1000)
+    recent = [
+        {"id": 1, "observed_at": now_ms - 3600_000, "note": "PLACEHOLDER Leaves drooping"},
+        {"id": 2, "observed_at": now_ms - 1800_000, "note": "PLACEHOLDER Soil feels dry"},
+        {"id": 3, "observed_at": now_ms - 600_000, "note": "PLACEHOLDER Light levels low"},
+    ]
+    return {"plant_name": plant_name, "health": "LOW", "recent_observations": recent}

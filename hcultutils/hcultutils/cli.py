@@ -255,6 +255,11 @@ def _plants_via_ctrl(ctrl_url: str, action: str, args) -> int:
         deleted = _request_ctrl("DELETE", f"{base}/plants/{args.plant_name}")
         print(f"Deleted plant {deleted.get('plant_name')}")
         return 0
+    if action == "health":
+        plant_name = quote(args.plant_name, safe="")
+        payload = _request_ctrl("GET", f"{base}/plants/{plant_name}/health")
+        print(json.dumps(payload))
+        return 0
     return 1
 
 
@@ -287,6 +292,7 @@ def main() -> int:
             "  hcultutils infer_events --hours 6\n"
             "  hcultutils species add pothos --common-name \"Golden Pothos\"\n"
             "  hcultutils plants add kitchen-herb --species_name pothos\n"
+            "  hcultutils plant health kitchen-herb\n"
         ),
     )
     _add_base_args(parser)
@@ -355,6 +361,7 @@ def main() -> int:
             "  hcultutils plants add kitchen-herb --species_name pothos\n"
             "  hcultutils plants update 1 --tag windowsill\n"
             "  hcultutils plants rm kitchen-herb\n"
+            "  hcultutils plants health kitchen-herb\n"
         ),
     )
     plants_sub = plants_parser.add_subparsers(dest='action')
@@ -372,6 +379,22 @@ def main() -> int:
     _add_metadata_arg(plants_update)
     plants_rm = plants_sub.add_parser('rm')
     plants_rm.add_argument("plant_name", type=str)
+
+    plants_health = plants_sub.add_parser("health")
+    plants_health.add_argument("plant_name", type=str)
+
+    plant_parser = subparsers.add_parser(
+        "plant",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  hcultutils plant health kitchen-herb\n"
+        ),
+    )
+    plant_sub = plant_parser.add_subparsers(dest="action")
+    plant_sub.required = True
+    plant_health = plant_sub.add_parser("health")
+    plant_health.add_argument("plant_name", type=str)
 
     devices_parser = subparsers.add_parser(
         "devices",
@@ -398,6 +421,8 @@ def main() -> int:
     if args.command == 'species':
         return _species_via_ctrl(args.ctrl_url, args.action, args)
     if args.command == 'plants':
+        return _plants_via_ctrl(args.ctrl_url, args.action, args)
+    if args.command == "plant":
         return _plants_via_ctrl(args.ctrl_url, args.action, args)
     if args.command == 'devices':
         return _devices_via_ctrl(args.ctrl_url, args.action, args)

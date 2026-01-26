@@ -68,7 +68,8 @@ def setup_db(db_url: str):
             CREATE TABLE IF NOT EXISTS observations (
                 id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
                 observed_at BIGINT NOT NULL,
-                note TEXT NOT NULL
+                note TEXT NOT NULL,
+                plant_id INTEGER REFERENCES plants(id)
             )
             """
         )
@@ -128,7 +129,8 @@ def setup_db(db_url: str):
             CREATE TABLE IF NOT EXISTS observations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 observed_at INTEGER NOT NULL,
-                note TEXT NOT NULL
+                note TEXT NOT NULL,
+                plant_id INTEGER
             )
             """
         )

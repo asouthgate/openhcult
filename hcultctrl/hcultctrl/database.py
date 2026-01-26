@@ -93,20 +93,22 @@ def fetch_timeseries(
     return _fetchall_dicts(cursor)
 
 
-def insert_observation(conn, *, note: str, observed_at_ms: int) -> int:
+def insert_observation(
+    conn, *, note: str, observed_at_ms: int, plant_id: int | None
+) -> int:
     """Insert an observation and return its id."""
     cursor = conn.cursor()
     if _is_postgres(conn):
         cursor.execute(
-            "INSERT INTO observations (observed_at, note) VALUES (%s, %s) RETURNING id",
-            (observed_at_ms, note),
+            "INSERT INTO observations (observed_at, note, plant_id) VALUES (%s, %s, %s) RETURNING id",
+            (observed_at_ms, note, plant_id),
         )
         obs_id = cursor.fetchone()[0]
     else:
         placeholder = _placeholder(conn)
         cursor.execute(
-            f"INSERT INTO observations (observed_at, note) VALUES ({placeholder}, {placeholder})",
-            (observed_at_ms, note),
+            f"INSERT INTO observations (observed_at, note, plant_id) VALUES ({placeholder}, {placeholder}, {placeholder})",
+            (observed_at_ms, note, plant_id),
         )
         obs_id = cursor.lastrowid
     conn.commit()
@@ -134,7 +136,7 @@ def fetch_observations(
     if clauses:
         where = "WHERE " + " AND ".join(clauses)
     query = f"""
-        SELECT id, observed_at, note
+        SELECT id, observed_at, note, plant_id
         FROM observations
         {where}
         ORDER BY observed_at ASC, id ASC
@@ -165,7 +167,12 @@ def fetch_devices(
 
 
 def update_observation(
-    conn, *, obs_id: int, observed_at_ms: int | None, note: str | None
+    conn,
+    *,
+    obs_id: int,
+    observed_at_ms: int | None,
+    note: str | None,
+    plant_id: int | None,
 ) -> None:
     """Update an observation in place."""
     fields = []
@@ -177,6 +184,9 @@ def update_observation(
     if note is not None:
         fields.append(f"note = {placeholder}")
         params.append(note)
+    if plant_id is not None:
+        fields.append(f"plant_id = {placeholder}")
+        params.append(plant_id)
     if not fields:
         return
     params.append(obs_id)
@@ -320,6 +330,23 @@ def fetch_plants(
     cursor = conn.cursor()
     cursor.execute(query, [limit])
     return _fetchall_dicts(cursor)
+
+
+def fetch_plant_by_name(conn, *, plant_name: str) -> dict | None:
+    """Return a plant row for a given plant_name."""
+    placeholder = _placeholder(conn)
+    query = f"""
+        SELECT p.id, p.plant_name, p.species_id, s.name AS species_name, p.tag, p.metadata
+        FROM plants p
+        LEFT JOIN species s ON s.id = p.species_id
+        WHERE p.plant_name = {placeholder}
+    """
+    cursor = conn.cursor()
+    cursor.execute(query, [plant_name])
+    rows = _fetchall_dicts(cursor)
+    if not rows:
+        return None
+    return rows[0]
 
 
 def insert_plant(
