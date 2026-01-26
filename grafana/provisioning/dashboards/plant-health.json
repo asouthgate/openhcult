@@ -3,42 +3,27 @@
   "title": "Plant Health",
   "timezone": "browser",
   "schemaVersion": 38,
-  "version": 1,
+  "version": 2,
   "refresh": "30s",
   "time": {
     "from": "now-6h",
     "to": "now"
   },
   "templating": {
-    "list": [
-      {
-        "name": "plant",
-        "type": "query",
-        "datasource": {
-          "type": "marcusolsson-json-datasource",
-          "uid": "openhcult-ctrl"
-        },
-        "query": "/plants",
-        "jsonPath": "$.data[*].plant_name",
-        "refresh": 1,
-        "sort": 1,
-        "multi": false,
-        "includeAll": false
-      }
-    ]
+    "list": []
   },
   "panels": [
     {
       "id": 1,
-      "type": "stat",
-      "title": "Health",
+      "type": "table",
+      "title": "Plant Health (Placeholder)",
       "datasource": {
         "type": "marcusolsson-json-datasource",
         "uid": "openhcult-ctrl"
       },
       "gridPos": {
-        "h": 6,
-        "w": 6,
+        "h": 12,
+        "w": 24,
         "x": 0,
         "y": 0
       },
@@ -46,63 +31,19 @@
         {
           "refId": "A",
           "method": "GET",
-          "urlPath": "/plants/${plant}/health",
+          "urlPath": "/plants/health",
           "format": "table",
+          "rootSelector": "$.data",
           "fields": [
+            {
+              "name": "plant_name",
+              "type": "string",
+              "jsonPath": "$.plant_name"
+            },
             {
               "name": "health",
               "type": "string",
               "jsonPath": "$.health"
-            }
-          ]
-        }
-      ],
-      "options": {
-        "reduceOptions": {
-          "calcs": ["lastNotNull"],
-          "fields": "",
-          "values": false
-        },
-        "orientation": "auto",
-        "textMode": "value"
-      }
-    },
-    {
-      "id": 2,
-      "type": "table",
-      "title": "Recent Observations",
-      "datasource": {
-        "type": "marcusolsson-json-datasource",
-        "uid": "openhcult-ctrl"
-      },
-      "gridPos": {
-        "h": 12,
-        "w": 18,
-        "x": 6,
-        "y": 0
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "method": "GET",
-          "urlPath": "/plants/${plant}/health",
-          "format": "table",
-          "rootSelector": "$.recent_observations",
-          "fields": [
-            {
-              "name": "id",
-              "type": "number",
-              "jsonPath": "$.id"
-            },
-            {
-              "name": "observed_at",
-              "type": "number",
-              "jsonPath": "$.observed_at"
-            },
-            {
-              "name": "note",
-              "type": "string",
-              "jsonPath": "$.note"
             }
           ]
         }

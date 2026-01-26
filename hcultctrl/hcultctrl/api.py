@@ -526,15 +526,36 @@ def plant_health(plant_name: str, conn=Depends(_get_db_conn)):
     plant = database.fetch_plant_by_name(conn, plant_name=plant_name)
     if plant is None:
         raise HTTPException(status_code=404, detail="Plant not found")
+    return _build_health_payload(plant_name)
+
+
+@app.post("/plants/{plant_name}/health")
+def plant_health_post(plant_name: str, conn=Depends(_get_db_conn)):
+    return plant_health(plant_name, conn=conn)
+
+
+@app.get("/plants/health")
+def plant_health_all(conn=Depends(_get_db_conn)):
+    logger.info("GET /plants/health")
+    rows = database.fetch_plants(conn, limit=10000)
+    data = [_build_health_payload(row["plant_name"]) for row in rows]
+    return {"count": len(data), "data": data}
+
+
+@app.post("/plants/health")
+def plant_health_all_post(conn=Depends(_get_db_conn)):
+    return plant_health_all(conn=conn)
+
+
+def _build_health_payload(plant_name: str) -> dict:
     now_ms = int(time.time() * 1000)
     recent = [
         {"id": 1, "observed_at": now_ms - 3600_000, "note": "PLACEHOLDER Leaves drooping"},
         {"id": 2, "observed_at": now_ms - 1800_000, "note": "PLACEHOLDER Soil feels dry"},
         {"id": 3, "observed_at": now_ms - 600_000, "note": "PLACEHOLDER Light levels low"},
     ]
-    return {"plant_name": plant_name, "health": "LOW", "recent_observations": recent}
-
-
-@app.post("/plants/{plant_name}/health")
-def plant_health_post(plant_name: str, conn=Depends(_get_db_conn)):
-    return plant_health(plant_name, conn=conn)
+    return {
+        "plant_name": plant_name,
+        "health": "LOW",
+        "recent_observations": recent,
+    }
