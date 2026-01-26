@@ -554,8 +554,11 @@ def _build_health_payload(plant_name: str) -> dict:
         {"id": 2, "observed_at": now_ms - 1800_000, "note": "PLACEHOLDER Soil feels dry"},
         {"id": 3, "observed_at": now_ms - 600_000, "note": "PLACEHOLDER Light levels low"},
     ]
+    recent_latest = recent[-1]
     return {
         "plant_name": plant_name,
         "health": "LOW",
+        "recent_observation": recent_latest["note"],
+        "recent_observed_at": recent_latest["observed_at"],
         "recent_observations": recent,
     }

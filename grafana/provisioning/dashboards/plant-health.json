@@ -44,6 +44,16 @@
               "name": "health",
               "type": "string",
               "jsonPath": "$.health"
+            },
+            {
+              "name": "recent_observation",
+              "type": "string",
+              "jsonPath": "$.recent_observation"
+            },
+            {
+              "name": "recent_observed_at",
+              "type": "number",
+              "jsonPath": "$.recent_observed_at"
             }
           ]
         }
