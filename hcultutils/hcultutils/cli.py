@@ -256,6 +256,10 @@ def _plants_via_ctrl(ctrl_url: str, action: str, args) -> int:
         print(f"Deleted plant {deleted.get('plant_name')}")
         return 0
     if action == "health":
+        if args.plant_name is None:
+            payload = _request_ctrl("GET", f"{base}/plants/health")
+            print(json.dumps(payload))
+            return 0
         plant_name = quote(args.plant_name, safe="")
         payload = _request_ctrl("GET", f"{base}/plants/{plant_name}/health")
         print(json.dumps(payload))
@@ -381,20 +385,7 @@ def main() -> int:
     plants_rm.add_argument("plant_name", type=str)
 
     plants_health = plants_sub.add_parser("health")
-    plants_health.add_argument("plant_name", type=str)
-
-    plant_parser = subparsers.add_parser(
-        "plant",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
-            "  hcultutils plant health kitchen-herb\n"
-        ),
-    )
-    plant_sub = plant_parser.add_subparsers(dest="action")
-    plant_sub.required = True
-    plant_health = plant_sub.add_parser("health")
-    plant_health.add_argument("plant_name", type=str)
+    plants_health.add_argument("--plant_name", type=str)
 
     devices_parser = subparsers.add_parser(
         "devices",
