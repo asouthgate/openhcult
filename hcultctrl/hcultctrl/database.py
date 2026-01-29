@@ -345,6 +345,22 @@ def fetch_plant_by_name(conn, *, plant_name: str) -> dict | None:
     return rows[0]
 
 
+def fetch_device_by_name_or_address(conn, *, device: str) -> dict | None:
+    """Return a device row for a given name or address."""
+    placeholder = _placeholder(conn)
+    query = f"""
+        SELECT id, name, tag, address, first_seen, last_seen
+        FROM devices
+        WHERE name = {placeholder} OR address = {placeholder}
+    """
+    cursor = conn.cursor()
+    cursor.execute(query, [device, device])
+    rows = _fetchall_dicts(cursor)
+    if not rows:
+        return None
+    return rows[0]
+
+
 def insert_plant(
     conn, *, plant_name: str, species_id: int | None, tag: str | None, metadata: str | None
 ) -> int:
@@ -417,3 +433,23 @@ def delete_plant_by_name(conn, *, plant_name: int) -> None:
     conn.commit()
     if cursor.rowcount == 0:
         raise ValueError("Plant not found")
+
+
+def assign_plant_sensor(conn, *, plant_id: int, device_id: int, sensor: str) -> None:
+    """Insert a plant-to-device sensor mapping."""
+    placeholder = _placeholder(conn)
+    cursor = conn.cursor()
+    if _is_postgres(conn):
+        query = (
+            "INSERT INTO plant_sensors (plant_id, device_id, sensor) "
+            "VALUES (%s, %s, %s) "
+            "ON CONFLICT (plant_id, device_id, sensor) DO NOTHING"
+        )
+        cursor.execute(query, (plant_id, device_id, sensor))
+    else:
+        query = (
+            "INSERT OR IGNORE INTO plant_sensors (plant_id, device_id, sensor) "
+            f"VALUES ({placeholder}, {placeholder}, {placeholder})"
+        )
+        cursor.execute(query, (plant_id, device_id, sensor))
+    conn.commit()

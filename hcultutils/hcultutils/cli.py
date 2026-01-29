@@ -262,6 +262,20 @@ def _plants_via_ctrl(ctrl_url: str, action: str, args) -> int:
         payload = _request_ctrl("GET", f"{base}/plants/{plant_name}/health")
         print(json.dumps(payload))
         return 0
+    if action == "assign":
+        plant_name = quote(args.plant_name, safe="")
+        payload = {"device": args.device, "sensor": args.sensor}
+        assigned = _request_ctrl("POST", f"{base}/plants/{plant_name}/assign", payload)
+        print(
+            "Assigned plant {plant_name} to {device} sensor {sensor}".format(
+                plant_name=assigned.get("plant_name") or args.plant_name,
+                device=assigned.get("device_name")
+                or assigned.get("device_address")
+                or args.device,
+                sensor=assigned.get("sensor") or args.sensor,
+            )
+        )
+        return 0
     return 1
 
 
@@ -362,6 +376,7 @@ def main() -> int:
             "  hcultutils plants update 1 --tag windowsill\n"
             "  hcultutils plants rm kitchen-herb\n"
             "  hcultutils plants health kitchen-herb\n"
+            "  hcultutils plants assign kitchen-herb AA:BB:CC:DD:EE:FF sensor1\n"
         ),
     )
     plants_sub = plants_parser.add_subparsers(dest='action')
@@ -379,6 +394,11 @@ def main() -> int:
     _add_metadata_arg(plants_update)
     plants_rm = plants_sub.add_parser('rm')
     plants_rm.add_argument("plant_name", type=str)
+
+    plants_assign = plants_sub.add_parser("assign")
+    plants_assign.add_argument("plant_name", type=str)
+    plants_assign.add_argument("device", type=str)
+    plants_assign.add_argument("sensor", type=str)
 
     plants_health = plants_sub.add_parser("health")
     plants_health.add_argument("--plant_name", type=str)

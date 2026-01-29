@@ -160,6 +160,11 @@ class DeviceNameUpdate(BaseModel):
     name: str
 
 
+class PlantSensorAssign(BaseModel):
+    device: str
+    sensor: str
+
+
 @app.post("/observations")
 def create_observation(payload: ObservationIn, conn=Depends(_get_db_conn)):
     logger.info(
@@ -472,6 +477,41 @@ def create_plant(payload: PlantIn, conn=Depends(_get_db_conn)):
         "species_id": species_id,
         "tag": payload.tag,
         "metadata": payload.metadata,
+    }
+
+
+@app.post("/plants/{plant_name}/assign")
+def assign_plant_sensor(
+    plant_name: str, payload: PlantSensorAssign, conn=Depends(_get_db_conn)
+):
+    logger.info(
+        "POST /plants/%s/assign device=%s sensor=%s",
+        plant_name,
+        payload.device,
+        payload.sensor,
+    )
+    plant = database.fetch_plant_by_name(conn, plant_name=plant_name)
+    if plant is None:
+        raise HTTPException(status_code=404, detail="Plant not found")
+    device = database.fetch_device_by_name_or_address(conn, device=payload.device)
+    if device is None:
+        raise HTTPException(status_code=404, detail="Device not found")
+    sensor = payload.sensor.strip()
+    if not sensor:
+        raise HTTPException(status_code=400, detail="sensor must be non-empty")
+    database.assign_plant_sensor(
+        conn,
+        plant_id=plant["id"],
+        device_id=device["id"],
+        sensor=sensor,
+    )
+    return {
+        "plant_id": plant["id"],
+        "plant_name": plant["plant_name"],
+        "device_id": device["id"],
+        "device_name": device.get("name"),
+        "device_address": device.get("address"),
+        "sensor": sensor,
     }
 
 

@@ -97,6 +97,22 @@ def setup_db(db_url: str):
             )
             """
         )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS plant_sensors (
+                id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                plant_id INTEGER NOT NULL REFERENCES plants(id) ON DELETE CASCADE,
+                device_id INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+                sensor TEXT NOT NULL
+            )
+            """
+        )
+        cursor.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS plant_sensors_unique
+            ON plant_sensors (plant_id, device_id, sensor)
+            """
+        )
     else:
         cursor.execute(
             """
@@ -155,6 +171,22 @@ def setup_db(db_url: str):
                 tag TEXT,
                 metadata TEXT
             )
+            """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS plant_sensors (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                plant_id INTEGER NOT NULL REFERENCES plants(id) ON DELETE CASCADE,
+                device_id INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+                sensor TEXT NOT NULL
+            )
+            """
+        )
+        cursor.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS plant_sensors_unique
+            ON plant_sensors (plant_id, device_id, sensor)
             """
         )
     conn.commit()
