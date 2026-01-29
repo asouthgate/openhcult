@@ -254,7 +254,6 @@ def insert_species(
 def update_species(
     conn,
     *,
-    species_id: int,
     name: str | None,
     common_name: str | None,
     metadata: str | None,
@@ -263,9 +262,6 @@ def update_species(
     placeholder = _placeholder(conn)
     fields = []
     params = []
-    if name is not None:
-        fields.append(f"name = {placeholder}")
-        params.append(name)
     if common_name is not None:
         fields.append(f"common_name = {placeholder}")
         params.append(common_name)
@@ -274,8 +270,8 @@ def update_species(
         params.append(metadata)
     if not fields:
         return
-    params.append(species_id)
-    query = f"UPDATE species SET {', '.join(fields)} WHERE id = {placeholder}"
+    params.append(name)
+    query = f"UPDATE species SET {', '.join(fields)} WHERE name = {placeholder}"
     cursor = conn.cursor()
     cursor.execute(query, params)
     conn.commit()

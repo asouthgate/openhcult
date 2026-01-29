@@ -190,9 +190,7 @@ def _species_via_ctrl(ctrl_url: str, action: str, args) -> int:
     if action == "ls":
         payload = _request_ctrl("GET", f"{base}/species")
         for row in payload.get("data", []):
-            print(
-                f"{row.get('id')}\t{row.get('name')}\t{row.get('common_name') or ''}\t{row.get('metadata') or ''}"
-            )
+            print(row)
         return 0
     if action == "add":
         payload = {
@@ -211,8 +209,8 @@ def _species_via_ctrl(ctrl_url: str, action: str, args) -> int:
             payload["common_name"] = args.common_name
         if args.metadata is not None:
             payload["metadata"] = json.loads(args.metadata)
-        updated = _request_ctrl("PATCH", f"{base}/species/{args.id}", payload)
-        print(f"Updated species {updated.get('id')}")
+        updated = _request_ctrl("PATCH", f"{base}/species/{args.name}", payload)
+        print(f"Updated species {updated.get('name')}")
         return 0
     if action == "rm":
         deleted = _request_ctrl("DELETE", f"{base}/species/{args.species_name}")
@@ -296,7 +294,6 @@ def main() -> int:
             "  hcultutils infer_events --hours 6\n"
             "  hcultutils species add pothos --common-name \"Golden Pothos\"\n"
             "  hcultutils plants add kitchen-herb --species_name pothos\n"
-            "  hcultutils plant health kitchen-herb\n"
         ),
     )
     _add_base_args(parser)
@@ -345,13 +342,12 @@ def main() -> int:
     species_sub.required = True
     species_add = species_sub.add_parser('add')
     species_add.add_argument("name")
-    species_add.add_argument("--common-name", default=None)
+    species_add.add_argument("--common_name", default=None)
     _add_metadata_arg(species_add)
     species_sub.add_parser('ls')
     species_update = species_sub.add_parser('update')
-    species_update.add_argument("id", type=int)
-    species_update.add_argument("--name", default=None)
-    species_update.add_argument("--common-name", default=None)
+    species_update.add_argument("name")
+    species_update.add_argument("--common_name", default=None)
     _add_metadata_arg(species_update)
     species_rm = species_sub.add_parser('rm')
     species_rm.add_argument("species_name", type=str)

@@ -380,11 +380,11 @@ def create_species(payload: SpeciesIn, conn=Depends(_get_db_conn)):
     return {"id": species_id, "name": name, "common_name": payload.common_name, "metadata": payload.metadata}
 
 
-@app.patch("/species/{species_id}")
-def update_species(species_id: int, payload: SpeciesUpdate, conn=Depends(_get_db_conn)):
+@app.patch("/species/{species_name}")
+def update_species(species_name: str, payload: SpeciesUpdate, conn=Depends(_get_db_conn)):
     logger.info(
         "PATCH /species/%s name_set=%s common_name_set=%s metadata_set=%s",
-        species_id,
+        species_name,
         payload.name is not None,
         payload.common_name is not None,
         payload.metadata is not None,
@@ -396,14 +396,13 @@ def update_species(species_id: int, payload: SpeciesUpdate, conn=Depends(_get_db
     try:
         database.update_species(
             conn,
-            species_id=species_id,
-            name=name,
+            name=species_name,
             common_name=payload.common_name,
             metadata=metadata,
         )
     except ValueError:
         raise HTTPException(status_code=404, detail="Species not found")
-    return {"id": species_id, "name": name, "common_name": payload.common_name, "metadata": payload.metadata}
+    return {"species_name": species_name, "name": name, "common_name": payload.common_name, "metadata": payload.metadata}
 
 
 @app.delete("/species/{species_name}")

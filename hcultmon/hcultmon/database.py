@@ -170,8 +170,8 @@ def register_device(conn, name, address):
     if row:
         device_id = row[0]
         cursor.execute(
-            f"UPDATE devices SET name = {placeholder}, last_seen = CURRENT_TIMESTAMP WHERE id = {placeholder}",
-            (name, device_id),
+            f"UPDATE devices SET last_seen = CURRENT_TIMESTAMP WHERE id = {placeholder}",
+            (device_id,),
         )
     else:
         if _is_postgres(conn):
