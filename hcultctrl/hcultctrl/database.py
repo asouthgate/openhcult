@@ -47,6 +47,7 @@ def fetch_timeseries(
     *,
     sensor: Optional[str] = None,
     device: Optional[str] = None,
+    plant: Optional[str] = None,
     start_ms: Optional[int] = None,
     end_ms: Optional[int] = None,
     limit: int = 10000,
@@ -61,6 +62,9 @@ def fetch_timeseries(
     if device:
         clauses.append(f"(devices.name = {placeholder} OR devices.address = {placeholder})")
         params.extend([device, device])
+    if plant:
+        clauses.append(f"plants.plant_name = {placeholder}")
+        params.append(plant)
     if start_ms is not None:
         clauses.append(f"sensor_readings.adjusted_time_ms >= {placeholder}")
         params.append(start_ms)
@@ -71,6 +75,14 @@ def fetch_timeseries(
     where = ""
     if clauses:
         where = "WHERE " + " AND ".join(clauses)
+
+    plant_join = ""
+    if plant:
+        plant_join = """
+        JOIN plant_sensors ON plant_sensors.device_id = devices.id
+            AND plant_sensors.sensor = sensor_readings.sensor
+        JOIN plants ON plants.id = plant_sensors.plant_id
+        """
 
     query = f"""
         SELECT
@@ -83,6 +95,7 @@ def fetch_timeseries(
             sensor_readings.collection_time_ms
         FROM sensor_readings
         JOIN devices ON devices.id = sensor_readings.device_id
+        {plant_join}
         {where}
         ORDER BY sensor_readings.adjusted_time_ms ASC
         LIMIT {placeholder}

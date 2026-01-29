@@ -60,6 +60,7 @@ def root():
 def timeseries(
     sensor: Optional[str] = None,
     device: Optional[str] = None,
+    plant: Optional[str] = None,
     start_ms: Optional[int] = Query(default=None, ge=0),
     end_ms: Optional[int] = Query(default=None, ge=0),
     start_utc: Optional[str] = None,
@@ -69,9 +70,10 @@ def timeseries(
     conn=Depends(_get_db_conn),
 ):
     logger.info(
-        "GET /timeseries sensor=%s device=%s start_ms=%s end_ms=%s start_utc=%s end_utc=%s limit=%s format=%s",
+        "GET /timeseries sensor=%s device=%s plant=%s start_ms=%s end_ms=%s start_utc=%s end_utc=%s limit=%s format=%s",
         sensor,
         device,
+        plant,
         start_ms,
         end_ms,
         start_utc,
@@ -96,6 +98,7 @@ def timeseries(
         conn,
         sensor=sensor,
         device=device,
+        plant=plant,
         start_ms=start_ms,
         end_ms=end_ms,
         limit=limit,

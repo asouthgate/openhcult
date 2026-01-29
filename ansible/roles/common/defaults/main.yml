@@ -1,6 +1,7 @@
 openhcult_user: hcult
 openhcult_group: hcult
 openhcult_install_dir: /opt/openhcult
+openhcult_user_shell: /bin/bash
 openhcult_config_path: /opt/openhcult/openhcult.conf
 openhcult_data_dir: /var/lib/openhcult
 openhcult_repo_url: "git@github.com:asouthgate/openhcult.git"

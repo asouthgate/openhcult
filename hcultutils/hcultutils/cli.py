@@ -49,6 +49,11 @@ def _add_plotter_args(parser):
         help="Filter to a device name or BLE address",
     )
     parser.add_argument(
+        "--plant-name",
+        default=None,
+        help="Filter to a plant name (requires hcultctrl)",
+    )
+    parser.add_argument(
         "--limit",
         type=int,
         default=100000,
@@ -323,6 +328,7 @@ def main() -> int:
         epilog=(
             "Examples:\n"
             "  hcultutils plot_timeseries --sensor sensor1 --device AA:BB:CC:DD:EE:FF --start-utc 2026-01-16T12:00:00Z --end-utc 2026-01-16T13:00:00Z\n"
+            "  hcultutils --ctrl-url http://127.0.0.1:8000 plot_timeseries --plant-name kitchen-herb --sensor sensor1\n"
             "  hcultutils --ctrl-url http://127.0.0.1:8000 plot_timeseries --sensor sensor1 --limit 5000\n"
         ),
     )

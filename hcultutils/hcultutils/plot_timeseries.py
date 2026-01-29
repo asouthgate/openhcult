@@ -107,6 +107,7 @@ def _fetch_series_from_ctrl(
     *,
     sensor: str | None,
     device: str | None,
+    plant_name: str | None,
     start_utc: str | None,
     end_utc: str | None,
     limit: int,
@@ -117,6 +118,8 @@ def _fetch_series_from_ctrl(
         params["sensor"] = sensor
     if device:
         params["device"] = device
+    if plant_name:
+        params["plant"] = plant_name
     if start_utc:
         params["start_utc"] = start_utc
     if end_utc:
@@ -255,6 +258,7 @@ def _fetch_data(args):
             args.ctrl_url,
             sensor=args.sensor,
             device=args.device,
+            plant_name=args.plant_name,
             start_utc=args.start_utc,
             end_utc=args.end_utc,
             limit=args.limit,

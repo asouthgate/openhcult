@@ -22,7 +22,7 @@
     name: "{{ openhcult_user }}"
     group: "{{ openhcult_group }}"
     home: "{{ openhcult_install_dir }}"
-    shell: /usr/sbin/nologin
+    shell: "{{ openhcult_user_shell }}"
     system: true
     state: present
     groups: bluetooth

@@ -3,7 +3,7 @@
   "title": "OpenHCult Sensors",
   "timezone": "browser",
   "schemaVersion": 38,
-  "version": 1,
+  "version": 2,
   "refresh": "30s",
   "time": {
     "from": "now-6h",
@@ -52,7 +52,7 @@
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT to_timestamp(sr.adjusted_time_ms / 1000.0) AS time, sr.measurement AS value, concat(COALESCE(d.tag, d.name, d.address, 'device'), ' ', sr.sensor) AS metric FROM sensor_readings sr JOIN devices d ON d.id = sr.device_id WHERE $__unixEpochFilter(sr.adjusted_time_ms / 1000.0) ORDER BY 1",
+          "rawSql": "SELECT to_timestamp(sr.adjusted_time_ms / 1000.0) AS time, sr.measurement AS value, concat(COALESCE(d.tag, d.name, d.address, 'device'), ' ', sr.sensor) AS metric FROM sensor_readings sr JOIN devices d ON d.id = sr.device_id LEFT JOIN plant_sensors ps ON ps.device_id = d.id AND ps.sensor = sr.sensor LEFT JOIN plants p ON p.id = ps.plant_id WHERE $__unixEpochFilter(sr.adjusted_time_ms / 1000.0) AND ($plant_name = '%' OR p.plant_name LIKE '$plant_name') ORDER BY 1",
           "refId": "A"
         }
       ],
@@ -77,6 +77,26 @@
     }
   ],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "type": "query",
+        "name": "plant_name",
+        "label": "Plant",
+        "hide": 0,
+        "datasource": "OpenHCult Postgres",
+        "refresh": 1,
+        "query": "SELECT plant_name FROM plants ORDER BY plant_name",
+        "definition": "SELECT plant_name FROM plants ORDER BY plant_name",
+        "current": {
+          "text": "All",
+          "value": "$__all",
+          "selected": false
+        },
+        "options": [],
+        "multi": false,
+        "includeAll": true,
+        "allValue": "%"
+      }
+    ]
   }
 }
