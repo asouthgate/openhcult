@@ -52,7 +52,7 @@
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT to_timestamp(sr.adjusted_time_ms / 1000.0) AS time, sr.measurement AS value, concat(COALESCE(d.tag, d.name, d.address, 'device'), ' ', sr.sensor) AS metric FROM sensor_readings sr JOIN devices d ON d.id = sr.device_id LEFT JOIN plant_sensors ps ON ps.device_id = d.id AND ps.sensor = sr.sensor LEFT JOIN plants p ON p.id = ps.plant_id WHERE $__unixEpochFilter(sr.adjusted_time_ms / 1000.0) AND ($plant_name = '%' OR p.plant_name LIKE '$plant_name') ORDER BY 1",
+          "rawSql": "SELECT to_timestamp(sr.adjusted_time_ms / 1000.0) AS time, sr.measurement AS value, concat(COALESCE(d.tag, d.name, d.address, 'device'), ' ', sr.sensor) AS metric FROM sensor_readings sr JOIN devices d ON d.id = sr.device_id LEFT JOIN plant_sensors ps ON ps.device_id = d.id AND ps.sensor = sr.sensor LEFT JOIN plants p ON p.id = ps.plant_id WHERE $__unixEpochFilter(sr.adjusted_time_ms / 1000.0) AND ('${plant_name}' = '%' OR p.plant_name LIKE '${plant_name}') ORDER BY 1",
           "refId": "A"
         }
       ],
