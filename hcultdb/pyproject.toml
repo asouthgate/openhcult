@@ -15,6 +15,7 @@ authors = [
 
 [tool.setuptools]
 packages = ["hcultdb"]
+package-dir = {"" = "src"}
 include-package-data = true
 
 [tool.setuptools.package-data]

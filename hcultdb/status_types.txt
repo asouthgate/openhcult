@@ -1,7 +1,0 @@
-# code|label|description
-CRISPY_LEAVES|Crispy leaves|Leaf edges are dry or brittle.
-YELLOWING_LEAVES|Yellowing leaves|Leaves are yellowing or chlorotic.
-DROOPING_LEAVES|Drooping leaves|Leaves are drooping or limp.
-WILTING|Wilting|Plant appears wilted overall.
-LEAF_SPOTS|Leaf spots|Spotted or blemished leaves.
-STUNTED_GROWTH|Stunted growth|Growth appears slowed or stalled.

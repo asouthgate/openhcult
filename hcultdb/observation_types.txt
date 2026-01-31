@@ -1,6 +1,0 @@
-# code|label|description
-WATERING|Watering|Watered the plant.
-PRUNING|Pruning|Pruned or trimmed leaves.
-REPOTTING|Repotting|Repotted or changed soil.
-FERTILIZING|Fertilizing|Applied fertilizer.
-PEST_TREATMENT|Pest treatment|Applied pest treatment.
