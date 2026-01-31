@@ -101,6 +101,28 @@ def setup_db(db_url: str):
         )
         cursor.execute(
             """
+            CREATE TABLE IF NOT EXISTS status_types (
+                id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                code TEXT NOT NULL UNIQUE,
+                label TEXT NOT NULL,
+                description TEXT
+            )
+            """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS plant_statuses (
+                id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                plant_id INTEGER NOT NULL REFERENCES plants(id) ON DELETE CASCADE,
+                status_type_id INTEGER NOT NULL REFERENCES status_types(id),
+                observed_at BIGINT NOT NULL,
+                note TEXT,
+                cleared_at BIGINT
+            )
+            """
+        )
+        cursor.execute(
+            """
             CREATE TABLE IF NOT EXISTS plant_sensors (
                 id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
                 plant_id INTEGER NOT NULL REFERENCES plants(id) ON DELETE CASCADE,
@@ -177,6 +199,28 @@ def setup_db(db_url: str):
         )
         cursor.execute(
             """
+            CREATE TABLE IF NOT EXISTS status_types (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                code TEXT NOT NULL UNIQUE,
+                label TEXT NOT NULL,
+                description TEXT
+            )
+            """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS plant_statuses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                plant_id INTEGER NOT NULL REFERENCES plants(id) ON DELETE CASCADE,
+                status_type_id INTEGER NOT NULL REFERENCES status_types(id),
+                observed_at INTEGER NOT NULL,
+                note TEXT,
+                cleared_at INTEGER
+            )
+            """
+        )
+        cursor.execute(
+            """
             CREATE TABLE IF NOT EXISTS plant_sensors (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 plant_id INTEGER NOT NULL REFERENCES plants(id) ON DELETE CASCADE,
@@ -192,6 +236,7 @@ def setup_db(db_url: str):
             """
         )
     conn.commit()
+    _load_status_types(conn)
     return conn
 
 
@@ -299,3 +344,37 @@ def add_observation(conn, note, observed_at=None):
         obs_id = cursor.lastrowid
     conn.commit()
     return obs_id
+
+
+def _load_status_types(conn) -> None:
+    status_path = Path(__file__).resolve().parents[1] / "status_types.txt"
+    if not status_path.exists():
+        return
+    placeholder = _placeholder(conn)
+    rows = []
+    for raw in status_path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = [part.strip() for part in line.split("|", maxsplit=2)]
+        code = parts[0]
+        label = parts[1] if len(parts) > 1 and parts[1] else code
+        description = parts[2] if len(parts) > 2 and parts[2] else None
+        rows.append((code, label, description))
+    if not rows:
+        return
+    cursor = conn.cursor()
+    if _is_postgres(conn):
+        cursor.executemany(
+            "INSERT INTO status_types (code, label, description) "
+            "VALUES (%s, %s, %s) "
+            "ON CONFLICT (code) DO NOTHING",
+            rows,
+        )
+    else:
+        cursor.executemany(
+            f"INSERT OR IGNORE INTO status_types (code, label, description) "
+            f"VALUES ({placeholder}, {placeholder}, {placeholder})",
+            rows,
+        )
+    conn.commit()

@@ -168,6 +168,11 @@ class PlantSensorAssign(BaseModel):
     sensor: str
 
 
+class PlantStatusAssign(BaseModel):
+    status_code: str
+    note: Optional[str] = None
+
+
 @app.post("/observations")
 def create_observation(payload: ObservationIn, conn=Depends(_get_db_conn)):
     logger.info(
@@ -559,6 +564,66 @@ def update_plant(plant_id: int, payload: PlantUpdate, conn=Depends(_get_db_conn)
     }
 
 
+@app.post("/plants/{plant_name}/status")
+def assign_plant_status(
+    plant_name: str, payload: PlantStatusAssign, conn=Depends(_get_db_conn)
+):
+    logger.info("POST /plants/%s/status status=%s", plant_name, payload.status_code)
+    plant = database.fetch_plant_by_name(conn, plant_name=plant_name)
+    if plant is None:
+        raise HTTPException(status_code=404, detail="Plant not found")
+    status_code = payload.status_code.strip()
+    if not status_code:
+        raise HTTPException(status_code=400, detail="status_code must be non-empty")
+    status_type = database.fetch_status_type_by_code(conn, code=status_code)
+    if status_type is None:
+        raise HTTPException(status_code=404, detail="Status type not found")
+    observed_at = int(time.time() * 1000)
+    status_id = database.insert_plant_status(
+        conn,
+        plant_id=plant["id"],
+        status_type_id=status_type["id"],
+        observed_at=observed_at,
+        note=payload.note.strip() if payload.note else None,
+    )
+    return {
+        "id": status_id,
+        "plant_id": plant["id"],
+        "plant_name": plant["plant_name"],
+        "status_code": status_type["code"],
+        "status_label": status_type["label"],
+        "observed_at": observed_at,
+        "note": payload.note.strip() if payload.note else None,
+    }
+
+
+@app.get("/plants/{plant_name}/status")
+def list_plant_statuses(
+    plant_name: str,
+    limit: int = Query(default=100, ge=1, le=1000),
+    conn=Depends(_get_db_conn),
+):
+    logger.info("GET /plants/%s/status limit=%s", plant_name, limit)
+    plant = database.fetch_plant_by_name(conn, plant_name=plant_name)
+    if plant is None:
+        raise HTTPException(status_code=404, detail="Plant not found")
+    rows = database.fetch_plant_statuses(conn, plant_id=plant["id"], limit=limit)
+    data = [
+        {
+            "id": row["id"],
+            "plant_id": row["plant_id"],
+            "status_code": row["status_code"],
+            "status_label": row["status_label"],
+            "status_description": row.get("status_description"),
+            "observed_at": row["observed_at"],
+            "note": row.get("note"),
+            "cleared_at": row.get("cleared_at"),
+        }
+        for row in rows
+    ]
+    return {"count": len(data), "data": data}
+
+
 @app.delete("/plants/{plant_name}")
 def delete_plant(plant_name: str, conn=Depends(_get_db_conn)):
     logger.info("DELETE /plants/%s", plant_name)
@@ -575,7 +640,7 @@ def plant_health(plant_name: str, conn=Depends(_get_db_conn)):
     plant = database.fetch_plant_by_name(conn, plant_name=plant_name)
     if plant is None:
         raise HTTPException(status_code=404, detail="Plant not found")
-    return _build_health_payload(plant_name)
+    return _build_health_payload(conn, plant)
 
 
 @app.post("/plants/{plant_name}/health")
@@ -587,7 +652,7 @@ def plant_health_post(plant_name: str, conn=Depends(_get_db_conn)):
 def plant_health_all(conn=Depends(_get_db_conn)):
     logger.info("GET /plants/health")
     rows = database.fetch_plants(conn, limit=10000)
-    data = [_build_health_payload(row["plant_name"]) for row in rows]
+    data = [_build_health_payload(conn, row) for row in rows]
     return {"count": len(data), "data": data}
 
 
@@ -596,18 +661,26 @@ def plant_health_all_post(conn=Depends(_get_db_conn)):
     return plant_health_all(conn=conn)
 
 
-def _build_health_payload(plant_name: str) -> dict:
-    now_ms = int(time.time() * 1000)
-    recent = [
-        {"id": 1, "observed_at": now_ms - 3600_000, "note": "PLACEHOLDER Leaves drooping"},
-        {"id": 2, "observed_at": now_ms - 1800_000, "note": "PLACEHOLDER Soil feels dry"},
-        {"id": 3, "observed_at": now_ms - 600_000, "note": "PLACEHOLDER Light levels low"},
-    ]
-    recent_latest = recent[-1]
+def _build_health_payload(conn, plant: dict) -> dict:
+    recent = list(
+        database.fetch_observations_for_plant(conn, plant_id=plant["id"], limit=10)
+    )
+    statuses = list(
+        database.fetch_plant_statuses(conn, plant_id=plant["id"], limit=50)
+    )
     return {
-        "plant_name": plant_name,
-        "health": "LOW",
-        "recent_observation": recent_latest["note"],
-        "recent_observed_at": recent_latest["observed_at"],
+        "plant_name": plant["plant_name"],
         "recent_observations": recent,
+        "statuses": [
+            {
+                "id": row["id"],
+                "status_code": row["status_code"],
+                "status_label": row["status_label"],
+                "status_description": row.get("status_description"),
+                "observed_at": row["observed_at"],
+                "note": row.get("note"),
+                "cleared_at": row.get("cleared_at"),
+            }
+            for row in statuses
+        ],
     }

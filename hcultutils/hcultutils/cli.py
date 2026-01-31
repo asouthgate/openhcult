@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from configparser import ConfigParser
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -89,6 +90,94 @@ def _add_plotter_args(parser):
         help="Write PNG to this path instead of showing a window",
     )
 
+def _format_observed_at(value):
+    if value is None:
+        return None
+    try:
+        return datetime.fromtimestamp(int(value) / 1000.0, tz=timezone.utc).isoformat()
+    except (TypeError, ValueError):
+        return value
+
+
+def _as_ms(value):
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _render_health_payload(payload):
+    if isinstance(payload, dict):
+        if "recent_observed_at" in payload:
+            payload["recent_observed_at"] = _format_observed_at(
+                payload.get("recent_observed_at")
+            )
+        if "recent_observations" in payload and isinstance(
+            payload["recent_observations"], list
+        ):
+            for row in payload["recent_observations"]:
+                if isinstance(row, dict) and "observed_at" in row:
+                    row["observed_at"] = _format_observed_at(row.get("observed_at"))
+        if "statuses" in payload and isinstance(payload["statuses"], list):
+            latest_by_code = {}
+            for row in payload["statuses"]:
+                if not isinstance(row, dict):
+                    continue
+                code = row.get("status_code")
+                observed_at = _as_ms(row.get("observed_at"))
+                if not code:
+                    continue
+                current = latest_by_code.get(code)
+                if current is None or (observed_at or 0) > (current[0] or 0):
+                    latest_by_code[code] = (observed_at, row)
+            deduped = []
+            for observed_at, row in sorted(
+                latest_by_code.values(),
+                key=lambda item: item[0] or 0,
+                reverse=True,
+            ):
+                row["observed_at"] = _format_observed_at(row.get("observed_at"))
+                if "cleared_at" in row:
+                    row["cleared_at"] = _format_observed_at(row.get("cleared_at"))
+                row["display"] = f"\x1b[31m ! {row.get('status_code')}\x1b[0m"
+                deduped.append(row)
+            payload["statuses"] = deduped
+
+
+def _pretty_print(value, indent=0):
+    spacer = " " * indent
+    if isinstance(value, dict):
+        print(f"{spacer}{{")
+        items = list(value.items())
+        for idx, (key, val) in enumerate(items):
+            key_str = json.dumps(str(key))
+            print(f"{spacer}  {key_str}: ", end="")
+            _pretty_print(val, indent + 2)
+            if idx < len(items) - 1:
+                print(",")
+            else:
+                print()
+        print(f"{spacer}}}", end="")
+        return
+    if isinstance(value, list):
+        print(f"{spacer}[")
+        for idx, item in enumerate(value):
+            _pretty_print(item, indent + 2)
+            if idx < len(value) - 1:
+                print(",")
+            else:
+                print()
+        print(f"{spacer}]", end="")
+        return
+    if isinstance(value, str):
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+        print(f"\"{escaped}\"", end="")
+        return
+    print(json.dumps(value), end="")
+    
+
 def _add_infer_args(parser):
     parser.add_argument(
         "--hours",
@@ -154,7 +243,7 @@ def _add_infer_args(parser):
         "--merge-distance-sec",
         type=int,
         default=240,
-        help="Minimum seconds between stored events",
+        help="Minimum seconds between stored observations",
     )
 
 
@@ -261,11 +350,17 @@ def _plants_via_ctrl(ctrl_url: str, action: str, args) -> int:
     if action == "health":
         if args.plant_name is None:
             payload = _request_ctrl("GET", f"{base}/plants/health")
-            print(json.dumps(payload))
+            if isinstance(payload, dict) and "data" in payload:
+                for row in payload.get("data", []):
+                    _render_health_payload(row)
+            _pretty_print(payload)
+            print()
             return 0
         plant_name = quote(args.plant_name, safe="")
         payload = _request_ctrl("GET", f"{base}/plants/{plant_name}/health")
-        print(json.dumps(payload))
+        _render_health_payload(payload)
+        _pretty_print(payload)
+        print()
         return 0
     if action == "assign":
         plant_name = quote(args.plant_name, safe="")
@@ -281,6 +376,38 @@ def _plants_via_ctrl(ctrl_url: str, action: str, args) -> int:
             )
         )
         return 0
+    if action == "set-status":
+        plant_name = quote(args.plant_name, safe="")
+        payload = {"status_code": args.status_code}
+        if args.note:
+            payload["note"] = args.note
+        created = _request_ctrl("POST", f"{base}/plants/{plant_name}/status", payload)
+        print(
+            "Added status {status} to {plant_name}".format(
+                status=created.get("status_code") or args.status_code,
+                plant_name=created.get("plant_name") or args.plant_name,
+            )
+        )
+        return 0
+    if action == "status":
+        if args.status_action == "ls":
+            plant_name = quote(args.plant_name, safe="")
+            payload = _request_ctrl("GET", f"{base}/plants/{plant_name}/status")
+            print(json.dumps(payload, indent=2))
+            return 0
+        if args.status_action == "set":
+            plant_name = quote(args.plant_name, safe="")
+            payload = {"status_code": args.status_code}
+            if args.note:
+                payload["note"] = args.note
+            created = _request_ctrl("POST", f"{base}/plants/{plant_name}/status", payload)
+            print(
+                "Added status {status} to {plant_name}".format(
+                    status=created.get("status_code") or args.status_code,
+                    plant_name=created.get("plant_name") or args.plant_name,
+                )
+            )
+            return 0
     return 1
 
 
@@ -383,6 +510,8 @@ def main() -> int:
             "  hcultutils plants rm kitchen-herb\n"
             "  hcultutils plants health kitchen-herb\n"
             "  hcultutils plants assign kitchen-herb AA:BB:CC:DD:EE:FF sensor1\n"
+            "  hcultutils plants set-status kitchen-herb DROOPING_LEAVES\n"
+            "  hcultutils plants status ls kitchen-herb\n"
         ),
     )
     plants_sub = plants_parser.add_subparsers(dest='action')
@@ -405,6 +534,21 @@ def main() -> int:
     plants_assign.add_argument("plant_name", type=str)
     plants_assign.add_argument("device", type=str)
     plants_assign.add_argument("sensor", type=str)
+
+    plants_status = plants_sub.add_parser("set-status")
+    plants_status.add_argument("plant_name", type=str)
+    plants_status.add_argument("status_code", type=str)
+    plants_status.add_argument("--note", default=None)
+
+    plants_status_group = plants_sub.add_parser("status")
+    status_sub = plants_status_group.add_subparsers(dest="status_action")
+    status_sub.required = True
+    status_ls = status_sub.add_parser("ls")
+    status_ls.add_argument("plant_name", type=str)
+    status_set = status_sub.add_parser("set")
+    status_set.add_argument("plant_name", type=str)
+    status_set.add_argument("status_code", type=str)
+    status_set.add_argument("--note", default=None)
 
     plants_health = plants_sub.add_parser("health")
     plants_health.add_argument("--plant_name", type=str)

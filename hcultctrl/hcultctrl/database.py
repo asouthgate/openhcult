@@ -163,6 +163,26 @@ def fetch_observations(
     return _fetchall_dicts(cursor)
 
 
+def fetch_observations_for_plant(
+    conn,
+    *,
+    plant_id: int,
+    limit: int = 100,
+) -> Iterable[dict]:
+    """Return recent observations for a plant, newest first."""
+    placeholder = _placeholder(conn)
+    query = f"""
+        SELECT id, observed_at, note, plant_id
+        FROM observations
+        WHERE plant_id = {placeholder}
+        ORDER BY observed_at DESC, id DESC
+        LIMIT {placeholder}
+    """
+    cursor = conn.cursor()
+    cursor.execute(query, [plant_id, limit])
+    return _fetchall_dicts(cursor)
+
+
 def fetch_devices(
     conn,
     *,
@@ -365,6 +385,22 @@ def fetch_plant_by_name(conn, *, plant_name: str) -> dict | None:
     return rows[0]
 
 
+def fetch_status_type_by_code(conn, *, code: str) -> dict | None:
+    """Return a status type row for a given code."""
+    placeholder = _placeholder(conn)
+    query = f"""
+        SELECT id, code, label, description
+        FROM status_types
+        WHERE code = {placeholder}
+    """
+    cursor = conn.cursor()
+    cursor.execute(query, [code])
+    rows = _fetchall_dicts(cursor)
+    if not rows:
+        return None
+    return rows[0]
+
+
 def fetch_device_by_name_or_address(conn, *, device: str) -> dict | None:
     """Return a device row for a given name or address."""
     placeholder = _placeholder(conn)
@@ -473,3 +509,57 @@ def assign_plant_sensor(conn, *, plant_id: int, device_id: int, sensor: str) -> 
         )
         cursor.execute(query, (plant_id, device_id, sensor))
     conn.commit()
+
+
+def insert_plant_status(
+    conn,
+    *,
+    plant_id: int,
+    status_type_id: int,
+    observed_at: int,
+    note: str | None,
+) -> int:
+    """Insert a plant status entry and return its id."""
+    cursor = conn.cursor()
+    if _is_postgres(conn):
+        cursor.execute(
+            "INSERT INTO plant_statuses (plant_id, status_type_id, observed_at, note) "
+            "VALUES (%s, %s, %s, %s) RETURNING id",
+            (plant_id, status_type_id, observed_at, note),
+        )
+        status_id = cursor.fetchone()[0]
+    else:
+        placeholder = _placeholder(conn)
+        cursor.execute(
+            "INSERT INTO plant_statuses (plant_id, status_type_id, observed_at, note) "
+            f"VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder})",
+            (plant_id, status_type_id, observed_at, note),
+        )
+        status_id = cursor.lastrowid
+    conn.commit()
+    return status_id
+
+
+def fetch_plant_statuses(conn, *, plant_id: int, limit: int = 100) -> Iterable[dict]:
+    """Return plant statuses with status type details."""
+    placeholder = _placeholder(conn)
+    query = f"""
+        SELECT
+            ps.id,
+            ps.plant_id,
+            ps.status_type_id,
+            st.code AS status_code,
+            st.label AS status_label,
+            st.description AS status_description,
+            ps.observed_at,
+            ps.note,
+            ps.cleared_at
+        FROM plant_statuses ps
+        JOIN status_types st ON st.id = ps.status_type_id
+        WHERE ps.plant_id = {placeholder}
+        ORDER BY ps.observed_at DESC, ps.id DESC
+        LIMIT {placeholder}
+    """
+    cursor = conn.cursor()
+    cursor.execute(query, [plant_id, limit])
+    return _fetchall_dicts(cursor)
