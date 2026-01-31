@@ -77,6 +77,12 @@ def setup_db(db_url: str):
         )
         cursor.execute(
             """
+            CREATE UNIQUE INDEX IF NOT EXISTS observations_unique
+            ON observations (observed_at, note, COALESCE(plant_id, -1))
+            """
+        )
+        cursor.execute(
+            """
             CREATE TABLE IF NOT EXISTS species (
                 id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
                 name TEXT NOT NULL,
@@ -172,6 +178,12 @@ def setup_db(db_url: str):
                 note TEXT NOT NULL,
                 plant_id INTEGER
             )
+            """
+        )
+        cursor.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS observations_unique
+            ON observations (observed_at, note, COALESCE(plant_id, -1))
             """
         )
         cursor.execute(
