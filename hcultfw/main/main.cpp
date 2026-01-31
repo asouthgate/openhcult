@@ -28,6 +28,30 @@
 
 static const char *TAG = "hcultfw"; // Tag for logging
 
+static adc_channel_t adc_channel_for_gpio(gpio_num_t gpio) {
+  switch (gpio) {
+    case GPIO_NUM_36:
+      return ADC_CHANNEL_0;
+    case GPIO_NUM_37:
+      return ADC_CHANNEL_1;
+    case GPIO_NUM_38:
+      return ADC_CHANNEL_2;
+    case GPIO_NUM_39:
+      return ADC_CHANNEL_3;
+    case GPIO_NUM_32:
+      return ADC_CHANNEL_4;
+    case GPIO_NUM_33:
+      return ADC_CHANNEL_5;
+    case GPIO_NUM_34:
+      return ADC_CHANNEL_6;
+    case GPIO_NUM_35:
+      return ADC_CHANNEL_7;
+    default:
+      ESP_LOGE(TAG, "Unsupported ADC GPIO: %d", static_cast<int>(gpio));
+      return ADC_CHANNEL_0;
+  }
+}
+
 // Configure LED and sensor power GPIOs as outputs and set safe defaults.
 static void init_power_pins() {
   gpio_config_t io_conf = {};
@@ -75,18 +99,20 @@ static void take_sensor_readings(FirmwareState &state) {
   adc_oneshot_chan_cfg_t chan_cfg = {};
   chan_cfg.atten = ADC_ATTEN_DB_12;
   chan_cfg.bitwidth = ADC_BITWIDTH_12;
-  ESP_ERROR_CHECK(adc_oneshot_config_channel(state.adc_handle, ADC_CHANNEL_6, &chan_cfg));
-  ESP_ERROR_CHECK(adc_oneshot_config_channel(state.adc_handle, ADC_CHANNEL_7, &chan_cfg));
+  const adc_channel_t sensor_channels[kSensorCount] = {
+      adc_channel_for_gpio(SENSOR_PIN_1),
+      adc_channel_for_gpio(SENSOR_PIN_2),
+  };
+  ESP_ERROR_CHECK(
+      adc_oneshot_config_channel(state.adc_handle, sensor_channels[0], &chan_cfg));
+  ESP_ERROR_CHECK(
+      adc_oneshot_config_channel(state.adc_handle, sensor_channels[1], &chan_cfg));
 
   // Enable the red pin for debugging purposes and to force power draw to prevent battery from
   // going to sleep. Power banks sometimes cut power to the output if the draw is too low.
   gpio_set_level(static_cast<gpio_num_t>(RED_LED_PIN), 1);
   vTaskDelay(pdMS_TO_TICKS(RED_LED_FLASH_MS));
   gpio_set_level(static_cast<gpio_num_t>(RED_LED_PIN), 0);
-  const adc_channel_t sensor_channels[kSensorCount] = {
-      ADC_CHANNEL_6,
-      ADC_CHANNEL_7,
-  };
   const gpio_num_t sensor_power_pins[kSensorCount] = {
       static_cast<gpio_num_t>(SENSOR_POWER_PIN_1),
       static_cast<gpio_num_t>(SENSOR_POWER_PIN_2),

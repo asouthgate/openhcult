@@ -11,6 +11,8 @@ service/characteristic, and goes to deep sleep after the advertising window.
 
 ## Build and Flash
 
+source ~/esp/esp-idf/export.sh
+
 1) Set up the ESP-IDF environment:
 
 ```bash
