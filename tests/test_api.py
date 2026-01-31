@@ -119,6 +119,18 @@ def test_plants_smoke_flow():
     )
     plant_id = created_plant["id"]
 
+    status_payload = _request_json(
+        f"/plants/{plant_name}/status",
+        method="POST",
+        payload={"status_code": "DROOPING_LEAVES", "note": "pytest"},
+    )
+    assert status_payload["plant_name"] == plant_name
+    assert status_payload["status_code"] == "DROOPING_LEAVES"
+
+    listed_statuses = _request_json(f"/plants/{plant_name}/status?limit=10")
+    codes = [item["status_code"] for item in listed_statuses.get("data", [])]
+    assert "DROOPING_LEAVES" in codes
+
     listed = _request_json("/plants?limit=10000")
     names = [item["plant_name"] for item in listed.get("data", [])]
     assert plant_name in names
