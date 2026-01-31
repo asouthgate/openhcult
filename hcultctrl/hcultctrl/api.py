@@ -160,7 +160,7 @@ class ObservationUpdate(BaseModel):
 
 
 class DeviceNameUpdate(BaseModel):
-    name: str
+    name: Optional[str] = None
 
 
 class PlantSensorAssign(BaseModel):
@@ -294,7 +294,14 @@ def update_observation(obs_id: int, payload: ObservationUpdate, conn=Depends(_ge
 
 @app.patch("/devices/{device_address}")
 def update_device(device_address: str, payload: DeviceNameUpdate, conn=Depends(_get_db_conn)):
-    logger.info("PATCH /devices/%s name_set=%s", device_address, payload.name is not None)
+    logger.info(
+        "PATCH /devices/%s name_set=%s name_value=%s",
+        device_address,
+        payload.name is not None,
+        payload.name,
+    )
+    if payload.name is None:
+        raise HTTPException(status_code=400, detail="name must be non-empty")
     name = payload.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="name must be non-empty")

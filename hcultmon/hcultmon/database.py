@@ -1,11 +1,13 @@
 """Database helpers for device registry and sensor readings."""
 
 from datetime import datetime, timezone
+import logging
 import time
 from pathlib import Path
 from urllib.parse import urlparse, unquote
 
 import sqlite3
+logger = logging.getLogger(__name__)
 
 
 def _is_postgres(conn) -> bool:
@@ -195,18 +197,21 @@ def setup_db(db_url: str):
 
 def register_device(conn, name, address):
     """Insert or update a device row and return its device_id."""
+    logging.debug("Registering or updating device %s at %s", name, address)
     cursor = conn.cursor()
     placeholder = _placeholder(conn)
     cursor.execute(f"SELECT id FROM devices WHERE address = {placeholder}", (address,))
     row = cursor.fetchone()
     if row:
         device_id = row[0]
+        logging.debug("Updating last_seen for device %s at %s", name, address)
         cursor.execute(
             f"UPDATE devices SET last_seen = CURRENT_TIMESTAMP WHERE id = {placeholder}",
             (device_id,),
         )
     else:
         if _is_postgres(conn):
+            logging.debug("Registering new device %s at %s", name, address)
             cursor.execute(
                 "INSERT INTO devices (name, address) VALUES (%s, %s) RETURNING id",
                 (name, address),

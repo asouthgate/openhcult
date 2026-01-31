@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import sqlite3
+import logging
 from pathlib import Path
 from typing import Iterable, Optional
 from urllib.parse import urlparse, unquote
+logger = logging.getLogger(__name__)
 
 
 def _is_postgres(conn) -> bool:
@@ -215,6 +217,11 @@ def update_device_name(conn, *, address: str, name: str) -> None:
     """Update a device name by BLE address."""
     placeholder = _placeholder(conn)
     cursor = conn.cursor()
+    logger.info(
+        "Updating device name",
+        address,
+        name,
+    )
     cursor.execute(
         f"UPDATE devices SET name = {placeholder} WHERE address = {placeholder}",
         (name, address),
