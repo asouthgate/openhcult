@@ -129,6 +129,7 @@
       - "{{ openhcult_install_dir }}/hcultdb"
       - "{{ openhcult_install_dir }}/hcultmon"
       - "{{ openhcult_install_dir }}/hcultctrl"
+      - "{{ openhcult_install_dir }}/hcultutils"
     editable: true
     extra_args: --upgrade
   become_user: "{{ openhcult_user }}"
@@ -143,6 +144,17 @@
   notify:
     - restart hcultmon
     - restart hcultctrl
+
+- name: Schedule hourly event inference
+  ansible.builtin.cron:
+    name: "OpenHCult infer events"
+    user: "{{ openhcult_user }}"
+    minute: "0"
+    hour: "*"
+    job: >
+      {{ openhcult_install_dir }}/.venv/bin/hcultutils
+      --ctrl-url http://192.168.0.117:8000
+      infer_events --hours 48
 
 - name: Install logrotate config
   ansible.builtin.template:

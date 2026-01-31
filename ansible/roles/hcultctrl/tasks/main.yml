@@ -7,6 +7,15 @@
     - reload systemd
     - restart hcultctrl
 
+- name: Initialize OpenHCult database schema
+  ansible.builtin.command:
+    cmd: >
+      {{ openhcult_install_dir }}/.venv/bin/python -c
+      "from pathlib import Path; from hcultctrl import config; from hcultdb import setup;
+      config.set_config_path(Path('{{ openhcult_config_path }}'));
+      setup.setup_db(config.get_db_url())"
+  become_user: "{{ openhcult_user }}"
+
 - name: Ensure hcultctrl is enabled and started
   ansible.builtin.systemd:
     name: hcultctrl
