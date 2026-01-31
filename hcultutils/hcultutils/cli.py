@@ -141,7 +141,7 @@ def _render_health_payload(payload):
                 row["observed_at"] = _format_observed_at(row.get("observed_at"))
                 if "cleared_at" in row:
                     row["cleared_at"] = _format_observed_at(row.get("cleared_at"))
-                row["display"] = f"\x1b[31m ! {row.get('status_code')}\x1b[0m"
+                row["status_code"] = f"\x1b[31m{row.get('status_code')}\x1b[0m"
                 deduped.append(row)
             payload["statuses"] = deduped
 
