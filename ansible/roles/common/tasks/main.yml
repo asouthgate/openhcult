@@ -126,6 +126,7 @@
     virtualenv: "{{ openhcult_install_dir }}/.venv"
     virtualenv_command: python3 -m venv
     name:
+      - "{{ openhcult_install_dir }}/hcultinf"
       - "{{ openhcult_install_dir }}/hcultdb"
       - "{{ openhcult_install_dir }}/hcultmon"
       - "{{ openhcult_install_dir }}/hcultctrl"
