@@ -8,7 +8,7 @@ from bleak import BleakScanner, BleakClient
 from bleak.exc import BleakDeviceNotFoundError, BleakDBusError, BleakError
 
 from . import config
-from . import database
+from hcultdb import queries
 
 DEVICE_NAME_HINT = "ESP32_Sensor"
 PAYLOAD_STRIDE_BYTES = 10
@@ -111,7 +111,7 @@ def _notification_handler(sender, data, dbcon, device_id):
                 collection_time_ms,
             )
         )
-    database.write_sensor_readings(dbcon, device_id, rows)
+    queries.write_sensor_readings(dbcon, device_id, rows)
 
 
 def _parse_header(data):
@@ -173,7 +173,7 @@ async def run_monitor(db_con, characteristic_uuid=None):
                     continue
                 logging.info("Connected to ESP32 device.")
 
-                device_id = database.register_device(
+                device_id = queries.register_device(
                     db_con,
                     esp32_device.name or DEVICE_NAME_HINT,
                     esp32_device.address,

@@ -1,44 +1,20 @@
-"""Database helpers for device registry and sensor readings."""
-
-from datetime import datetime, timezone
-import logging
-import time
+"""Database setup helpers."""
 from pathlib import Path
-from urllib.parse import urlparse, unquote
 
 import sqlite3
-logger = logging.getLogger(__name__)
 
-
-def _is_postgres(conn) -> bool:
-    module = conn.__class__.__module__
-    return "psycopg" in module or "psycopg2" in module
-
-
-def _placeholder(conn) -> str:
-    return "%s" if _is_postgres(conn) else "?"
+from .connection import connect, is_postgres, placeholder as placeholder_for
 
 
 def _connect(db_url: str):
-    parsed = urlparse(db_url)
-    if parsed.scheme in ("", "file", "sqlite"):
-        if parsed.scheme in ("file", "sqlite"):
-            db_path = Path(unquote(parsed.path))
-        else:
-            db_path = Path(db_url)
-        return sqlite3.connect(str(db_path))
-    if parsed.scheme.startswith("postgres"):
-        import psycopg
-
-        return psycopg.connect(db_url)
-    raise ValueError(f"Unsupported database URL: {db_url}")
+    return connect(db_url)
 
 
 def setup_db(db_url: str):
     """Create or migrate the database schema and return an open connection."""
     conn = _connect(db_url)
     cursor = conn.cursor()
-    if _is_postgres(conn):
+    if is_postgres(conn):
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS devices (
@@ -79,6 +55,23 @@ def setup_db(db_url: str):
             """
             CREATE UNIQUE INDEX IF NOT EXISTS observations_unique
             ON observations (observed_at, note, COALESCE(plant_id, -1))
+            """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS observation_types (
+                id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                code TEXT NOT NULL UNIQUE,
+                label TEXT NOT NULL,
+                description TEXT
+            )
+            """
+        )
+        cursor.execute(
+            """
+            ALTER TABLE observations
+            ADD COLUMN IF NOT EXISTS observation_type_id INTEGER
+            REFERENCES observation_types(id)
             """
         )
         cursor.execute(
@@ -188,6 +181,26 @@ def setup_db(db_url: str):
         )
         cursor.execute(
             """
+            CREATE TABLE IF NOT EXISTS observation_types (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                code TEXT NOT NULL UNIQUE,
+                label TEXT NOT NULL,
+                description TEXT
+            )
+            """
+        )
+        try:
+            cursor.execute(
+                """
+                ALTER TABLE observations
+                ADD COLUMN observation_type_id INTEGER
+                REFERENCES observation_types(id)
+                """
+            )
+        except sqlite3.OperationalError:
+            pass
+        cursor.execute(
+            """
             CREATE TABLE IF NOT EXISTS species (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
@@ -249,120 +262,15 @@ def setup_db(db_url: str):
         )
     conn.commit()
     _load_status_types(conn)
+    _load_observation_types(conn)
     return conn
 
 
-def register_device(conn, name, address):
-    """Insert or update a device row and return its device_id."""
-    logging.debug("Registering or updating device %s at %s", name, address)
-    cursor = conn.cursor()
-    placeholder = _placeholder(conn)
-    cursor.execute(f"SELECT id FROM devices WHERE address = {placeholder}", (address,))
-    row = cursor.fetchone()
-    if row:
-        device_id = row[0]
-        logging.debug("Updating last_seen for device %s at %s", name, address)
-        cursor.execute(
-            f"UPDATE devices SET last_seen = CURRENT_TIMESTAMP WHERE id = {placeholder}",
-            (device_id,),
-        )
-    else:
-        if _is_postgres(conn):
-            logging.debug("Registering new device %s at %s", name, address)
-            cursor.execute(
-                "INSERT INTO devices (name, address) VALUES (%s, %s) RETURNING id",
-                (name, address),
-            )
-            device_id = cursor.fetchone()[0]
-        else:
-            cursor.execute(
-                f"INSERT INTO devices (name, address) VALUES ({placeholder}, {placeholder})",
-                (name, address),
-            )
-            device_id = cursor.lastrowid
-    conn.commit()
-    return device_id
-
-
-def write_sensor_readings(conn, device_id, readings):
-    """Insert one row per sensor reading for the given device."""
-    cursor = conn.cursor()
-    placeholder = _placeholder(conn)
-    if isinstance(readings, dict):
-        rows = [(device_id, key, value) for key, value in readings.items()]
-        cursor.executemany(
-            "INSERT INTO sensor_readings (device_id, sensor, measurement) "
-            f"VALUES ({placeholder}, {placeholder}, {placeholder})",
-            rows,
-        )
-    else:
-        rows = [
-            (
-                device_id,
-                sensor,
-                measurement,
-                timestamp_us,
-                adjusted_time_ms,
-                collection_time_ms,
-            )
-            for (
-                sensor,
-                measurement,
-                timestamp_us,
-                adjusted_time_ms,
-                collection_time_ms,
-            ) in readings
-        ]
-        cursor.executemany(
-            "INSERT INTO sensor_readings "
-            "(device_id, sensor, measurement, measurement_time_us, "
-            "adjusted_time_ms, collection_time_ms) "
-            f"VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})",
-            rows,
-        )
-    conn.commit()
-
-
-def _parse_observed_at_ms(value):
-    if value.endswith("Z"):
-        parsed = datetime.fromisoformat(value[:-1]).replace(tzinfo=timezone.utc)
-    else:
-        parsed = datetime.fromisoformat(value)
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return int(parsed.timestamp() * 1000)
-
-
-def add_observation(conn, note, observed_at=None):
-    """Insert an observation and return its id."""
-    cursor = conn.cursor()
-    observed_at_ms = (
-        _parse_observed_at_ms(observed_at)
-        if observed_at is not None
-        else int(time.time() * 1000)
-    )
-    if _is_postgres(conn):
-        cursor.execute(
-            "INSERT INTO observations (observed_at, note) VALUES (%s, %s) RETURNING id",
-            (observed_at_ms, note),
-        )
-        obs_id = cursor.fetchone()[0]
-    else:
-        placeholder = _placeholder(conn)
-        cursor.execute(
-            f"INSERT INTO observations (observed_at, note) VALUES ({placeholder}, {placeholder})",
-            (observed_at_ms, note),
-        )
-        obs_id = cursor.lastrowid
-    conn.commit()
-    return obs_id
-
-
 def _load_status_types(conn) -> None:
-    status_path = Path(__file__).resolve().parents[1] / "status_types.txt"
+    status_path = Path(__file__).resolve().parent / "status_types.txt"
     if not status_path.exists():
         return
-    placeholder = _placeholder(conn)
+    placeholder = placeholder_for(conn)
     rows = []
     for raw in status_path.read_text(encoding="utf-8").splitlines():
         line = raw.strip()
@@ -376,7 +284,7 @@ def _load_status_types(conn) -> None:
     if not rows:
         return
     cursor = conn.cursor()
-    if _is_postgres(conn):
+    if is_postgres(conn):
         cursor.executemany(
             "INSERT INTO status_types (code, label, description) "
             "VALUES (%s, %s, %s) "
@@ -386,6 +294,40 @@ def _load_status_types(conn) -> None:
     else:
         cursor.executemany(
             f"INSERT OR IGNORE INTO status_types (code, label, description) "
+            f"VALUES ({placeholder}, {placeholder}, {placeholder})",
+            rows,
+        )
+    conn.commit()
+
+
+def _load_observation_types(conn) -> None:
+    types_path = Path(__file__).resolve().parent / "observation_types.txt"
+    if not types_path.exists():
+        return
+    placeholder = placeholder_for(conn)
+    rows = []
+    for raw in types_path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = [part.strip() for part in line.split("|", maxsplit=2)]
+        code = parts[0]
+        label = parts[1] if len(parts) > 1 and parts[1] else code
+        description = parts[2] if len(parts) > 2 and parts[2] else None
+        rows.append((code, label, description))
+    if not rows:
+        return
+    cursor = conn.cursor()
+    if is_postgres(conn):
+        cursor.executemany(
+            "INSERT INTO observation_types (code, label, description) "
+            "VALUES (%s, %s, %s) "
+            "ON CONFLICT (code) DO NOTHING",
+            rows,
+        )
+    else:
+        cursor.executemany(
+            f"INSERT OR IGNORE INTO observation_types (code, label, description) "
             f"VALUES ({placeholder}, {placeholder}, {placeholder})",
             rows,
         )

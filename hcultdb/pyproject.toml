@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "hcultmon"
+name = "hcultdb"
 version = "0.0.1"
-description = "Plant bluetooth monitor backend"
+description = "Database setup helpers for OpenHCult"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -13,13 +13,9 @@ authors = [
     { name = "nobody", email = "nobody@nowhere.com" }
 ]
 
-dependencies = [
-    "bleak",
-    "psycopg[binary]",
-    "hcultdb",
-]
+[tool.setuptools]
+packages = ["hcultdb"]
+include-package-data = true
 
-[project.optional-dependencies]
-
-[project.scripts]
-hcultmon = "hcultmon.__main__:main"
+[tool.setuptools.package-data]
+hcultdb = ["status_types.txt", "observation_types.txt"]

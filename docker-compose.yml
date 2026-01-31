@@ -39,7 +39,7 @@ services:
         "0.0.0.0"
       ]
     environment:
-      PYTHONPATH: /app/hcultctrl:/app/hcultmon
+      PYTHONPATH: /app/hcultctrl:/app/hcultmon:/app/hcultdb
     volumes:
       - .:/app
       - ./docker/openhcult.conf:/config/openhcult.conf:ro
@@ -56,7 +56,7 @@ services:
     command:
       ["python", "-m", "hcultmon", "-c", "/config/openhcult.conf"]
     environment:
-      PYTHONPATH: /app/hcultctrl:/app/hcultmon
+      PYTHONPATH: /app/hcultctrl:/app/hcultmon:/app/hcultdb
       DBUS_SYSTEM_BUS_ADDRESS: unix:path=/var/run/dbus/system_bus_socket
     volumes:
       - .:/app

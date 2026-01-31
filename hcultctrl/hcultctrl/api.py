@@ -15,7 +15,7 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
 from . import config
-from . import database
+from hcultdb import queries as database
 
 
 app = FastAPI(title="hcultctrl", version="0.1.0")

@@ -5,7 +5,7 @@ from pathlib import Path
 
 from . import ble
 from . import config
-from . import database
+from hcultdb import setup
 
 def _setup_logging():
     handlers = []
@@ -24,7 +24,7 @@ def _setup_logging():
 
 async def _main():
     db_url = config.get_db_url()
-    db_con = database.setup_db(db_url)
+    db_con = setup.setup_db(db_url)
     await ble.run_monitor(db_con)
 
 def main():
