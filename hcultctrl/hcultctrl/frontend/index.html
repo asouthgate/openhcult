@@ -6,14 +6,14 @@
     <title>OpenHCult Frontend</title>
     <style>
       :root {
-        color-scheme: light;
-        --bg-1: #f4f1ec;
-        --bg-2: #dfe8e6;
-        --card: #ffffff;
-        --ink: #1f1b16;
-        --accent: #3b6b5c;
-        --accent-2: #e4b34c;
-        --border: #d6cdc3;
+        color-scheme: dark;
+        --bg-1: #1c1512;
+        --bg-2: #17162b;
+        --card: #1a1724;
+        --ink: #bfe8d2;
+        --accent: #2b2b46;
+        --accent-2: #86bfa5;
+        --border: #2f2426;
       }
 
       * {
@@ -25,7 +25,7 @@
         font-family: "Georgia", "Times New Roman", serif;
         color: var(--ink);
         background: radial-gradient(1200px 600px at 10% 0%, var(--bg-2), transparent 60%),
-          linear-gradient(160deg, var(--bg-1), #f7f3ef 55%, #f2e7d8);
+          linear-gradient(160deg, var(--bg-1), #16100f 55%, #241919);
         min-height: 100vh;
         display: flex;
         align-items: flex-start;
@@ -50,7 +50,7 @@
 
       p {
         margin: 0 0 16px;
-        color: #4a4239;
+        color: #b2d2bb;
       }
 
       .grid {
@@ -77,7 +77,7 @@
         padding: 10px 12px;
         border-radius: 10px;
         border: 1px solid var(--border);
-        background: #fffdfb;
+        background: #1f2a21;
         color: var(--ink);
       }
 
@@ -89,7 +89,7 @@
 
       button {
         border: none;
-        background: linear-gradient(120deg, var(--accent), #2f4f44);
+        background: #2b4132;
         color: #fff;
         font-weight: 700;
         cursor: pointer;
@@ -98,7 +98,7 @@
 
       button:hover {
         transform: translateY(-1px);
-        box-shadow: 0 6px 14px rgba(47, 79, 68, 0.25);
+        box-shadow: 0 6px 14px rgba(70, 48, 112, 0.35);
       }
 
       .meta {
@@ -107,19 +107,19 @@
         flex-wrap: wrap;
         margin: 12px 0 8px;
         font-size: 0.85rem;
-        color: #62584d;
+        color: #9fbba9;
       }
 
       .chip {
         padding: 6px 10px;
         border-radius: 999px;
-        background: #f9f3e7;
-        border: 1px solid #e6d7c2;
+        background: #2e1f21;
+        border: 1px solid #373d58;
       }
 
       .status {
         font-weight: 600;
-        color: #2f4f44;
+        color: var(--accent-2);
       }
 
       @media (max-width: 520px) {
