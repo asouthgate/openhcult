@@ -52,15 +52,42 @@
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT to_timestamp(sr.adjusted_time_ms / 1000.0) AS time, sr.measurement AS value, concat(COALESCE(d.tag, d.name, d.address, 'device'), ' ', sr.sensor) AS metric FROM sensor_readings sr JOIN devices d ON d.id = sr.device_id LEFT JOIN plant_sensors ps ON ps.device_id = d.id AND ps.sensor = sr.sensor LEFT JOIN plants p ON p.id = ps.plant_id WHERE $__unixEpochFilter(sr.adjusted_time_ms / 1000.0) AND ('${plant_name}' = '%' OR p.plant_name LIKE '${plant_name}') ORDER BY 1",
+          "rawSql": "SELECT to_timestamp(sr.adjusted_time_ms / 1000.0) AS time, sr.measurement AS value, concat(COALESCE(d.tag, d.name, d.address, 'device'), ' ', sr.sensor) AS metric FROM sensor_readings sr JOIN devices d ON d.id = sr.device_id LEFT JOIN plant_sensors ps ON ps.device_id = d.id AND ps.sensor = sr.sensor LEFT JOIN plants p ON p.id = ps.plant_id WHERE $__unixEpochFilter(sr.adjusted_time_ms / 1000.0) AND ('${plant_name}' = '%' OR p.plant_name LIKE '${plant_name}') AND '${view_mode}' IN ('individual', 'both') ORDER BY 1",
           "refId": "A"
+        },
+        {
+          "format": "time_series",
+          "rawSql": "SELECT to_timestamp(floor(sr.adjusted_time_ms / ${__interval_ms}) * ${__interval_ms} / 1000.0) AS time, AVG(sr.measurement) AS value, concat(COALESCE(d.tag, d.name, d.address, 'device'), ' avg') AS metric FROM sensor_readings sr JOIN devices d ON d.id = sr.device_id LEFT JOIN plant_sensors ps ON ps.device_id = d.id AND ps.sensor = sr.sensor LEFT JOIN plants p ON p.id = ps.plant_id WHERE $__unixEpochFilter(sr.adjusted_time_ms / 1000.0) AND ('${plant_name}' = '%' OR p.plant_name LIKE '${plant_name}') AND '${view_mode}' IN ('average', 'both') GROUP BY time, d.id, d.tag, d.name, d.address ORDER BY 1",
+          "refId": "B"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "none",
           "lineWidth": 2,
-          "fillOpacity": 10
+          "fillOpacity": 10,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "semi-dark-green",
+                "value": null
+              },
+              {
+                "color": "transparent",
+                "value": 1200
+              },
+              {
+                "color": "semi-dark-yellow",
+                "value": 2000
+              }
+            ]
+          },
+          "custom": {
+            "thresholdsStyle": {
+              "mode": "area"
+            }
+          }
         },
         "overrides": []
       },
@@ -78,6 +105,19 @@
   ],
   "templating": {
     "list": [
+      {
+        "type": "custom",
+        "name": "view_mode",
+        "label": "View",
+        "hide": 0,
+        "query": "individual,average,both",
+        "current": {
+          "text": "individual",
+          "value": "individual",
+          "selected": false
+        },
+        "options": []
+      },
       {
         "type": "query",
         "name": "plant_name",
