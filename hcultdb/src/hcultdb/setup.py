@@ -298,13 +298,16 @@ def _load_status_types(conn) -> None:
         cursor.executemany(
             "INSERT INTO status_types (code, label, description) "
             "VALUES (%s, %s, %s) "
-            "ON CONFLICT (code) DO NOTHING",
+            "ON CONFLICT (code) DO UPDATE "
+            "SET label = EXCLUDED.label, description = EXCLUDED.description",
             rows,
         )
     else:
         cursor.executemany(
-            f"INSERT OR IGNORE INTO status_types (code, label, description) "
-            f"VALUES ({placeholder}, {placeholder}, {placeholder})",
+            f"INSERT INTO status_types (code, label, description) "
+            f"VALUES ({placeholder}, {placeholder}, {placeholder}) "
+            "ON CONFLICT(code) DO UPDATE "
+            "SET label = excluded.label, description = excluded.description",
             rows,
         )
     conn.commit()
@@ -332,13 +335,16 @@ def _load_observation_types(conn) -> None:
         cursor.executemany(
             "INSERT INTO observation_types (code, label, description) "
             "VALUES (%s, %s, %s) "
-            "ON CONFLICT (code) DO NOTHING",
+            "ON CONFLICT (code) DO UPDATE "
+            "SET label = EXCLUDED.label, description = EXCLUDED.description",
             rows,
         )
     else:
         cursor.executemany(
-            f"INSERT OR IGNORE INTO observation_types (code, label, description) "
-            f"VALUES ({placeholder}, {placeholder}, {placeholder})",
+            f"INSERT INTO observation_types (code, label, description) "
+            f"VALUES ({placeholder}, {placeholder}, {placeholder}) "
+            "ON CONFLICT(code) DO UPDATE "
+            "SET label = excluded.label, description = excluded.description",
             rows,
         )
     conn.commit()

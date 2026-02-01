@@ -5,3 +5,12 @@ DROOPING_LEAVES|Drooping leaves|Leaves are drooping or limp.
 WILTING|Wilting|Plant appears wilted overall.
 LEAF_SPOTS|Leaf spots|Spotted or blemished leaves.
 STUNTED_GROWTH|Stunted growth|Growth appears slowed or stalled.
+ROOT_ROT|Root rot|Roots show signs of rot or decay.
+PLANT_DEATH|Plant death|Plant has died.
+PEST_INFESTATION|Pest infestation|Visible pests or pest damage present.
+FUNGAL_GROWTH|Fungal growth|Fungal growth or mildew detected.
+NUTRIENT_DEFICIENCY|Nutrient deficiency|Signs of nutrient deficiency (pale or weak growth).
+OVERWATERED|Overwatered|Soil is waterlogged or roots are stressed by excess moisture.
+UNDERWATERED|Underwatered|Soil is too dry; plant shows drought stress.
+SUNSCORCH|Sunscorch|Leaves show burn from excessive light or heat.
+LEGGY_GROWTH|Leggy growth|Stems are elongated with sparse foliage.
