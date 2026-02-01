@@ -241,7 +241,7 @@
           needs: ["plant_name"],
           path: (ctx) => `/plants/${encodeURIComponent(ctx.plant_name)}/status`,
           template: (ctx) => `/plants/${ctx.plant_name || "{plant_name}"}/status`,
-          body: { status_code: "", note: "" },
+          body: { status_code: "", note: "", observed_at: "" },
         },
         assign_sensor: {
           label: "assign sensor (POST /plants/{plant_name}/assign)",

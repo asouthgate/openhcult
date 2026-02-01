@@ -177,6 +177,7 @@ class PlantSensorAssign(BaseModel):
 class PlantStatusAssign(BaseModel):
     status_code: str
     note: Optional[str] = None
+    observed_at: Optional[str] = None
 
 
 @app.post("/observations")
@@ -584,7 +585,11 @@ def assign_plant_status(
     status_type = database.fetch_status_type_by_code(conn, code=status_code)
     if status_type is None:
         raise HTTPException(status_code=404, detail="Status type not found")
-    observed_at = int(time.time() * 1000)
+    observed_at = (
+        _parse_utc_ms(payload.observed_at, "observed_at")
+        if payload.observed_at
+        else int(time.time() * 1000)
+    )
     status_id = database.insert_plant_status(
         conn,
         plant_id=plant["id"],
