@@ -8,10 +8,12 @@ import json
 import logging
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import PlainTextResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import config
@@ -20,6 +22,10 @@ from hcultdb import queries as database
 
 app = FastAPI(title="hcultctrl", version="0.1.0")
 logger = logging.getLogger(__name__)
+
+_frontend_dir = Path(__file__).resolve().parent / "frontend"
+if _frontend_dir.is_dir():
+    app.mount("/frontend", StaticFiles(directory=_frontend_dir, html=True), name="frontend")
 
 
 def _get_db_conn():
