@@ -7,7 +7,6 @@
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "host/ble_hs.h"
-#include "host/ble_store.h"
 #include "host/ble_hs_id.h"
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
@@ -28,7 +27,7 @@ constexpr uint16_t kAdvCompanyId = 0xFFFF;
 constexpr uint8_t kAdvPayloadVersion = 1;
 constexpr uint8_t kAdvPayloadMagic0 = 'H';
 constexpr uint8_t kAdvPayloadMagic1 = 'C';
-constexpr size_t kAdvPayloadSize = 12; // Magic(2) + version + count + values(4) + timestamp(4).
+constexpr size_t kAdvPayloadSize = 8; // Magic(2) + version + count + values(4).
 constexpr size_t kAdvMfgDataSize = 2 + kAdvPayloadSize; // Company ID + payload.
 } // namespace
 
@@ -40,11 +39,9 @@ static bool build_adv_mfg_data(
   if (out_capacity < kAdvMfgDataSize) {
     return false;
   }
-  int values[kSensorCount] = {};
-  int64_t times[kSensorCount] = {};
-  size_t count = copy_latest_measurements_with_time(values, times, kSensorCount);
-  if (count < kSensorCount) {
-    return false;
+  float values[kSensorCount] = {};
+  for (size_t i = 0; i < kSensorCount; ++i) {
+    values[i] = s_state->last_sensor_values[i];
   }
 
   out[0] = static_cast<uint8_t>(kAdvCompanyId & 0xFF);
@@ -61,11 +58,10 @@ static bool build_adv_mfg_data(
   out[8] = static_cast<uint8_t>(sensor1 & 0xFF);
   out[9] = static_cast<uint8_t>((sensor1 >> 8) & 0xFF);
 
-  uint32_t timestamp_s = static_cast<uint32_t>(times[count - 1] / 1000000LL);
-  out[10] = static_cast<uint8_t>(timestamp_s & 0xFF);
-  out[11] = static_cast<uint8_t>((timestamp_s >> 8) & 0xFF);
-  out[12] = static_cast<uint8_t>((timestamp_s >> 16) & 0xFF);
-  out[13] = static_cast<uint8_t>((timestamp_s >> 24) & 0xFF);
+  out[10] = 0;
+  out[11] = 0;
+  out[12] = 0;
+  out[13] = 0;
 
   *out_len = kAdvMfgDataSize;
   return true;
@@ -83,8 +79,6 @@ bool init_ble_stack(FirmwareState &state) {
 
   ble_hs_cfg.sync_cb = ble_on_sync;
   ble_hs_cfg.reset_cb = ble_on_reset;
-  ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
-
   nimble_port_freertos_init(ble_host_task);
   return true;
 }

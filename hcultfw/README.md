@@ -67,7 +67,7 @@ idf.py -p /dev/ttyUSB0 flash
 - Power pins:
   - Sensor power: GPIO5 and GPIO18
 - Status LED: GPIO4
-- Advertising window: 45s, then deep sleep for 60s.
+- Advertising window and sleep interval are set in `openhcult.conf`.
 
 ## Glossary
 
