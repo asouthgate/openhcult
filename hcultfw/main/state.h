@@ -4,8 +4,6 @@
 #include <stdint.h>
 
 #include "esp_adc/adc_oneshot.h"
-#include "host/ble_uuid.h"
-
 #include "ble_config.h"
 
 constexpr size_t kSensorBufferSize = SENSOR_BUFFER_SIZE;
@@ -27,13 +25,8 @@ void clear_sensor_buffer();
 
 // TODO: FirmwareState should be separated from sensor buffer logic.
 struct FirmwareState {
-  ble_uuid128_t service_uuid;
-  ble_uuid128_t characteristic_uuid;
-  bool ble_uuid_ok;
-  uint16_t gatt_chr_handle;
   int64_t boot_time_us;
   adc_oneshot_unit_handle_t adc_handle;
   uint8_t ble_addr_type;
   volatile bool request_sleep;
-  volatile bool sent_payload;
 };

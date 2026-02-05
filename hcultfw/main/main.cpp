@@ -10,14 +10,15 @@
 #include "esp_rtc_time.h"
 #include "nvs_flash.h" // NVS (Non-Volatile Storage) is a small key-value store in flash.
 #include "esp_adc/adc_oneshot.h" // For ADC readings
+#include "esp_bt.h"
+#include "esp_pm.h"
+#include "esp_wifi.h"
 
 // Bluetooth includes
 #include "esp_nimble_hci.h" // NimBLE is BLE host stack, this include is required for initialization.
 #include "nimble/nimble_port.h" 
 #include "nimble/nimble_port_freertos.h"
 #include "host/ble_hs.h" // Core BLE host types/config
-#include "services/gap/ble_svc_gap.h" // Helpers for GAP
-#include "services/gatt/ble_svc_gatt.h" // Helpers for GATT
 
 #include "ble.h"
 #include "ble_config.h"
@@ -64,10 +65,36 @@ static void init_power_pins() {
   io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
   ESP_ERROR_CHECK(gpio_config(&io_conf));
 
-  gpio_set_level(static_cast<gpio_num_t>(LED_PIN), 1);
+  gpio_set_level(static_cast<gpio_num_t>(LED_PIN), 0);
   gpio_set_level(static_cast<gpio_num_t>(RED_LED_PIN), 0);
   gpio_set_level(static_cast<gpio_num_t>(SENSOR_POWER_PIN_1), 0);
   gpio_set_level(static_cast<gpio_num_t>(SENSOR_POWER_PIN_2), 0);
+}
+
+static void disable_unused_radios() {
+  esp_err_t err = esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT);
+  if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+    ESP_LOGW(TAG, "Failed to release BT classic memory: %d", err);
+  }
+  err = esp_wifi_stop();
+  if (err != ESP_OK && err != ESP_ERR_WIFI_NOT_INIT) {
+    ESP_LOGW(TAG, "Failed to stop Wi-Fi: %d", err);
+  }
+  err = esp_wifi_deinit();
+  if (err != ESP_OK && err != ESP_ERR_WIFI_NOT_INIT) {
+    ESP_LOGW(TAG, "Failed to deinit Wi-Fi: %d", err);
+  }
+}
+
+static void reduce_cpu_peak_draw() {
+  esp_pm_config_esp32_t cfg = {};
+  cfg.max_freq_mhz = 80;
+  cfg.min_freq_mhz = 40;
+  cfg.light_sleep_enable = true;
+  esp_err_t err = esp_pm_configure(&cfg);
+  if (err != ESP_OK) {
+    ESP_LOGW(TAG, "Failed to configure power management: %d", err);
+  }
 }
 
 // Power on or off a sensor connected to the given GPIO pin.
@@ -84,7 +111,7 @@ static int read_sensor_with_power(
   // We power on the sensor, wait briefly for it to stabilize, read the value, then power it off.
   // This reduces artifacts in the readings.
   power_sensor(power_pin, true);
-  vTaskDelay(pdMS_TO_TICKS(50));
+  vTaskDelay(pdMS_TO_TICKS(100));
   int value = read_sensor(state, channel);
   power_sensor(power_pin, false);
   return value;
@@ -126,6 +153,7 @@ static void take_sensor_readings(FirmwareState &state) {
       sensor_channels[i]
     );
     push_sensor_measurement(sensor_values[i], sample_time_us);
+    vTaskDelay(pdMS_TO_TICKS(100));
   }
 
   ESP_LOGI(TAG, "Sensor value 1: %d", sensor_values[0]);
@@ -155,7 +183,12 @@ extern "C" void app_main(void) {
   state.boot_time_us = esp_timer_get_time();
   
   init_nvs_storage();
+  disable_unused_radios();
+  reduce_cpu_peak_draw();
   init_power_pins();
+  gpio_set_level(static_cast<gpio_num_t>(LED_PIN), 1);
+  vTaskDelay(pdMS_TO_TICKS(50));
+  gpio_set_level(static_cast<gpio_num_t>(LED_PIN), 0);
   take_sensor_readings(state);
 
   ++g_sleep_cycle_count;
@@ -170,6 +203,9 @@ extern "C" void app_main(void) {
   if (!init_ble_stack(state)) {
     return;
   }
+
+  // Give the supply rail a short recovery window before BLE starts.
+  vTaskDelay(pdMS_TO_TICKS(250));
 
   // Start a new FreeRTOS task that runs in parallel with app_main.
   // We need this because the BLE stack requires its own event loop to function properly.

@@ -36,22 +36,6 @@ def set_config_path(config_path: Path) -> None:
     _CONFIG_PATH_OVERRIDE = config_path
 
 
-def get_ble_characteristic_uuid():
-    """Fetch the BLE characteristic UUID from the config."""
-    parser, config_path, _ = _load_config()
-    if "ble" not in parser or "characteristic_uuid" not in parser["ble"]:
-        raise ValueError(f"Missing ble.characteristic_uuid in {config_path}")
-    return parser["ble"]["characteristic_uuid"].strip()
-
-
-def get_ble_service_uuid():
-    """Fetch the BLE service UUID from the config."""
-    parser, config_path, _ = _load_config()
-    if "ble" not in parser or "service_uuid" not in parser["ble"]:
-        raise ValueError(f"Missing ble.service_uuid in {config_path}")
-    return parser["ble"]["service_uuid"].strip()
-
-
 def get_db_url() -> str:
     """Fetch the database URL from config."""
     parser, config_path, _ = _load_config()

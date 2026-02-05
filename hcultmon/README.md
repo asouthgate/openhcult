@@ -1,6 +1,6 @@
 # hcultmon
 
-BLE monitor for OpenHCult sensors.
+BLE advertisement monitor for OpenHCult sensors (no GATT connections).
 
 ## Run as a system service (systemd)
 
