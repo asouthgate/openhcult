@@ -145,6 +145,7 @@
           <label for="resource">Resource</label>
           <select id="resource">
             <option value="plants">/plants</option>
+            <option value="observations">/observations</option>
           </select>
         </div>
         <div>
@@ -162,12 +163,7 @@
       <div class="grid">
         <div id="plant_name_group">
           <label for="plant_name">Plant name</label>
-          <input
-            id="plant_name"
-            type="text"
-            value="office_drooping_fatsia"
-            spellcheck="false"
-          />
+          <select id="plant_name"></select>
         </div>
         <div id="plant_id_group">
           <label for="plant_id">Plant id</label>
@@ -178,9 +174,9 @@
       <label for="request_path">Request path</label>
       <input id="request_path" type="text" readonly />
 
-      <div id="body_group">
-        <label for="body">Body (JSON)</label>
-        <textarea id="body" spellcheck="false"></textarea>
+      <div id="payload_group">
+        <label for="payload_json">Payload JSON</label>
+        <textarea id="payload_json" spellcheck="false"></textarea>
       </div>
 
       <button id="send">Send request</button>
@@ -202,98 +198,180 @@
       const plantIdEl = document.getElementById("plant_id");
       const plantNameGroup = document.getElementById("plant_name_group");
       const plantIdGroup = document.getElementById("plant_id_group");
-      const bodyGroup = document.getElementById("body_group");
-      const bodyEl = document.getElementById("body");
+      const payloadGroup = document.getElementById("payload_group");
+      const payloadEl = document.getElementById("payload_json");
       const requestPathEl = document.getElementById("request_path");
       const requestUrlEl = document.getElementById("request_url");
       const statusEl = document.getElementById("status");
       const responseEl = document.getElementById("response");
       const sendButton = document.getElementById("send");
 
-      const actions = {
-        list: {
-          label: "list (GET /plants)",
-          method: "GET",
-          path: () => "/plants",
-        },
-        health: {
-          label: "health (GET /plants/{plant_name}/health)",
-          method: "GET",
-          needs: ["plant_name"],
-          path: (ctx) => `/plants/${encodeURIComponent(ctx.plant_name)}/health`,
-          template: (ctx) => `/plants/${ctx.plant_name || "{plant_name}"}/health`,
-        },
-        health_all: {
-          label: "health all (GET /plants/health)",
-          method: "GET",
-          path: () => "/plants/health",
-        },
-        status_list: {
-          label: "status list (GET /plants/{plant_name}/status)",
-          method: "GET",
-          needs: ["plant_name"],
-          path: (ctx) => `/plants/${encodeURIComponent(ctx.plant_name)}/status`,
-          template: (ctx) => `/plants/${ctx.plant_name || "{plant_name}"}/status`,
-        },
-        status_assign: {
-          label: "status assign (POST /plants/{plant_name}/status)",
-          method: "POST",
-          needs: ["plant_name"],
-          path: (ctx) => `/plants/${encodeURIComponent(ctx.plant_name)}/status`,
-          template: (ctx) => `/plants/${ctx.plant_name || "{plant_name}"}/status`,
-          body: { status_code: "", note: "", observed_at: "" },
-        },
-        assign_sensor: {
-          label: "assign sensor (POST /plants/{plant_name}/assign)",
-          method: "POST",
-          needs: ["plant_name"],
-          path: (ctx) => `/plants/${encodeURIComponent(ctx.plant_name)}/assign`,
-          template: (ctx) => `/plants/${ctx.plant_name || "{plant_name}"}/assign`,
-          body: { device: "", sensor: "" },
-        },
-        create: {
-          label: "create (POST /plants)",
-          method: "POST",
-          path: () => "/plants",
-          body: {
-            plant_name: "",
-            species_id: null,
-            species_name: null,
-            tag: null,
-            metadata: null,
+      const resources = {
+        plants: {
+          actions: {
+            list: {
+              label: "list (GET /plants)",
+              method: "GET",
+              path: () => "/plants",
+            },
+            health: {
+              label: "health (GET /plants/{plant_name}/health)",
+              method: "GET",
+              needs: ["plant_name"],
+              path: (ctx) => `/plants/${encodeURIComponent(ctx.plant_name)}/health`,
+              template: (ctx) => `/plants/${ctx.plant_name || "{plant_name}"}/health`,
+            },
+            health_all: {
+              label: "health all (GET /plants/health)",
+              method: "GET",
+              path: () => "/plants/health",
+            },
+            status_list: {
+              label: "status list (GET /plants/{plant_name}/status)",
+              method: "GET",
+              needs: ["plant_name"],
+              path: (ctx) => `/plants/${encodeURIComponent(ctx.plant_name)}/status`,
+              template: (ctx) => `/plants/${ctx.plant_name || "{plant_name}"}/status`,
+            },
+            status_assign: {
+              label: "status assign (POST /plants/{plant_name}/status)",
+              method: "POST",
+              needs: ["plant_name"],
+              path: (ctx) => `/plants/${encodeURIComponent(ctx.plant_name)}/status`,
+              template: (ctx) => `/plants/${ctx.plant_name || "{plant_name}"}/status`,
+              bodyKind: "json_body",
+              body: { status_code: "", note: "", observed_at: "" },
+            },
+            assign_sensor: {
+              label: "assign sensor (POST /plants/{plant_name}/assign)",
+              method: "POST",
+              needs: ["plant_name"],
+              path: (ctx) => `/plants/${encodeURIComponent(ctx.plant_name)}/assign`,
+              template: (ctx) => `/plants/${ctx.plant_name || "{plant_name}"}/assign`,
+              bodyKind: "json_body",
+              body: { device: "", sensor: "" },
+            },
+            create: {
+              label: "create (POST /plants)",
+              method: "POST",
+              path: () => "/plants",
+              bodyKind: "json_body",
+              body: {
+                plant_name: "",
+                species_id: null,
+                species_name: null,
+                tag: null,
+                metadata: null,
+              },
+            },
+            update: {
+              label: "update (PATCH /plants/{plant_id})",
+              method: "PATCH",
+              needs: ["plant_id"],
+              path: (ctx) => `/plants/${encodeURIComponent(ctx.plant_id)}`,
+              template: (ctx) => `/plants/${ctx.plant_id || "{plant_id}"}`,
+              bodyKind: "json_body",
+              body: {
+                species_id: null,
+                species_name: null,
+                tag: null,
+                metadata: null,
+              },
+            },
+            delete: {
+              label: "delete (DELETE /plants/{plant_name})",
+              method: "DELETE",
+              needs: ["plant_name"],
+              path: (ctx) => `/plants/${encodeURIComponent(ctx.plant_name)}`,
+              template: (ctx) => `/plants/${ctx.plant_name || "{plant_name}"}`,
+            },
           },
         },
-        update: {
-          label: "update (PATCH /plants/{plant_id})",
-          method: "PATCH",
-          needs: ["plant_id"],
-          path: (ctx) => `/plants/${encodeURIComponent(ctx.plant_id)}`,
-          template: (ctx) => `/plants/${ctx.plant_id || "{plant_id}"}`,
-          body: {
-            species_id: null,
-            species_name: null,
-            tag: null,
-            metadata: null,
+        observations: {
+          actions: {
+            create: {
+              label: "create (POST /observations)",
+              method: "POST",
+              optional: ["plant_name"],
+              path: () => "/observations",
+              bodyKind: "observation_json",
+              body: {},
+            },
           },
-        },
-        delete: {
-          label: "delete (DELETE /plants/{plant_name})",
-          method: "DELETE",
-          needs: ["plant_name"],
-          path: (ctx) => `/plants/${encodeURIComponent(ctx.plant_name)}`,
-          template: (ctx) => `/plants/${ctx.plant_name || "{plant_name}"}`,
         },
       };
 
+      let plantCache = null;
+
+      const populatePlantSelect = () => {
+        plantNameEl.innerHTML = "";
+        const emptyOption = document.createElement("option");
+        emptyOption.value = "";
+        emptyOption.textContent = "Select a plant";
+        plantNameEl.appendChild(emptyOption);
+
+        plantCache.forEach((row) => {
+          const option = document.createElement("option");
+          option.value = row.plant_name;
+          option.textContent = row.plant_name;
+          option.dataset.plantId = String(row.id);
+          plantNameEl.appendChild(option);
+        });
+      };
+
+      const loadPlantCache = async () => {
+        const res = await fetch("/plants?limit=10000");
+        if (!res.ok) {
+          throw new Error("Failed to load plants list.");
+        }
+        const payload = await res.json();
+        plantCache = Array.isArray(payload.data) ? payload.data : [];
+        populatePlantSelect();
+      };
+
+      const ensurePlantCache = () => {
+        if (!plantCache || plantCache.length === 0) {
+          loadPlantCache().catch((err) => {
+            renderResponse(err.message || "Failed to load plants.");
+            setStatus("Error", true);
+          });
+        }
+      };
+
+      const resolvePlantId = async (plantName) => {
+        if (!plantName) {
+          return null;
+        }
+        if (!plantCache) {
+          await loadPlantCache();
+        }
+        let match = plantCache.find((row) => row.plant_name === plantName);
+        if (!match) {
+          await loadPlantCache();
+          match = plantCache.find((row) => row.plant_name === plantName);
+        }
+        if (!match) {
+          throw new Error(`Plant not found: ${plantName}`);
+        }
+        return match.id;
+      };
+
+      const currentAction = () => {
+        const resource = resources[resourceEl.value];
+        if (!resource) {
+          return null;
+        }
+        return resource.actions[actionEl.value];
+      };
+
       const buildRequest = () => {
-        const actionKey = actionEl.value;
-        const action = actions[actionKey];
+        const action = currentAction();
         if (!action) {
           throw new Error("Select an action.");
         }
 
         const ctx = {
-          plant_name: plantNameEl.value.trim(),
+          plant_name: plantNameEl.value,
           plant_id: plantIdEl.value.trim(),
         };
 
@@ -308,7 +386,7 @@
         let body = null;
 
         if (["POST", "PATCH", "PUT"].includes(method)) {
-          const raw = bodyEl.value.trim();
+          const raw = payloadEl.value.trim();
           if (!raw) {
             throw new Error("Body JSON is required.");
           }
@@ -319,17 +397,17 @@
           }
         }
 
-        return { url, method, body };
+        return { url, method, body, action, ctx };
       };
 
       const syncRequestPath = () => {
-        const action = actions[actionEl.value];
+        const action = currentAction();
         if (!action) {
           requestPathEl.value = "";
           return;
         }
         const ctx = {
-          plant_name: plantNameEl.value.trim(),
+          plant_name: plantNameEl.value,
           plant_id: plantIdEl.value.trim(),
         };
         const template = action.template || action.path;
@@ -337,30 +415,36 @@
       };
 
       const syncActionUI = () => {
-        const action = actions[actionEl.value];
+        const action = currentAction();
         if (!action) {
           methodEl.innerHTML = "<option value=\"GET\">GET</option>";
           plantNameGroup.style.display = "none";
           plantIdGroup.style.display = "none";
-          bodyGroup.style.display = "none";
+          payloadGroup.style.display = "none";
           syncRequestPath();
           return;
         }
 
         methodEl.innerHTML = `<option value="${action.method}">${action.method}</option>`;
         plantNameGroup.style.display =
-          (action.needs || []).includes("plant_name") ? "block" : "none";
+          (action.needs || []).includes("plant_name") ||
+          (action.optional || []).includes("plant_name")
+            ? "block"
+            : "none";
+        if (plantNameGroup.style.display === "block") {
+          ensurePlantCache();
+        }
         plantIdGroup.style.display =
           (action.needs || []).includes("plant_id") ? "block" : "none";
-        bodyGroup.style.display = ["POST", "PATCH", "PUT"].includes(action.method)
+        payloadGroup.style.display = ["POST", "PATCH", "PUT"].includes(action.method)
           ? "block"
           : "none";
 
-        if (bodyGroup.style.display === "block") {
+        if (payloadGroup.style.display === "block") {
           const defaultBody = action.body || {};
-          bodyEl.value = JSON.stringify(defaultBody, null, 2);
+          payloadEl.value = JSON.stringify(defaultBody, null, 2);
         } else {
-          bodyEl.value = "";
+          payloadEl.value = "";
         }
         syncRequestPath();
       };
@@ -378,32 +462,69 @@
         statusEl.style.color = isError ? "#9b2c2c" : "#2f4f44";
       };
 
-      Object.entries(actions).forEach(([key, value]) => {
-        const option = document.createElement("option");
-        option.value = key;
-        option.textContent = value.label;
-        actionEl.appendChild(option);
-      });
+      const syncActionsForResource = () => {
+        actionEl.innerHTML = "";
+        const resource = resources[resourceEl.value];
+        if (!resource) {
+          return;
+        }
+        Object.entries(resource.actions).forEach(([key, value]) => {
+          const option = document.createElement("option");
+          option.value = key;
+          option.textContent = value.label;
+          actionEl.appendChild(option);
+        });
+        if (resourceEl.value === "plants") {
+          actionEl.value = "health";
+        } else if (resourceEl.value === "observations") {
+          actionEl.value = "create";
+        }
+      };
 
-      actionEl.value = "health";
+      syncActionsForResource();
 
-      plantNameEl.addEventListener("input", syncRequestPath);
+      plantNameEl.addEventListener("change", syncRequestPath);
+      plantNameEl.addEventListener("focus", ensurePlantCache);
       plantIdEl.addEventListener("input", syncRequestPath);
       actionEl.addEventListener("change", syncActionUI);
-      resourceEl.addEventListener("change", syncActionUI);
+      resourceEl.addEventListener("change", () => {
+      syncActionsForResource();
+      ensurePlantCache();
+        syncActionUI();
+      });
       syncActionUI();
 
       sendButton.addEventListener("click", async () => {
         responseEl.value = "";
         try {
-          const { url, method, body } = buildRequest();
+          const { url, method, body, action, ctx } = buildRequest();
           requestUrlEl.textContent = url;
           setStatus(`${method} in flight...`);
 
+          let requestBody = body;
+          if (action.bodyKind === "observation_json") {
+            const raw = payloadEl.value.trim();
+            if (!raw) {
+              throw new Error("Observation JSON is required.");
+            }
+            let noteValue;
+            try {
+              noteValue = JSON.parse(raw);
+            } catch (err) {
+              throw new Error("Observation JSON must be valid.");
+            }
+            const payload = { note: JSON.stringify(noteValue) };
+            const plantName = ctx.plant_name;
+            if (plantName) {
+              payload.plant_id = await resolvePlantId(plantName);
+            }
+            requestBody = JSON.stringify(payload);
+          }
+
           const res = await fetch(url, {
             method,
-            headers: body ? { "Content-Type": "application/json" } : undefined,
-            body,
+            headers: requestBody ? { "Content-Type": "application/json" } : undefined,
+            body: requestBody,
           });
           const contentType = res.headers.get("content-type") || "";
           const data = contentType.includes("application/json")

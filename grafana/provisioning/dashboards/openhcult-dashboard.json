@@ -70,16 +70,20 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "red",
+                "color": "blue",
                 "value": null
               },
               {
                 "color": "transparent",
-                "value": 1200
+                "value": 1500
               },
               {
                 "color": "orange",
                 "value": 2000
+              },
+              {
+                "color": "orange",
+                "value": 2400
               }
             ]
           },
