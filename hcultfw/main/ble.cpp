@@ -27,7 +27,7 @@ constexpr uint16_t kAdvCompanyId = 0xFFFF;
 constexpr uint8_t kAdvPayloadVersion = 1;
 constexpr uint8_t kAdvPayloadMagic0 = 'H';
 constexpr uint8_t kAdvPayloadMagic1 = 'C';
-constexpr size_t kAdvPayloadSize = 8; // Magic(2) + version + count + values(4).
+constexpr size_t kAdvPayloadSize = 12; // Magic(2) + version + count + values(4) + timestamp(4).
 constexpr size_t kAdvMfgDataSize = 2 + kAdvPayloadSize; // Company ID + payload.
 } // namespace
 
@@ -58,10 +58,11 @@ static bool build_adv_mfg_data(
   out[8] = static_cast<uint8_t>(sensor1 & 0xFF);
   out[9] = static_cast<uint8_t>((sensor1 >> 8) & 0xFF);
 
-  out[10] = 0;
-  out[11] = 0;
-  out[12] = 0;
-  out[13] = 0;
+  uint32_t timestamp_s = s_state->last_timestamp_s;
+  out[10] = static_cast<uint8_t>(timestamp_s & 0xFF);
+  out[11] = static_cast<uint8_t>((timestamp_s >> 8) & 0xFF);
+  out[12] = static_cast<uint8_t>((timestamp_s >> 16) & 0xFF);
+  out[13] = static_cast<uint8_t>((timestamp_s >> 24) & 0xFF);
 
   *out_len = kAdvMfgDataSize;
   return true;

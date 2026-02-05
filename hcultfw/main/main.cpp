@@ -6,7 +6,9 @@
 #include "driver/gpio.h" // For pin controls
 #include "esp_log.h"
 #include "esp_sleep.h"
+#include "esp_timer.h"
 #include "esp_adc/adc_oneshot.h" // For ADC readings
+#include "nvs_flash.h"
 #include "esp_bt.h"
 #include "esp_pm.h"
 #include "esp_wifi.h"
@@ -89,6 +91,17 @@ static void reduce_cpu_peak_draw() {
   }
 }
 
+// Init NVS so the BLE controller can load PHY calibration data.
+static void init_nvs_storage() {
+  esp_err_t ret = nvs_flash_init();
+  if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+    ESP_ERROR_CHECK(nvs_flash_erase());
+    ESP_ERROR_CHECK(nvs_flash_init());
+  } else {
+    ESP_ERROR_CHECK(ret);
+  }
+}
+
 // Power on or off a sensor connected to the given GPIO pin.
 static void power_sensor(gpio_num_t pin, bool on) {
   gpio_set_level(pin, on ? 1 : 0);
@@ -148,6 +161,8 @@ static void take_sensor_readings(FirmwareState &state) {
   for (size_t i = 0; i < kSensorCount; ++i) {
     state.last_sensor_values[i] = sensor_values[i];
   }
+  state.last_timestamp_s =
+      g_uptime_s + static_cast<uint32_t>(esp_timer_get_time() / 1000000LL);
 
   ESP_LOGI(TAG, "Sensor value 1: %.2f", sensor_values[0]);
   ESP_LOGI(TAG, "Sensor value 2: %.2f", sensor_values[1]);
@@ -158,6 +173,8 @@ static void sleep_now() {
   gpio_set_level(static_cast<gpio_num_t>(LED_PIN), 0);
   gpio_set_level(static_cast<gpio_num_t>(SENSOR_POWER_PIN_1), 0);
   gpio_set_level(static_cast<gpio_num_t>(SENSOR_POWER_PIN_2), 0);
+  uint32_t sleep_s = static_cast<uint32_t>((SLEEP_TIME_US + 500000ULL) / 1000000ULL);
+  g_uptime_s += sleep_s;
   esp_deep_sleep(SLEEP_TIME_US);
 }
 
@@ -165,7 +182,8 @@ extern "C" void app_main(void) {
   // TODO: remove global
   static FirmwareState state = {};
   state.boot_time_us = esp_timer_get_time();
-  
+
+  init_nvs_storage();
   disable_unused_radios();
   reduce_cpu_peak_draw();
   init_power_pins();

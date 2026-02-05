@@ -31,6 +31,8 @@ void sleep_task(void *param) {
       gpio_set_level(static_cast<gpio_num_t>(LED_PIN), 0);
       gpio_set_level(static_cast<gpio_num_t>(SENSOR_POWER_PIN_1), 0);
       gpio_set_level(static_cast<gpio_num_t>(SENSOR_POWER_PIN_2), 0);
+      uint32_t sleep_s = static_cast<uint32_t>((SLEEP_TIME_US + 500000ULL) / 1000000ULL);
+      g_uptime_s += sleep_s;
       esp_deep_sleep(SLEEP_TIME_US);
     }
     vTaskDelay(pdMS_TO_TICKS(100));
