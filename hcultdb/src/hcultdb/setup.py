@@ -43,6 +43,16 @@ def setup_db(db_url: str):
         )
         cursor.execute(
             """
+            CREATE TABLE IF NOT EXISTS moisture_calibrations (
+                id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                observed_at BIGINT NOT NULL,
+                sensor_value INTEGER NOT NULL,
+                meter_value DOUBLE PRECISION NOT NULL
+            )
+            """
+        )
+        cursor.execute(
+            """
             CREATE TABLE IF NOT EXISTS species (
                 id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
                 name TEXT NOT NULL,
@@ -160,6 +170,16 @@ def setup_db(db_url: str):
                 collection_time_ms INTEGER,
                 adjusted_time_ms INTEGER,
                 FOREIGN KEY (device_id) REFERENCES devices(id)
+            )
+            """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS moisture_calibrations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                observed_at INTEGER NOT NULL,
+                sensor_value INTEGER NOT NULL,
+                meter_value REAL NOT NULL
             )
             """
         )
