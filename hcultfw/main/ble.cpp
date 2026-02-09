@@ -25,6 +25,8 @@ static void start_advertising_beacon(void);
 namespace {
 constexpr uint16_t kAdvCompanyId = 0xFFFF;
 constexpr uint8_t kAdvPayloadVersion = 1;
+// Future: rotate sensor types (e.g., moisture/temp/light) across 5s windows and
+// encode the type in a payload flag to keep the advertisement compact.
 constexpr uint8_t kAdvPayloadMagic0 = 'H';
 constexpr uint8_t kAdvPayloadMagic1 = 'C';
 constexpr size_t kAdvPayloadSize = 12; // Magic(2) + version + count + values(4) + timestamp(4).

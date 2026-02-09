@@ -140,11 +140,13 @@ static void take_sensor_readings(FirmwareState &state) {
   ESP_ERROR_CHECK(
       adc_oneshot_config_channel(state.adc_handle, sensor_channels[1], &chan_cfg));
 
-  // Enable the red pin for debugging purposes and to force power draw to prevent battery from
-  // going to sleep. Power banks sometimes cut power to the output if the draw is too low.
-  gpio_set_level(static_cast<gpio_num_t>(RED_LED_PIN), 1);
-  vTaskDelay(pdMS_TO_TICKS(RED_LED_FLASH_MS));
-  gpio_set_level(static_cast<gpio_num_t>(RED_LED_PIN), 0);
+  if (RED_LED_FLASH_MS > 0) {
+    // Enable the red pin for debugging purposes and to force power draw to prevent battery from
+    // going to sleep. Power banks sometimes cut power to the output if the draw is too low.
+    gpio_set_level(static_cast<gpio_num_t>(RED_LED_PIN), 1);
+    vTaskDelay(pdMS_TO_TICKS(RED_LED_FLASH_MS));
+    gpio_set_level(static_cast<gpio_num_t>(RED_LED_PIN), 0);
+  }
   const gpio_num_t sensor_power_pins[kSensorCount] = {
       static_cast<gpio_num_t>(SENSOR_POWER_PIN_1),
       static_cast<gpio_num_t>(SENSOR_POWER_PIN_2),
@@ -156,7 +158,7 @@ static void take_sensor_readings(FirmwareState &state) {
       sensor_power_pins[i],
       sensor_channels[i]
     );
-    vTaskDelay(pdMS_TO_TICKS(100));
+    vTaskDelay(pdMS_TO_TICKS(1000));
   }
   for (size_t i = 0; i < kSensorCount; ++i) {
     state.last_sensor_values[i] = sensor_values[i];
@@ -166,6 +168,7 @@ static void take_sensor_readings(FirmwareState &state) {
 
   ESP_LOGI(TAG, "Sensor value 1: %.2f", sensor_values[0]);
   ESP_LOGI(TAG, "Sensor value 2: %.2f", sensor_values[1]);
+  ESP_LOGI(TAG, "Sensor timestamp: %u", state.last_timestamp_s);
 }
 
 // Turn off LEDs and sensor power pins, then enter deep sleep.
@@ -188,7 +191,7 @@ extern "C" void app_main(void) {
   reduce_cpu_peak_draw();
   init_power_pins();
   gpio_set_level(static_cast<gpio_num_t>(LED_PIN), 1);
-  vTaskDelay(pdMS_TO_TICKS(50));
+  vTaskDelay(pdMS_TO_TICKS(5));
   gpio_set_level(static_cast<gpio_num_t>(LED_PIN), 0);
   take_sensor_readings(state);
 
@@ -196,8 +199,8 @@ extern "C" void app_main(void) {
     return;
   }
 
-  // Give the supply rail a short recovery window before BLE starts.
-  vTaskDelay(pdMS_TO_TICKS(250));
+  // Give the supply rail a recovery window before BLE starts.
+  vTaskDelay(pdMS_TO_TICKS(1000));
 
   // Start a new FreeRTOS task that runs in parallel with app_main.
   // We need this because the BLE stack requires its own event loop to function properly.
