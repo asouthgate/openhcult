@@ -1,0 +1,226 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{hyperref}
+
+\title{A measurement-free online calibration system for capacitive soil moisture sensors using ESP32 microcontrollers}
+\author{Author Name}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\begin{itemize}
+  \item Problem: low-cost capacitive sensors are noisy, drift over time, and require calibration that most consumers will not perform.
+  \item Goal: infer a mapping between raw sensor units and volumetric water content without manual calibration.
+  \item Approach: a hidden-state time-series model with known watering events (added volume) and known pot volume, using multiple sensors per pot to average heterogeneity.
+  \item Result preview: the model yields online estimates of moisture states and stable threshold bands for control/alerts.
+  \item Impact: supports consumer-ready calibration-free deployments with ESP32-based systems.
+  \item Tone: the technology has promise but persistent issues (drift, heterogeneity, and unobserved losses) limit naive deployments; we present a mitigation strategy rather than a guarantee.
+\end{itemize}
+\end{abstract}
+
+\section{Introduction}
+\begin{itemize}
+  \item Soil moisture varies spatially in pots; single-point sensors are biased by local heterogeneity.
+  \item Consumer calibration (oven-drying soil, gravimetric reference) is time-consuming and error-prone.
+  \item Soil type differences (texture, salinity, organic content) break one-size-fits-all calibration curves.
+  \item We target v2.0.0 capacitive sensors and ESP32-class hardware with minimal user inputs.
+  \item Contribution: measurement-free online calibration using only watering volume and vessel soil volume.
+  \item Consumer reality: users typically do not calibrate sensors or log events, so the pipeline must infer inputs end-to-end.
+  \item Realistic stance: prior systems demonstrate feasibility, but persistent sensor and deployment pitfalls motivate a cautious, model-based mitigation rather than a universal fix.
+  \item Prior calibration studies show sensor-to-sensor variability and the value of sensor-specific calibration, which is often impractical at scale \cite{bogena2017-calibration}.
+  \item Field calibration work in heterogeneous soils highlights soil-type dependence and temperature effects that can overwhelm a universal curve \cite{merlin2007-calibration}.
+  \item EM sensing accuracy depends on operating frequency and soil dielectric dispersion, constraining how stable any mapping can be across soils \cite{sheng2025-frequency}.
+  \item Characterization studies emphasize standardized evaluation of EM sensors and their sensitivity to salinity and temperature \cite{jones2005-em-methodology}.
+  \item Frequency, conductivity, and temperature effects have been quantified for low-cost capacitance sensors, motivating explicit modeling of confounds \cite{kizito2008-frequency}.
+  \item Complex permittivity measurements show soil-type dependencies and conductivity limits for 50~MHz dielectric sensors \cite{seyfried2004-50mhz}.
+  \item Mixing-model and dielectric-spectroscopy work shows clayey soils can deviate from simple empirical curves \cite{gonzalez-teruel2020-mixing}.
+  \item Cite: empirical studies on intra-pot moisture gradients and sensor placement effects.
+  \item Cite: comparisons of capacitive vs resistive sensors and their drift/temperature sensitivity.
+  \item Cite: consumer-facing plant-care or smart irrigation systems using ESP32/low-cost MCUs.
+  \item Cite: prior calibration curves for capacitive v2.0.0-style probes across soil types.
+  \item TODO: search for pot-scale moisture heterogeneity and sensor placement bias studies.
+  \item TODO: search for temperature/salinity sensitivity and drift in capacitive soil moisture probes.
+  \item TODO: search for calibration curves for low-cost capacitive v2.0.0 sensors across soil textures.
+\end{itemize}
+
+\subsection*{Prior systems in practice}
+\begin{itemize}
+  \item ESP32-based smart agriculture prototypes integrate soil moisture, temperature, humidity, and light sensors with cloud or mobile dashboards for automated pump/fan/lighting control \cite{swathi2025-esp32-smart-ag}.
+  \item Coastal horticulture deployments pair ESP32 boards with capacitive probes and web-based monitoring (e.g., Node-RED) to trigger irrigation remotely \cite{sudarmaji2024-smart-soil}.
+  \item Solar-powered irrigation control has been demonstrated with ESP32-based sensing and actuation, emphasizing low-cost remote pump control and soil-specific thresholding \cite{biswas2018-solar-pump}.
+  \item Predictive approaches add time-series models such as ARIMA on top of IoT monitoring to forecast soil moisture and inform watering schedules \cite{afzal2025-arima}.
+  \item Low-power field deployments often use LoRa architectures for air temperature and soil moisture telemetry \cite{purnomo2021-lora}.
+  \item A recent systematic mapping study summarizes the broader IoT agriculture landscape, noting benefits but recurring issues such as battery life, calibration burden, and protocol heterogeneity \cite{ruiz2025-iot-mapping}.
+\end{itemize}
+
+\subsection*{Sensor calibration and physical modeling context}
+\begin{itemize}
+  \item Sensor-specific calibration can substantially improve low-cost electromagnetic sensor accuracy over universal curves, but requires additional effort and reference media \cite{bogena2017-calibration}.
+  \item Field calibration in heterogeneous terrain shows soil-type dependence and temperature sensitivity, motivating explicit treatment of calibration uncertainty \cite{merlin2007-calibration}.
+  \item Measurement frequency is a key design variable for EM sensing and affects the stability of dielectric-to-moisture inference across soils \cite{sheng2025-frequency,kelleners2005-frequency-dependence}.
+  \item Standardized characterization methodologies explicitly test salinity, temperature, and effective frequency, underscoring the need to separate sensor and soil effects \cite{jones2005-em-methodology}.
+  \item Dielectric mixing-model work for clayey soils shows that empirical curves can fail when structural effects dominate \cite{gonzalez-teruel2020-mixing}.
+\end{itemize}
+
+\section{Related Work}
+\begin{itemize}
+  \item ESP32-based smart agriculture system with soil moisture sensing and Blynk-based telemetry \cite{swathi2025-esp32-smart-ag}.
+  \item ESP32-based soil moisture control for coastal horticulture using capacitive sensors and web monitoring \cite{sudarmaji2024-smart-soil}.
+  \item Solar-powered pumping control that combines soil moisture sensing with ESP32-based actuation \cite{biswas2018-solar-pump}.
+  \item IoT watering with ARIMA soil moisture prediction and multi-sensor monitoring \cite{afzal2025-arima}.
+  \item LoRa-based soil moisture and temperature monitoring architecture for low-power deployments \cite{purnomo2021-lora}.
+  \item Systematic mapping of IoT sensors in agriculture highlighting calibration burden and battery constraints \cite{ruiz2025-iot-mapping}.
+\end{itemize}
+
+\section{Methods}
+\subsection{Model overview (bullet skeleton)}
+\begin{itemize}
+  \item State: true volumetric water content $x_t$ per pot; evolves with evapotranspiration and drainage.
+  \item Inputs: watering events at times $t_k$ with known added volume $\Delta V_k$.
+  \item Observations: $N$ capacitive sensors per pot producing raw readings $y_{i,t}$.
+  \item Assumption: sensor responses are monotonic in $x_t$ with sensor-specific offsets and noise; heterogeneity modeled as Gaussian.
+  \item Unknowns: mapping from raw units to moisture, sensor offsets, process noise, and drift.
+\end{itemize}
+
+\subsection{Assumptions}
+\begin{itemize}
+  \item Watering events are inferred from sensor time series and validated against manual observations.
+  \item Soil volume is known or estimated with bounded error.
+  \item The shared response curve $h(\\cdot)$ is monotonic over the operating range.
+  \item Effective permittivity is approximately linear in water content over a limited range; nonlinear models (e.g., Topp/CRIM) are considered when justified.
+  \item Sensor offsets are stationary over short windows and drift slowly over long windows.
+  \item Within-pot heterogeneity is approximated by a Gaussian offset distribution.
+  \item Evapotranspiration can be treated as a smooth, nonnegative process noise term.
+\end{itemize}
+
+\subsection{Watering event inference}
+\begin{itemize}
+  \item Compute a smooth baseline using an exponential weighted moving average (EWMA) \cite{hunter1986-ewma}.
+  \item Compute lagged differences and robust z-scores using a rolling median absolute deviation (MAD) scale \cite{huber1981-robust}.
+  \item Trigger candidate events using a two-sided p-value threshold on the z-scores.
+  \item Confirm candidates with a hysteresis test: within a window, require $k$ samples whose residual magnitude exceeds a threshold.
+  \item Merge detections separated by less than a minimum time distance.
+  \item Watering events are defined as putative events where the sensor reading decreases by at least a threshold; increases are excluded (TODO: formalize detection rule).
+  \item Detected events are validated against manually logged watering observations; manual checks indicate high accuracy.
+\end{itemize}
+
+\subsection{Software system overview}
+\begin{itemize}
+  \item Firmware reads two ADC channels on boot, advertises measurements via BLE, and enters deep sleep between advertising windows.
+  \item A BLE monitor service listens for advertisements and forwards readings to the controller API.
+  \item A lightweight HTTP controller exposes time-series queries and observation endpoints used by the inference pipeline.
+  \item Database helpers store sensor readings and inferred events for later analysis and validation.
+  \item Event inference runs as a scheduled job to append automatic observations to the system log.
+\end{itemize}
+
+\subsection{Derivation (basic)}
+\begin{itemize}
+  \item \textbf{Volume-averaged hidden state.} Let $Z_t(\mathbf{r})$ denote the local volumetric water content at position $\mathbf{r}$ in the pot volume $V$. The hidden state is the volume average:
+  \begin{equation}
+    \bar{Z}_t = \frac{1}{V} \int_V Z_t(\mathbf{r}) \, dV.
+  \end{equation}
+  \item \textbf{Sensor approximation.} With $N$ sensors at locations $\{\mathbf{r}_i\}_{i=1}^N$, a conventional quadrature-style approximation is
+  \begin{equation}
+    \bar{Z}_t \approx \frac{1}{N} \sum_{i=1}^N Z_t(\mathbf{r}_i),
+  \end{equation}
+  which is adopted for convenience and is most reasonable when sensors sample the main spatial variability.
+  \item \textbf{State dynamics.} We model the volume-average state with a discrete-time update:
+  \begin{equation}
+    \bar{Z}_{t+1} = \bar{Z}_t - \eta_t + \sum_k \delta_{t,t_k} \frac{\Delta V_k}{V_{soil}} + w_t,
+  \end{equation}
+  where $\eta_t \ge 0$ captures evapotranspiration and drainage, $V_{soil}$ is the pot soil volume, $\delta_{t,t_k}$ is 1 at watering steps, $\Delta V_k$ is the known added water volume at event $k$, and $w_t \sim \mathcal{N}(0,\sigma_w^2)$.
+  \item \textbf{Observation model.} Capacitive probes measure an effective permittivity; let $\varepsilon_{i,t}$ denote the local effective dielectric permittivity near sensor $i$. The measured permittivity is complex in general (real and imaginary components), and is influenced by salinity and frequency \cite{seyfried2004-50mhz,kelleners2005-frequency-dependence}. A standard first-order approximation is linear in local water content; more specific examples include Topp's equation (a cubic polynomial in volumetric water content) and the CRIM mixing model (a volumetric dielectric mixture rule). Mixing-model results indicate that clayey soils can deviate from simple empirical curves, motivating flexible $h(\cdot)$ parameterizations \cite{gonzalez-teruel2020-mixing}.
+  \begin{equation}
+    \varepsilon_{i,t} \approx \alpha Z_t(\mathbf{r}_i) + \beta.
+  \end{equation}
+  \item \textbf{Raw sensor units.} Each sensor reports a raw unit $X_{i,t}$ that is a monotonic transform of $\varepsilon_{i,t}$:
+  \begin{equation}
+    X_{i,t} = h(\varepsilon_{i,t}) + b_i + v_{i,t}, \quad v_{i,t} \sim \mathcal{N}(0,\sigma_v^2),
+  \end{equation}
+  where $h(\cdot)$ is a shared monotonic response curve (for v2.0.0 hardware), and $b_i$ is a sensor-specific offset capturing heterogeneity. This yields a composite mapping $h(\alpha Z + \beta)$ with unknown parameters.
+  \item \textbf{Heterogeneity.} We model offsets as $b_i \sim \mathcal{N}(0,\sigma_b^2)$, giving a Gaussian spread across the $N$ sensors and supporting averaging to reduce bias from local soil pockets.
+  \item \textbf{Online identification.} We estimate $\bar{Z}_t$, $b_i$, and a parametric form of $h$ (e.g., piecewise-linear or low-order polynomial) by maximizing the likelihood of observed $X_{i,t}$ over time with known inputs $\Delta V_k$. Given sufficient watering events, the state increments from $\Delta V_k / V_{soil}$ anchor the scale of the $h(\alpha Z + \beta)$ mapping.
+  \item \textbf{Delta calibration.} For a watering event at time $t_k$ with known volume $\Delta V_k$, the model implies a known increment in the hidden state:
+  \begin{equation}
+    \Delta \bar{Z}_{t_k} = \frac{\Delta V_k}{V_{soil}}.
+  \end{equation}
+  \item \textbf{Measured delta.} The corresponding change in measured units can be summarized by the per-pot average
+  \begin{equation}
+    \Delta \bar{X}_{t_k} \approx \frac{1}{N} \sum_{i=1}^N \left( X_{i,t_k^+} - X_{i,t_k^-} \right).
+  \end{equation}
+  Each pair $(\Delta \bar{Z}_{t_k}, \Delta \bar{X}_{t_k})$ provides a local slope constraint on the response curve, which can be accumulated to fit the parameterized mapping from $Z$ to $X$ and to estimate $\bar{Z}_t$ online.
+  \item \textbf{Model class and estimation.} This formulation is a nonlinear state-space model (continuous-state hidden Markov model) with an unobserved state $\bar{Z}_t$ and noisy observations $X_{i,t}$. For estimation, we propose an extended Kalman filter (EKF) for online state tracking combined with maximum-likelihood parameter fitting of $h$ and offsets $b_i$ via expectation-maximization (EM) \cite{sarkka2013-bayesian}. For stronger nonlinearities, a particle filter can replace the EKF while keeping the same likelihood-based parameter updates.
+  \item \textbf{Assessment with limited ground truth.} If a small number of direct $Z(t)$ measurements are available (e.g., gravimetric samples), we use them only for model assessment: to quantify bias, drift, and error bounds, not to fit the mapping.
+  \item \textbf{Threshold inference.} Once $h$ is estimated, we map raw units to VWC and define thresholds (e.g., irrigation triggers) as quantiles of $\bar{Z}_t$ or domain-specific bands.
+\end{itemize}
+
+\section{Validation}
+\begin{itemize}
+  \item Compare inferred watering events against manual watering logs to estimate event detection accuracy.
+  \item Perform limited gravimetric or reference measurements of $Z(t)$ to assess bias and drift without fitting the model.
+  \item Evaluate sensitivity of the inferred mapping to soil volume error and watering volume uncertainty.
+  \item Check stability of $h(\cdot)$ and offsets across time windows to quantify drift.
+  \item Report failure cases where heterogeneity, salinity, or temperature effects break the inferred mapping.
+\end{itemize}
+
+\section{Results (expected)}
+\begin{itemize}
+  \item Simulation with synthetic pots shows convergence of $h$ and $b_i$ after $M$ watering events.
+  \item Multi-sensor averaging reduces variance in estimated VWC versus single-sensor baselines.
+  \item Online thresholds stabilize within practical error bounds for consumer plant-care.
+  \item v2.0.0 sensor behavior: monotonic curve with device-specific offset and mild drift.
+\end{itemize}
+
+\section{Discussion}
+\begin{itemize}
+  \item Practical deployment: need for accurate watering volume logs (user input or flow sensor).
+  \item Soil-volume estimation error propagates directly into calibration scale.
+  \item Sensor placement and pot geometry limit the assumption of Gaussian heterogeneity.
+  \item Drift and temperature sensitivity may require periodic re-identification.
+  \item Failure modes: blocked drainage, uneven watering, or root growth changing soil structure.
+  \item Prior calibration studies indicate that sensor-to-sensor variability can be large, making universal curves unreliable without per-sensor reference checks \cite{bogena2017-calibration}.
+  \item Soil-type and temperature effects observed in field calibration studies can dominate errors, emphasizing the need for soil-specific validation \cite{merlin2007-calibration}.
+  \item Measurement frequency effects in EM sensing constrain generalizability across sensors and soils \cite{sheng2025-frequency,kelleners2005-frequency-dependence}.
+  \item Low-cost capacitance sensors can show sensitivity to conductivity and temperature, which must be modeled or bounded in practice \cite{kizito2008-frequency}.
+\end{itemize}
+
+\subsection{Flaws and limitations}
+\begin{itemize}
+  \item The method can be under-identified if watering events are too infrequent or too small.
+  \item Shared $g(\\cdot)$ may be invalid across sensor batches or under salinity changes.
+  \item Model ignores hysteresis and drying/rewetting asymmetry common in porous media.
+  \item Evapotranspiration and drainage are unobserved; errors can masquerade as calibration drift.
+  \item Multi-sensor averaging can hide localized dry zones that matter for root health.
+  \item Online thresholds may lag fast changes, leading to delayed irrigation decisions.
+\end{itemize}
+
+\section{Scientific limitations and pitfalls}
+\begin{itemize}
+  \item Identifiability can fail when watering events are sparse or too small to provide informative signal.
+  \item Model mismatch: capacitive response is nonlinear and hysteretic; a single monotonic curve can be wrong.
+  \item Unobserved losses (evapotranspiration, drainage) can be misattributed to calibration drift.
+  \item Input uncertainty in watering volume or soil volume directly biases the inferred mapping.
+  \item Spatial heterogeneity may be non-Gaussian or layered, breaking the volume-average approximation.
+  \item Drift and temperature sensitivity violate stationarity of sensor offsets over time.
+  \item Identifiability depends on informative watering events; sparse or uniform events slow convergence.
+  \item Nonlinearity and hysteresis in capacitive sensors violate a single shared $g(\cdot)$.
+  \item Assumed Gaussian heterogeneity may under-model heavy-tailed or layered soils.
+  \item Confounding from salinity and fertilizer changes; sensor response may shift without water change.
+  \item Evapotranspiration term $\eta_t$ is unobserved and can alias with calibration drift.
+  \item Pot-scale dynamics may be non-Markov due to preferential flow and water channeling.
+\end{itemize}
+
+\section{Conclusion}
+\begin{itemize}
+  \item Measurement-free online calibration is plausible with known inputs and multi-sensor redundancy.
+  \item ESP32 platforms enable low-cost data logging and on-device inference.
+\end{itemize}
+
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}
