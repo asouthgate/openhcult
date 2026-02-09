@@ -4,7 +4,7 @@
 \usepackage{booktabs}
 \usepackage{hyperref}
 
-\title{A measurement-free online calibration system for capacitive soil moisture sensors using ESP32 microcontrollers}
+\title{A measurement-free calibration software system for capacitive soil moisture sensors using ESP32 microcontrollers}
 \author{Author Name}
 \date{\today}
 
@@ -30,6 +30,8 @@
   \item We target v2.0.0 capacitive sensors and ESP32-class hardware with minimal user inputs.
   \item Contribution: measurement-free online calibration using only watering volume and vessel soil volume.
   \item Consumer reality: users typically do not calibrate sensors or log events, so the pipeline must infer inputs end-to-end.
+  \item Scope: this is a software system paper; the algorithm is one component inside a broader data-to-inference pipeline.
+  \item System focus: data acquisition, event inference, storage, and validation are treated as first-class components alongside modeling.
   \item Realistic stance: prior systems demonstrate feasibility, but persistent sensor and deployment pitfalls motivate a cautious, model-based mitigation rather than a universal fix.
   \item Prior calibration studies show sensor-to-sensor variability and the value of sensor-specific calibration, which is often impractical at scale \cite{bogena2017-calibration}.
   \item Field calibration work in heterogeneous soils highlights soil-type dependence and temperature effects that can overwhelm a universal curve \cite{merlin2007-calibration}.
