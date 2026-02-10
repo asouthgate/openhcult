@@ -117,6 +117,8 @@
   \item A lightweight HTTP controller exposes time-series queries and observation endpoints used by the inference pipeline.
   \item Database helpers store sensor readings and inferred events for later analysis and validation.
   \item Event inference runs as a scheduled job to append automatic observations to the system log.
+  \item Soil context is tracked per pot in the database, and the response curve is updated online per pot as watering proceeds.
+  \item A weighted evidence scheme can pool a global response curve across pots while refining per-pot curves using local measurements.
 \end{itemize}
 
 \subsection{Derivation (basic)}
