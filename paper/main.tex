@@ -125,6 +125,12 @@
   \begin{equation}
     \bar{Z}_t = \frac{1}{V} \int_V Z_t(\mathbf{r}) \, dV.
   \end{equation}
+  \item \textbf{Relative moisture state.} We also define a normalized state:
+  \begin{equation}
+    Q_t = \frac{\bar{Z}_t - Z_{\min}}{Z_{\max} - Z_{\min}}.
+  \end{equation}
+  $Z_{\min}$ is a practical lower bound (often near zero) and $Z_{\max}$ represents a practical upper bound (e.g., observed post-watering maximum or field capacity). This aligns with real usage where thresholds are expressed as relative dryness rather than absolute VWC.
+  \item \textbf{Operational bounds.} The corresponding sensor readings $X(Z_{\max})$ and $X(Z_{\min})$ can be obtained with minimal user effort: $Z_{\max}$ by fully wetting the soil and recording the sensor output, and $Z_{\min}$ is often approximated as zero when a true dry-down is impractical.
   \item \textbf{Sensor approximation.} With $N$ sensors at locations $\{\mathbf{r}_i\}_{i=1}^N$, a conventional quadrature-style approximation is
   \begin{equation}
     \bar{Z}_t \approx \frac{1}{N} \sum_{i=1}^N Z_t(\mathbf{r}_i),
@@ -134,8 +140,8 @@
   \begin{equation}
     \bar{Z}_{t+1} = \bar{Z}_t - \eta_t + \sum_k \delta_{t,t_k} \frac{\Delta V_k}{V_{soil}} + w_t,
   \end{equation}
-  where $\eta_t \ge 0$ captures evapotranspiration and drainage, $V_{soil}$ is the pot soil volume, $\delta_{t,t_k}$ is 1 at watering steps, $\Delta V_k$ is the known added water volume at event $k$, and $w_t \sim \mathcal{N}(0,\sigma_w^2)$.
-  \item \textbf{Observation model.} Capacitive probes measure an effective permittivity; let $\varepsilon_{i,t}$ denote the local effective dielectric permittivity near sensor $i$. The measured permittivity is complex in general (real and imaginary components), and is influenced by salinity and frequency \cite{seyfried2004-50mhz,kelleners2005-frequency-dependence}. A standard first-order approximation is linear in local water content; more specific examples include Topp's equation (a cubic polynomial in volumetric water content) and the CRIM mixing model (a volumetric dielectric mixture rule). Mixing-model results indicate that clayey soils can deviate from simple empirical curves, motivating flexible $h(\cdot)$ parameterizations \cite{gonzalez-teruel2020-mixing}.
+  where $\eta_t \ge 0$ captures evapotranspiration and drainage, which depends on factors like current dryness, temperature, airflow, and drainage conditions. For simplicity we treat this loss as a constant $\eta$ in estimation, and absorb residual variability into $w_t$; $V_{soil}$ is the pot soil volume, $\delta_{t,t_k}$ is 1 at watering steps, $\Delta V_k$ is the known added water volume at event $k$, and $w_t \sim \mathcal{N}(0,\sigma_w^2)$.
+  \item \textbf{Observation model.} Capacitive probes respond to effective permittivity, which increases with water content because liquid water has much higher permittivity than air or soil solids. This motivates a monotonic relationship between $Z_t$ and sensor output over typical operating ranges; deviations arise under salinity and frequency effects \cite{seyfried2004-50mhz,kelleners2005-frequency-dependence}. We treat $\varepsilon_{i,t}$ as a conceptual intermediate and model $X_{i,t}$ directly as $X_{i,t} = h(Z_t(\mathbf{r}_i)) + b_i + v_{i,t}$, where $h(\cdot)$ is an unknown monotonic mapping. The permittivity form is included only to connect to standard dielectric models such as Topp's equation and CRIM; it is not required for estimation.
   \begin{equation}
     \varepsilon_{i,t} \approx \alpha Z_t(\mathbf{r}_i) + \beta.
   \end{equation}
@@ -150,11 +156,17 @@
   \begin{equation}
     \Delta \bar{Z}_{t_k} = \frac{\Delta V_k}{V_{soil}}.
   \end{equation}
+  \item \textbf{Normalized delta.} The corresponding increment in the normalized state is
+  \begin{equation}
+    \Delta Q_{t_k} = \frac{\Delta \bar{Z}_{t_k}}{Z_{\max} - Z_{\min}},
+  \end{equation}
+  which can be used directly when thresholds are defined in relative units.
   \item \textbf{Measured delta.} The corresponding change in measured units can be summarized by the per-pot average
   \begin{equation}
     \Delta \bar{X}_{t_k} \approx \frac{1}{N} \sum_{i=1}^N \left( X_{i,t_k^+} - X_{i,t_k^-} \right).
   \end{equation}
   Each pair $(\Delta \bar{Z}_{t_k}, \Delta \bar{X}_{t_k})$ provides a local slope constraint on the response curve, which can be accumulated to fit the parameterized mapping from $Z$ to $X$ and to estimate $\bar{Z}_t$ online.
+  \item \textbf{Problem definition (inference form).} Given per-pot averages $\bar{X}_t$, known watering increments $\Delta \bar{Z}_{t_k} = \Delta V_k / V_{soil}$, and endpoint measurements $X(Z_{\min})$ and $X(Z_{\max})$, infer a monotonic mapping between $\bar{X}_t$ and $Z_t$ (or $Q_t$) that is consistent with these constraints. The task reduces to estimating $Z_t \approx Z(\bar{X}_t) + \epsilon_t$ while fitting a constrained response curve that respects both endpoint bounds and observed delta responses.
   \item \textbf{Model class and estimation.} This formulation is a nonlinear state-space model (continuous-state hidden Markov model) with an unobserved state $\bar{Z}_t$ and noisy observations $X_{i,t}$. For estimation, we propose an extended Kalman filter (EKF) for online state tracking combined with maximum-likelihood parameter fitting of $h$ and offsets $b_i$ via expectation-maximization (EM) \cite{sarkka2013-bayesian}. For stronger nonlinearities, a particle filter can replace the EKF while keeping the same likelihood-based parameter updates.
   \item \textbf{Assessment with limited ground truth.} If a small number of direct $Z(t)$ measurements are available (e.g., gravimetric samples), we use them only for model assessment: to quantify bias, drift, and error bounds, not to fit the mapping.
   \item \textbf{Threshold inference.} Once $h$ is estimated, we map raw units to VWC and define thresholds (e.g., irrigation triggers) as quantiles of $\bar{Z}_t$ or domain-specific bands.
