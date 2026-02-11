@@ -24,7 +24,7 @@ def sim_pot_watering_sequence(W, n_watering_events, Z0, sigma2, response_func):
     return Z, X
 
 def Z2dZ(Z):
-    return np.diff(Z)
+    return np.diff(Z, prepend=0)
 
 def dZ2S(dZ):
     # This is Z up to a constant. Z = c + sum dZ. We miss c.
@@ -77,7 +77,7 @@ def infer_response_func(
         S = np.asarray(S).ravel()
         X = np.asarray(X).ravel()
         if S.shape != X.shape:
-            raise ValueError("Each (S, X) must have same shape.")
+            raise ValueError(f"Each (S, X) must have same shape, got {S.shape} {X.shape}")
         S_list.append(S)
         X_list.append(X)
 
@@ -173,23 +173,39 @@ def infer_response_func(
     # final h fit
     h = fit_h()
 
-    return {"c": c, "h": h}
+    return c, h
 
 if __name__ == "__main__":
     W = 0.1 # normalized, between 0 and 1
     n_watering_events = 5
-    sigma2 = 0.5
+    sigma2 = 0.2
     response_func = sigmoid
     # Simulate sequences of dQs for each pot, they may not span the whole range Qmin, Qmax (plants have narrow viability ranges)
     samps = []
     Z0_real = []
-    nS = 10
+    Z_real = []
+    nS = 5
+    
     for s in range(nS):
-        Z0 = np.random.uniform(0.0, 0.5)
+        Z0 = np.random.uniform(0.1, 0.5)
         Z, X = sim_pot_watering_sequence(W, n_watering_events, Z0, sigma2, response_func)
-        plt.plot(Z, X)
         S = dZ2S(Z2dZ(Z))
         samps.append((S, X))
         Z0_real.append(Z0)
+        Z_real.append(Z)
+
+    anchors = [(0.1, response_func(0.1))]
+    cest, hest = infer_response_func(samps, anchors)
+    for s in range(nS):
+        cests = cest[s]
+        S, X = samps[s]
+        Zrs = Z_real[s]
+        Zest = S + cests
+        plt.plot(Zest, X, c='red')
+        plt.plot(Zrs, X, c='blue')
+        
     plt.show()
+    print(Z0_real)
+    print(cest)
+
 
