@@ -1,306 +1,195 @@
-#!/usr/bin/env python3
-"""Simulate calibration with watering events, piecewise X(Q), and sensor noise."""
-
 from __future__ import annotations
-
-import argparse
-import math
-import random
-from dataclasses import dataclass
-from typing import List, Tuple
-
+from typing import List, Tuple, Callable, Dict
 import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.isotonic import IsotonicRegression
+from scipy.optimize import minimize_scalar
 
+def sigmoid(x):
+  return 1 / (1 - np.exp(-x))
 
-@dataclass
-class SimParams:
-    t_end: int
-    dt: float
-    n_pots: int
-    n_sensors: int
-    z_min: float
-    z_max: float
-    x_min: float
-    x_max: float
-    q0: float
-    q_ranges: List[Tuple[float, float]]
-    water_events: int
-    water_volume: float
-    soil_volume: float
-    eta: float
-    noise_std: float
-    sensor_offset_std: float
-    k_bins: int
-    x_edges: List[float] | None
-    bias_decay: float
-    bias_scale_power: float
-    seed: int
+def sim_pot_watering_sequence(W, n_watering_events, Z0, sigma2, response_func):
+    """Samples tuples (Z, X).
+    Params:
+        W: water quantity, fixed dZ
+        n_watering_events: number of watering events to draw
+        Z0: starting water content
+        sigma2: noise in response
+        response func: function mapping Z to X
+    """
+    dZ = np.ones(n_watering_events) * W
+    Z = Z0 + np.cumsum(dZ)
+    X = np.array([response_func(z) for z in Z])
+    X += np.random.normal(0, sigma2, n_watering_events)
+    return Z, X
 
+def Z2dZ(Z):
+    return np.diff(Z)
 
-def build_piecewise_xq(
-    k_bins: int, x_min: float, x_max: float, seed: int, x_edges: List[float] | None
-) -> Tuple[np.ndarray, np.ndarray]:
-    q_edges = np.linspace(0.0, 1.0, k_bins + 1)
-    if x_edges is not None:
-        if len(x_edges) != k_bins + 1:
-            raise ValueError("x_edges must have length k_bins + 1")
-        return q_edges, np.array(x_edges, dtype=float)
-    rng = random.Random(seed)
-    weights = [rng.random() + 0.1 for _ in range(k_bins)]
-    total = sum(weights)
-    slopes = [(x_max - x_min) * w / total for w in weights]
-    built = [x_max]
-    acc = x_max
-    for s in slopes:
-        acc -= s
-        built.append(acc)
-    return q_edges, np.array(built)
+def dZ2S(dZ):
+    # This is Z up to a constant. Z = c + sum dZ. We miss c.
+    return np.cumsum(dZ)
 
+def Z2X(Z, response_func, sigma2):
+    return response_func(Z) + np.random.normal(0, sigma2, len(Z))
 
-def x_from_q(q: np.ndarray, q_edges: np.ndarray, x_edges: np.ndarray) -> np.ndarray:
-    q = np.clip(q, 0.0, 1.0)
-    return np.interp(q, q_edges, x_edges)
+def infer_response_func(
+    samples: List[Tuple[np.ndarray, np.ndarray]],
+    anchor_points: List[Tuple[float, float]],
+    *,
+    anchor_weight: float = 1.0,
+    shift_ridge: float = 0.0,
+    max_iter: int = 50,
+    tol: float = 1e-6,
+) -> Dict[str, object]:
+    """
+    Jointly estimate:
+        - monotone decreasing function h
+        - per-trajectory shifts c_s
 
+    Model:
+        Z_{s,i} = c_s + S_{s,i}
+        X_{s,i} = h(Z_{s,i}) + eps
+        Anchor points: (Z_a, X_a) noisy observations of same h
 
-def smooth_series(values: np.ndarray, window: int) -> np.ndarray:
-    if window <= 1:
-        return values
-    kernel = np.ones(window) / window
-    pad = window // 2
-    padded = np.pad(values, (pad, pad), mode="edge")
-    return np.convolve(padded, kernel, mode="valid")
+    Parameters
+    ----------
+    samples : list of (S, X) arrays
+    anchor_points : list of (Z, X) anchor tuples
+    anchor_weight : weight applied to anchor points
+    shift_ridge : L2 penalty on shifts c_s (stabilizes weak overlap)
+    max_iter : max coordinate descent iterations
+    tol : convergence tolerance on shifts
 
+    Returns
+    -------
+    dict with:
+        "c": np.ndarray of shifts
+        "h": callable h(u)
+    """
 
-def _simulate_pot(params: SimParams, pot_idx: int, q_low: float, q_high: float, q_edges, x_edges):
-    steps = int(params.t_end / params.dt) + 1
-    times = np.arange(steps) * params.dt
+    # ---- prepare data ----
+    n_traj = len(samples)
 
-    rng_events = random.Random(params.seed + pot_idx * 17)
-    event_steps = sorted(rng_events.sample(range(1, steps - 1), params.water_events))
-    dQ = np.zeros(steps)
-    for step in event_steps:
-        dQ[step] += (params.water_volume / params.soil_volume) / (params.z_max - params.z_min)
+    S_list = []
+    X_list = []
+    for S, X in samples:
+        S = np.asarray(S).ravel()
+        X = np.asarray(X).ravel()
+        if S.shape != X.shape:
+            raise ValueError("Each (S, X) must have same shape.")
+        S_list.append(S)
+        X_list.append(X)
 
-    Q = np.zeros(steps)
-    q0 = params.q0
-    if not math.isfinite(q0):
-        q0 = 0.5 * (q_low + q_high)
-    Q[0] = q0
-    for t in range(1, steps):
-        Q[t] = Q[t - 1] + dQ[t] - params.eta
-        Q[t] = max(q_low, min(q_high, Q[t]))
+    if len(anchor_points) > 0:
+        Z_anchor = np.array([z for (z, _) in anchor_points], dtype=float)
+        X_anchor = np.array([x for (_, x) in anchor_points], dtype=float)
+    else:
+        Z_anchor = np.empty((0,), dtype=float)
+        X_anchor = np.empty((0,), dtype=float)
 
-    X = x_from_q(Q, q_edges, x_edges)
+    # initialize shifts
+    c = np.zeros(n_traj)
 
-    rng = random.Random(params.seed + pot_idx * 31)
-    offsets = [rng.gauss(0.0, params.sensor_offset_std) for _ in range(params.n_sensors)]
-    offset_series = np.zeros((params.n_sensors, steps))
-    for i in range(params.n_sensors):
-        offset_series[i, 0] = offsets[i]
-    for t in range(1, steps):
-        for i in range(params.n_sensors):
-            offset_series[i, t] = offset_series[i, t - 1]
-            if t in event_steps:
-                decay = max(0.0, min(1.0, params.bias_decay))
-                offset_series[i, t] = offset_series[i, t] * (1.0 - decay)
+    iso = IsotonicRegression(increasing=True, out_of_bounds="clip")
 
-    X_i = np.zeros((params.n_sensors, steps))
-    for i in range(params.n_sensors):
-        noise = np.random.default_rng(params.seed + pot_idx * 11 + i).normal(
-            0.0, params.noise_std, size=steps
+    def fit_h() -> Callable[[np.ndarray], np.ndarray]:
+        """
+        Fit monotone decreasing h given current shifts c_s.
+        """
+        U_all = []
+        X_all = []
+        W_all = []
+
+        for s in range(n_traj):
+            U_all.append(S_list[s] + c[s])
+            X_all.append(X_list[s])
+            W_all.append(np.ones_like(X_list[s]))
+
+        if len(Z_anchor) > 0:
+            U_all.append(Z_anchor)
+            X_all.append(X_anchor)
+            W_all.append(np.full_like(X_anchor, anchor_weight))
+
+        U_all = np.concatenate(U_all)
+        X_all = np.concatenate(X_all)
+        W_all = np.concatenate(W_all)
+
+        order = np.argsort(U_all)
+        U_sorted = U_all[order]
+        Y_sorted = -X_all[order]
+        W_sorted = W_all[order]
+
+        iso.fit(U_sorted, Y_sorted, sample_weight=W_sorted)
+
+        def h(u: np.ndarray) -> np.ndarray:
+            u = np.asarray(u, dtype=float)
+            return -iso.predict(u)
+
+        return h
+
+    def update_shift(s: int, h: Callable[[np.ndarray], np.ndarray]) -> float:
+        """
+        Update shift c_s via 1D minimization.
+        """
+
+        S = S_list[s]
+        X = X_list[s]
+
+        span = np.ptp(S)
+        if span == 0.0:
+            span = 1.0
+
+        def objective(cs: float) -> float:
+            resid = X - h(S + cs)
+            val = np.sum(resid ** 2)
+            if shift_ridge > 0.0:
+                val += shift_ridge * cs ** 2
+            return val
+
+        result = minimize_scalar(
+            objective,
+            bounds=(c[s] - span, c[s] + span),
+            method="bounded",
         )
-        scale = (X - params.x_min) / max(1e-6, params.x_max - params.x_min)
-        scale = np.clip(scale, 0.0, 1.0) ** params.bias_scale_power
-        X_i[i] = X + offset_series[i] * scale + noise
+        return float(result.x)
 
-    X_hat = X_i.mean(axis=0)
-    return {
-        "times": times,
-        "Q": Q,
-        "dQ": dQ,
-        "X": X,
-        "X_i": X_i,
-        "X_hat": X_hat,
-        "events": event_steps,
-    }
+    # ---- coordinate descent ----
+    for _ in range(max_iter):
 
+        h = fit_h()
 
-def simulate(params: SimParams):
-    q_edges, x_edges = build_piecewise_xq(
-        params.k_bins, params.x_min, params.x_max, params.seed, params.x_edges
-    )
-    pots = []
-    for idx, (q_low, q_high) in enumerate(params.q_ranges):
-        pots.append(_simulate_pot(params, idx, q_low, q_high, q_edges, x_edges))
-    return q_edges, x_edges, pots
+        c_old = c.copy()
 
+        for s in range(n_traj):
+            c[s] = update_shift(s, h)
 
-def plot_all(
-    q_edges: np.ndarray,
-    x_edges: np.ndarray,
-    pots: List[dict],
-    smooth_window: int,
-) -> None:
-    fig, axes = plt.subplots(4, 1, figsize=(10, 13), constrained_layout=True)
+        # remove global translation ambiguity by centering shifts
+        c -= np.mean(c)
 
-    for idx, pot in enumerate(pots):
-        axes[0].plot(pot["times"], pot["Q"], label=f"Q(t) pot {idx + 1}")
-    axes[0].set_xlabel("time")
-    axes[0].set_ylabel("Q")
-    axes[0].legend()
+        if np.max(np.abs(c - c_old)) < tol:
+            break
 
-    axes[1].step(x_edges, q_edges, where="post", label="true Q(X)")
-    pooled_Q = np.concatenate([pot["Q"] for pot in pots])
-    pooled_X = np.concatenate([pot["X_hat"] for pot in pots])
-    iso = IsotonicRegression(increasing=False, out_of_bounds="clip")
-    q_hat = iso.fit_transform(pooled_X, pooled_Q)
-    order = np.argsort(pooled_X)
-    x_sorted = pooled_X[order]
-    q_sorted = q_hat[order]
-    x_grid = np.linspace(min(x_sorted), max(x_sorted), 200)
-    q_grid = np.interp(x_grid, x_sorted, q_sorted)
-    q_grid = smooth_series(q_grid, smooth_window)
-    q_grid = iso.fit_transform(x_grid, q_grid)
-    axes[1].plot(x_grid, q_grid, color="black", linewidth=2, label="estimated Q(X)")
-    axes[1].set_xlabel("X")
-    axes[1].set_ylabel("Q")
-    axes[1].legend()
+    # final h fit
+    h = fit_h()
 
-    for idx, pot in enumerate(pots):
-        times = pot["times"]
-        X = pot["X"]
-        Q = pot["Q"]
-        xs = []
-        slopes = []
-        for event_idx in pot["events"]:
-            if event_idx <= 0 or event_idx >= len(times):
-                continue
-            dQ = Q[event_idx] - Q[event_idx - 1]
-            dX = X[event_idx] - X[event_idx - 1]
-            if abs(dX) < 1e-6:
-                continue
-            xs.append(X[event_idx - 1])
-            slopes.append(dQ / dX)
-        axes[2].scatter(
-            xs,
-            slopes,
-            alpha=0.7,
-            s=18,
-            label=f"pot {idx + 1}",
-        )
-    axes[2].axhline(0.0, color="gray", linewidth=0.5)
-    axes[2].set_xlabel("X (at event)")
-    axes[2].set_ylabel("dQ/dX")
-    axes[2].legend(ncol=2)
-
-    for idx, pot in enumerate(pots):
-        times = pot["times"]
-        X = pot["X"]
-        X_hat = pot["X_hat"]
-        X_i = pot["X_i"]
-        (true_line,) = axes[3].plot(times, X, linewidth=2.0, label=f"X(t) true pot {idx + 1}")
-        axes[3].plot(
-            times,
-            X_hat,
-            linestyle="--",
-            linewidth=1.6,
-            color=true_line.get_color(),
-            label=f"X(t) mean pot {idx + 1}",
-        )
-        for s_idx in range(X_i.shape[0]):
-            axes[3].plot(
-                times,
-                X_i[s_idx],
-                alpha=0.35,
-                linewidth=0.8,
-                color=true_line.get_color(),
-            )
-    axes[3].set_xlabel("time")
-    axes[3].set_ylabel("X")
-    axes[3].legend(ncol=2)
-
-    plt.show()
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--t-end", type=float, default=100.0)
-    parser.add_argument("--dt", type=float, default=1.0)
-    parser.add_argument("--n-pots", type=int, default=3)
-    parser.add_argument("--n-sensors", type=int, default=2)
-    parser.add_argument("--z-min", type=float, default=0.0)
-    parser.add_argument("--z-max", type=float, default=0.5)
-    parser.add_argument("--x-min", type=float, default=200.0)
-    parser.add_argument("--x-max", type=float, default=900.0)
-    parser.add_argument("--q0", type=float, default=float("nan"))
-    parser.add_argument(
-        "--q-ranges",
-        type=str,
-        default="0.05-0.35,0.25-0.6,0.5-0.9",
-        help="Comma-separated q_low-q_high ranges per pot.",
-    )
-    parser.add_argument("--water-events", type=int, default=8)
-    parser.add_argument("--water-volume", type=float, default=0.04)
-    parser.add_argument("--soil-volume", type=float, default=0.5)
-    parser.add_argument("--eta", type=float, default=0.0)
-    parser.add_argument("--noise-std", type=float, default=20.0)
-    parser.add_argument("--sensor-offset-std", type=float, default=300.0)
-    parser.add_argument("--k-bins", type=int, default=5)
-    parser.add_argument(
-        "--x-edges",
-        type=str,
-        default=None,
-        help="Comma-separated list of x-edges for piecewise X(Q). Length must be k_bins+1.",
-    )
-    parser.add_argument("--seed", type=int, default=7)
-    parser.add_argument("--smooth-window", type=int, default=15)
-    parser.add_argument("--bias-decay", type=float, default=0.0)
-    parser.add_argument("--bias-scale-power", type=float, default=0.5)
-    args = parser.parse_args()
-
-    x_edges = None
-    if args.x_edges:
-        x_edges = [float(val.strip()) for val in args.x_edges.split(",") if val.strip()]
-
-    q_ranges = []
-    for chunk in args.q_ranges.split(","):
-        bounds = chunk.split("-")
-        if len(bounds) != 2:
-            raise ValueError("q-ranges must be in q_low-q_high format")
-        q_ranges.append((float(bounds[0]), float(bounds[1])))
-    if len(q_ranges) != args.n_pots:
-        raise ValueError("q-ranges must provide one range per pot")
-
-    params = SimParams(
-        t_end=int(args.t_end),
-        dt=args.dt,
-        n_pots=args.n_pots,
-        n_sensors=args.n_sensors,
-        z_min=args.z_min,
-        z_max=args.z_max,
-        x_min=args.x_min,
-        x_max=args.x_max,
-        q0=args.q0,
-        q_ranges=q_ranges,
-        water_events=args.water_events,
-        water_volume=args.water_volume,
-        soil_volume=args.soil_volume,
-        eta=args.eta,
-        noise_std=args.noise_std,
-        sensor_offset_std=args.sensor_offset_std,
-        k_bins=args.k_bins,
-        x_edges=x_edges,
-        bias_decay=args.bias_decay,
-        bias_scale_power=args.bias_scale_power,
-        seed=args.seed,
-    )
-
-    q_edges, x_edges, pots = simulate(params)
-    plot_all(q_edges, x_edges, pots, args.smooth_window)
-    return 0
-
+    return {"c": c, "h": h}
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    W = 0.1 # normalized, between 0 and 1
+    n_watering_events = 5
+    sigma2 = 0.5
+    response_func = sigmoid
+    # Simulate sequences of dQs for each pot, they may not span the whole range Qmin, Qmax (plants have narrow viability ranges)
+    samps = []
+    Z0_real = []
+    nS = 10
+    for s in range(nS):
+        Z0 = np.random.uniform(0.0, 0.5)
+        Z, X = sim_pot_watering_sequence(W, n_watering_events, Z0, sigma2, response_func)
+        plt.plot(Z, X)
+        S = dZ2S(Z2dZ(Z))
+        samps.append((S, X))
+        Z0_real.append(Z0)
+    plt.show()
+
