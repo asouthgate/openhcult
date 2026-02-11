@@ -53,7 +53,7 @@ ESP32s equipped with capacitive moisture sensors have recently been suggested fo
 
 \section{Methods}
 
-\subsection{Software architecture}
+\subsection{Software and hardware architecture}
 
 \begin{figure}[t]
   \centering
@@ -69,6 +69,7 @@ ESP32s equipped with capacitive moisture sensors have recently been suggested fo
   \label{fig:myfigure}
 \end{figure}
 
+In our test system, ESP32s were used with low-cost capacitive moisture sensors. Two sensors were attached to each ESP32. Sensors were read every \hl{TODO} minutes, measurements packed into \hl{128}-byte payloads with timestamps for low energy bluetooth (BLE) advertising-only transfer. The monitor node continuously scanned for available payloads, and unique payloads identified by timestamps.
 
 \subsection{Watering event detection}
 
@@ -94,11 +95,49 @@ Manual recording of watering times, false negatives, and false positives via the
 
 \subsection{Automated response curve calibration}
 
+In general, soil water content is difficult to measure, requiring completely comparison of completely dry soil mass to a given wet soil mass \hl{TODO: cite}. Consumer-grade soil moisture probes generally report coarse, normalized measurements. Here, we define dimensionless moisture content as $Z$, the ratio of water volume to dry soil volume (such as in a pot). We assume that $Z$ itself is not directly measurable, although at a given watering, $\Delta Z$ is measurable if a known amount of water is added. We fix this and refer to it as $W$ \hl{TODO: this is a simplifying assumption; you can add 100 ml of water at peak saturation and $\Delta Z$ is zero, or lose water to runoff} \\
+
+For convenience, the system relies on automatically detected watering events previously described. For a given event at time $t_i$, we extract associated $X_{i,s}$. This leads to sampled pairs $(\Delta Z_{i,s}, X_{i,s})$. We asssume the relationship:
+
+\[
+X_{i,s} = h(Z_{i,s}) + \epsilon_i
+\]
+
+Where $\epsilon_i$ is Gaussian noise. In this equation, both the response function $h(\cdot)$ and the water content $Z$ are unknown. Given a known starting point, such as $Z_0 = 0$, and a sequence of waterings, $Z_{i,s}$ could be reconstructed as $Z_0 + \sum_{i} \Delta Z_{i,s}$ and $h(\cdot)$ determined by regression. However, we assume in general that the range $[Z_0, Z_{max}]$ of completely dry to completely saturated is not tolerable for any plant, so such watering sequences will not be obtainable outside from specific calibrations which do not generalise well. We assume that our system will produce at best sequences of waterings within a range, and at best single samples. \hl{TODO: drying in between waterings}. Then we have:
+
+\[
+X_{i, s}^{(k)} = h(c + \sum_{j<i}\Delta Z_{j,s}^{(k)}) + \epsilon_i = h(c + S_{i, s}^{(k)}) + \epsilon_i
+\]
+
+Where $(k)$ is an index for a given sample trajectory samples from the collection of sensors. In this case, $h$ could be determined by regression except for the unknown constants $c$, which also must be determined. These unknown values $c$ determine horizontal shifts or coordinate change in the curve $X(Z)$. \\
+
+Although we do not have ideal watering sequences for calibration, it is more reasonable to assume it is possible to obtain some noisy sampled pairs $(Z, X)$, such as at in fully dry or fully wet conditions, which can be used to constrain the estimation problem. Then, we want to solve:
+
+\[
+\min\limits_{h, \vec{c}}{\sum_{s=1}^S \sum_{i=1}^{n_s} \Big[ X_{s,i} - h(c_s + S_{s,i})\Big]^2 + \sum_{j=1}^m w_{j} \Big[X_j - h(Z_j)]^2 \Big]}
+\]
+
+where the RHS term is the anchor samples, with weights $w_j$ (taken by default to be a single $w$). Optionally, with the additional regularisation:
+
+\[
+\lambda \sum_s (c_s - \overline{c})^2
+\]
+
+\hl{Not sure that the $\overline{c}$ makes sense, can't it be zero?}. \\
+
+It is expected that, in order to characterise $h$ properly, the samples must sufficiently overlap. For regions of the response curve where there is no data, there is no information to estimate $h$. \\
+
+In order to solve this optimisation problem, an iterative approach was used where 1) given a candidate $h$, $c$ can be identified by one-dimensional optimisation and 2) given $c$, $h$ can be estimated with isotonic regression. \\
+
+In order to characterise the performance of this algorithm under the given assumptions, simulation was performed.
+
 \subsection{Validation}
 
 \section{Results}
 
 \subsection{Event detection performance}
+
+\subsection{Simulated response curves}
 
 \subsection{Response curve estimation}
 
