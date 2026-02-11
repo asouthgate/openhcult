@@ -4,7 +4,7 @@
 \usepackage{booktabs}
 \usepackage{hyperref}
 
-\title{A measurement-free calibration software system for capacitive soil moisture sensors using ESP32 microcontrollers}
+\title{An automated calibration software system for capacitive soil moisture sensors using ESP32 microcontrollers}
 \author{Author Name}
 \date{\today}
 
@@ -12,70 +12,38 @@
 \maketitle
 
 \begin{abstract}
-\begin{itemize}
-  \item Problem: low-cost capacitive sensors are noisy, drift over time, and require calibration that most consumers will not perform.
-  \item Goal: infer a mapping between raw sensor units and volumetric water content without manual calibration.
-  \item Approach: a hidden-state time-series model with known watering events (added volume) and known pot volume, using multiple sensors per pot to average heterogeneity.
-  \item Result preview: the model yields online estimates of moisture states and stable threshold bands for control/alerts.
-  \item Impact: supports consumer-ready calibration-free deployments with ESP32-based systems.
-  \item Tone: the technology has promise but persistent issues (drift, heterogeneity, and unobserved losses) limit naive deployments; we present a mitigation strategy rather than a guarantee.
-\end{itemize}
+
+ESP32s equipped with capacitive moisture sensors have recently been suggested for IoT plant watering systems. However, measuring moisture in soil is complex and requires careful calibration in order to characterise the response curve mapping soil moisture content to sensor measurements, which end consumers are unlikely to undertake. Even accurately measuring soil moisture content requires effort, with variability across soils and environmental conditions, and consumer-grade probes tending to offer coarse measurements only. As a result, in a consumer growing context, soil moisture is commonly ascertained by intuition. If IoT sensor systems are to be practically useful, calibration must be easy. Here, we demonstrate a novel approach for automated calibration of sensor systems requiring minimal end-user measurement, and offering measures of uncertainty. This work has the potential to assist with low-cost automated monitoring of growing conditions.
+
 \end{abstract}
 
 \section{Introduction}
+
 \begin{itemize}
-  \item Soil moisture varies spatially in pots; single-point sensors are biased by local heterogeneity.
-  \item Consumer calibration (oven-drying soil, gravimetric reference) is time-consuming and error-prone.
-  \item Soil type differences (texture, salinity, organic content) break one-size-fits-all calibration curves.
-  \item We target v2.0.0 capacitive sensors and ESP32-class hardware with minimal user inputs.
-  \item Contribution: measurement-free online calibration using only watering volume and vessel soil volume.
-  \item Consumer reality: users typically do not calibrate sensors or log events, so the pipeline must infer inputs end-to-end.
-  \item Scope: this is a software system paper; the algorithm is one component inside a broader data-to-inference pipeline.
-  \item System focus: data acquisition, event inference, storage, and validation are treated as first-class components alongside modeling.
-  \item Realistic stance: prior systems demonstrate feasibility, but persistent sensor and deployment pitfalls motivate a cautious, model-based mitigation rather than a universal fix.
-  \item Prior calibration studies show sensor-to-sensor variability and the value of sensor-specific calibration, which is often impractical at scale \cite{bogena2017-calibration}.
-  \item Field calibration work in heterogeneous soils highlights soil-type dependence and temperature effects that can overwhelm a universal curve \cite{merlin2007-calibration}.
-  \item EM sensing accuracy depends on operating frequency and soil dielectric dispersion, constraining how stable any mapping can be across soils \cite{sheng2025-frequency}.
-  \item Characterization studies emphasize standardized evaluation of EM sensors and their sensitivity to salinity and temperature \cite{jones2005-em-methodology}.
-  \item Frequency, conductivity, and temperature effects have been quantified for low-cost capacitance sensors, motivating explicit modeling of confounds \cite{kizito2008-frequency}.
-  \item Complex permittivity measurements show soil-type dependencies and conductivity limits for 50~MHz dielectric sensors \cite{seyfried2004-50mhz}.
-  \item Mixing-model and dielectric-spectroscopy work shows clayey soils can deviate from simple empirical curves \cite{gonzalez-teruel2020-mixing}.
-  \item Cite: empirical studies on intra-pot moisture gradients and sensor placement effects.
-  \item Cite: comparisons of capacitive vs resistive sensors and their drift/temperature sensitivity.
-  \item Cite: consumer-facing plant-care or smart irrigation systems using ESP32/low-cost MCUs.
-  \item Cite: prior calibration curves for capacitive v2.0.0-style probes across soil types.
-  \item TODO: search for pot-scale moisture heterogeneity and sensor placement bias studies.
-  \item TODO: search for temperature/salinity sensitivity and drift in capacitive soil moisture probes.
-  \item TODO: search for calibration curves for low-cost capacitive v2.0.0 sensors across soil textures.
+    \item Summary of physical properties of soils and the measurement of moisture
+    \item Summary of recent work proposing ESP32s and capacitive sensors
+    \item Problem statement of response curves and calibration, measurement in practice by consumers
+    \item Objectives: software system, event classification, response curve algorithm
 \end{itemize}
 
-\subsection*{Prior systems in practice}
 \begin{itemize}
-  \item ESP32-based smart agriculture prototypes integrate soil moisture, temperature, humidity, and light sensors with cloud or mobile dashboards for automated pump/fan/lighting control \cite{swathi2025-esp32-smart-ag}.
-  \item Coastal horticulture deployments pair ESP32 boards with capacitive probes and web-based monitoring (e.g., Node-RED) to trigger irrigation remotely \cite{sudarmaji2024-smart-soil}.
-  \item Solar-powered irrigation control has been demonstrated with ESP32-based sensing and actuation, emphasizing low-cost remote pump control and soil-specific thresholding \cite{biswas2018-solar-pump}.
-  \item Predictive approaches add time-series models such as ARIMA on top of IoT monitoring to forecast soil moisture and inform watering schedules \cite{afzal2025-arima}.
-  \item Low-power field deployments often use LoRa architectures for air temperature and soil moisture telemetry \cite{purnomo2021-lora}.
-  \item A recent systematic mapping study summarizes the broader IoT agriculture landscape, noting benefits but recurring issues such as battery life, calibration burden, and protocol heterogeneity \cite{ruiz2025-iot-mapping}.
-\end{itemize}
-
-\subsection*{Sensor calibration and physical modeling context}
-\begin{itemize}
-  \item Sensor-specific calibration can substantially improve low-cost electromagnetic sensor accuracy over universal curves, but requires additional effort and reference media \cite{bogena2017-calibration}.
-  \item Field calibration in heterogeneous terrain shows soil-type dependence and temperature sensitivity, motivating explicit treatment of calibration uncertainty \cite{merlin2007-calibration}.
-  \item Measurement frequency is a key design variable for EM sensing and affects the stability of dielectric-to-moisture inference across soils \cite{sheng2025-frequency,kelleners2005-frequency-dependence}.
-  \item Standardized characterization methodologies explicitly test salinity, temperature, and effective frequency, underscoring the need to separate sensor and soil effects \cite{jones2005-em-methodology}.
-  \item Dielectric mixing-model work for clayey soils shows that empirical curves can fail when structural effects dominate \cite{gonzalez-teruel2020-mixing}.
-\end{itemize}
-
-\section{Related Work}
-\begin{itemize}
-  \item ESP32-based smart agriculture system with soil moisture sensing and Blynk-based telemetry \cite{swathi2025-esp32-smart-ag}.
-  \item ESP32-based soil moisture control for coastal horticulture using capacitive sensors and web monitoring \cite{sudarmaji2024-smart-soil}.
-  \item Solar-powered pumping control that combines soil moisture sensing with ESP32-based actuation \cite{biswas2018-solar-pump}.
-  \item IoT watering with ARIMA soil moisture prediction and multi-sensor monitoring \cite{afzal2025-arima}.
-  \item LoRa-based soil moisture and temperature monitoring architecture for low-power deployments \cite{purnomo2021-lora}.
-  \item Systematic mapping of IoT sensors in agriculture highlighting calibration burden and battery constraints \cite{ruiz2025-iot-mapping}.
+  \item Frequency dependence \cite{kelleners2005-frequency-dependence}.
+  \item Standardized methodologies explicitly test salinity, temperature, and effective frequency \cite{jones2005-em-methodology}.
+  \item ESP32-based smart agriculture prototype \cite{swathi2025-esp32-smart-ag}.
+  \item Coastal horticulture deployment \cite{sudarmaji2024-smart-soil}.
+  \item Solar-powered irrigation control \cite{biswas2018-solar-pump}.
+  \item ARIMA with IoT monitoring to inform watering schedules \cite{afzal2025-arima}.
+  \item Low-power field deployment for soil moisture telemetry \cite{purnomo2021-lora}.
+  \item A review of IoT in this context \cite{ruiz2025-iot-mapping}.
+  \item Prior work on variability \cite{bogena2017-calibration}.
+  \item Heterogeneous soils, temperature variability \cite{merlin2007-calibration}.
+  \item EM sensing accuracy \cite{sheng2025-frequency}.
+  \item Sensitivity to salinity and temperature \cite{jones2005-em-methodology}.
+  \item Frequency, conductivity, and temperature effects for sensors \cite{kizito2008-frequency}.
+  \item Permittivity measurements and variability \cite{seyfried2004-50mhz}.
+  \item Clayey soil deviation, structural effects \cite{gonzalez-teruel2020-mixing}.
+  \item TODO: search for sensor placement/spatial heterogeneity study.
+  \item TODO: search for work on drift in capacitive sensors.
 \end{itemize}
 
 \section{Methods}
