@@ -172,6 +172,7 @@
   \item \textbf{Model class and estimation.} This formulation is a nonlinear state-space model (continuous-state hidden Markov model) with an unobserved state $\bar{Z}_t$ and noisy observations $X_{i,t}$. For estimation, we propose an extended Kalman filter (EKF) for online state tracking combined with maximum-likelihood parameter fitting of $h$ and offsets $b_i$ via expectation-maximization (EM) \cite{sarkka2013-bayesian}. For stronger nonlinearities, a particle filter can replace the EKF while keeping the same likelihood-based parameter updates.
   \item \textbf{Assessment with limited ground truth.} If a small number of direct $Z(t)$ measurements are available (e.g., gravimetric samples), we use them only for model assessment: to quantify bias, drift, and error bounds, not to fit the mapping.
   \item \textbf{Threshold inference.} Once $h$ is estimated, we map raw units to VWC and define thresholds (e.g., irrigation triggers) as quantiles of $\bar{Z}_t$ or domain-specific bands.
+  \item \textbf{Uncertainty estimates.} To quantify uncertainty on the inferred response curve, we propose bootstrap resampling of watering events and sensor data with re-fit monotone regression, yielding empirical confidence bands on $Q(X)$.
 \end{itemize}
 
 \section{Validation}
