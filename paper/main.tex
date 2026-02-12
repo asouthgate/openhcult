@@ -24,31 +24,18 @@ ESP32s equipped with capacitive moisture sensors have recently been suggested fo
 
 \section{Introduction}
 
-\begin{itemize}
-    \item Summary of physical properties of soils and the measurement of moisture
-    \item Summary of recent work proposing ESP32s and capacitive sensors
-    \item Problem statement of response curves and calibration, measurement in practice by consumers
-    \item Objectives: software system, event classification, response curve algorithm
-\end{itemize}
+Recent work has proposed the use of ESP32-class microcontrollers and low-cost moisture sensors for automated watering systems \cite{biswas2018-solar-pump, purnomo2021-lora, sudarmaji2024-smart-soil, afzal2025-arima}, motivated by mitigating water shortages \cite{afzal2025-arima}. As global heating increases, both flooding and increases in water shortages are expected world-wide \hl{cite}. In previous work, ESP32/capacitive sensor calibration has been performed by gravimetry \cite{sudarmaji2024-smart-soil} and WiFi connections. However, it is expected that these curves depend on a range of factors, including soil type (i.e. clay content), temperature \cite{merlin2007-calibration}, and salinity \hl{cite}, with unknown generalisability \hl{cite}. Furthermore, end users may find it difficult to undertake gravimetry for each specific application type. Bogena et al (2017) \cite{bogena2017-calibration} developed a procedure for calibration of low-cost moisture sensors and observed variability, suggesting sensor-specific calibration instead of a single global calibration curve. Overall, there is increasing interest in IoT sensors and their application to agriculture (see \cite{ruiz2025-iot-mapping} for a bibliometric analysis).\\
+
+The objective of this work was to introduce an automated system and statistical method for automated calibration of sensors with minimal user input. This aim was primarily motivated by the challenge end users may find with gravimetric calibration, as well as lack of generalisability of a given calibration curve.
 
 \begin{itemize}
   \item Frequency dependence \cite{kelleners2005-frequency-dependence}.
   \item Standardized methodologies explicitly test salinity, temperature, and effective frequency \cite{jones2005-em-methodology}.
-  \item ESP32-based smart agriculture prototype \cite{swathi2025-esp32-smart-ag}.
-  \item Coastal horticulture deployment \cite{sudarmaji2024-smart-soil}.
-  \item Solar-powered irrigation control \cite{biswas2018-solar-pump}.
-  \item ARIMA with IoT monitoring to inform watering schedules \cite{afzal2025-arima}.
-  \item Low-power field deployment for soil moisture telemetry \cite{purnomo2021-lora}.
-  \item A review of IoT in this context \cite{ruiz2025-iot-mapping}.
-  \item Prior work on variability \cite{bogena2017-calibration}.
-  \item Heterogeneous soils, temperature variability \cite{merlin2007-calibration}.
   \item EM sensing accuracy \cite{sheng2025-frequency}.
   \item Sensitivity to salinity and temperature \cite{jones2005-em-methodology}.
   \item Frequency, conductivity, and temperature effects for sensors \cite{kizito2008-frequency}.
   \item Permittivity measurements and variability \cite{seyfried2004-50mhz}.
   \item Clayey soil deviation, structural effects \cite{gonzalez-teruel2020-mixing}.
-  \item TODO: search for sensor placement/spatial heterogeneity study.
-  \item TODO: search for work on drift in capacitive sensors.
 \end{itemize}
 
 \section{Methods}
@@ -89,7 +76,7 @@ Y_i = X_i - EMWA_\lambda(X)_i
 \min\limits_{i < j < i+k}{|Y_{j,s} - Y_{i,s}|} > q
 \]
 
-Given an event candidate at $t_{i+1}$ and window size $k$; for the sensors chosen, $X$ is decreasing in water content, so only events with negative change are assumed to be watering. In addition, only events for which all sensors attached to a given microcontroller agree on an event were taken. This resulted in a classification parameterized by two thresholds, two window sizes, and a median absolute deviation scale factor: $(p, q, k, w, c, \lambda)$. \\
+Given an event candidate at $t_{i+1}$ and window size $k$; for the sensors chosen, $X$ is decreasing in water content, so only events with negative change are assumed to be watering. In addition, only events for which all sensors attached to a given microcontroller agree on an event were taken. This resulted in a classification parameterized by two thresholds, two window sizes, and a median absolute deviation scale factor: $(p, q, k, w, c, \lambda)$. These were selected manually since obtaining reasonably good event classification itself was not challenging (see results). \\
 
 Manual recording of watering times, false negatives, and false positives via the system API are used characterise performance of the rule.
 
@@ -129,7 +116,7 @@ It is expected that, in order to characterise $h$ properly, the samples must suf
 
 In order to solve this optimisation problem, an iterative approach was used where 1) given a candidate $h$, $c$ can be identified by one-dimensional optimisation and 2) given $c$, $h$ can be estimated with isotonic regression. \\
 
-In order to characterise the performance of this algorithm under the given assumptions, simulation was performed.
+In order to characterise the performance of this algorithm under the given assumptions, simulation was performed.\\
 
 \begin{figure}[htb!]
   \centering
@@ -138,6 +125,7 @@ In order to characterise the performance of this algorithm under the given assum
   \label{fig:myfigure}
 \end{figure}
 
+\hl{TODO: there are unaccounted-for sources of noise throughout}
 
 
 \subsection{Validation}

@@ -225,6 +225,7 @@ if __name__ == "__main__":
     ax0.scatter([z for z, _ in anchors], [x for _, x in anchors], c="black", s=30)
     ax0.set_title(f"Anchor points ($\sigma^2 = {anchor_sigma2}$)")
     ax0.set_ylabel("X")
+    ax0.set_xlabel("Z")
 
     for s in range(nS):
         S, X = samps[s]
@@ -244,8 +245,10 @@ if __name__ == "__main__":
     ax1.set_ylabel("Count")
     ax2.set_title("Data alignment with randomly initialized $c_0$")
     ax2.set_ylabel("X")
+    ax2.set_xlabel("Z")
     ax3.set_title("Data alignment with estimated $\hat{c}$")
     ax3.set_ylabel("X")
+    ax3.set_xlabel("Z")
 
     fig.suptitle(f"Example result for a single simulation ($W={W},\sigma^2={sigma2},h=1/(1 - exp(-x))$)", fontsize=16)
     plt.tight_layout()
