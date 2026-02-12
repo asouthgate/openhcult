@@ -63,6 +63,8 @@
       ],
       "fieldConfig": {
         "defaults": {
+          "min": 0,
+          "max": 3000,
           "unit": "none",
           "lineWidth": 2,
           "fillOpacity": 10,

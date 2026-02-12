@@ -18,20 +18,21 @@
 
 \begin{abstract}
 
-ESP32s equipped with capacitive moisture sensors have recently been suggested for IoT plant watering systems. However, measuring moisture in soil is complex and requires careful calibration in order to characterise the response curve mapping soil moisture content to sensor measurements, which end consumers are unlikely to undertake. Even accurately measuring soil moisture content requires effort, with variability across soils and environmental conditions, and consumer-grade probes tending to offer coarse measurements only. As a result, in a consumer growing context, soil moisture is commonly ascertained by intuition. If IoT sensor systems are to be practically useful, calibration must be easy. Here, we demonstrate a novel approach for automated calibration of sensor systems requiring minimal end-user inputs, and offering measures of uncertainty. This work has the potential to assist with low-cost automated monitoring of growing conditions.
+ESP32s equipped with capacitive moisture sensors have recently been suggested for IoT plant watering systems. However, measuring moisture in soil is complex and requires careful calibration in order to characterise the response curve mapping soil water content to sensor measurements, which end consumers are unlikely to undertake. Even accurately measuring soil moisture content requires effort, with variability across soils and environmental conditions, and consumer-grade probes tending to offer coarse measurements only. As a result, in a consumer growing context, soil moisture is commonly ascertained by intuition. If IoT sensor systems are to be practically useful, calibration must be easy. Here, we demonstrate a novel approach for automated calibration of sensor systems requiring minimal end-user inputs, and offering measures of uncertainty. This work has the potential to assist with low-cost automated monitoring of growing conditions.
 
 \end{abstract}
 
 \section{Introduction}
 
-Recent work has proposed the use of ESP32-class microcontrollers and low-cost moisture sensors for automated watering systems \cite{biswas2018-solar-pump, purnomo2021-lora, sudarmaji2024-smart-soil, afzal2025-arima}, motivated by mitigating water shortages \cite{afzal2025-arima}. As global heating increases, both flooding and increases in water shortages are expected world-wide \hl{cite}. In previous work, ESP32/capacitive sensor calibration has been performed by gravimetry \cite{sudarmaji2024-smart-soil} and WiFi connections. However, it is expected that these curves depend on a range of factors, including soil type (i.e. clay content), temperature \cite{merlin2007-calibration}, and salinity \hl{cite}, with unknown generalisability \hl{cite}. Furthermore, end users may find it difficult to undertake gravimetry for each specific application type. Bogena et al (2017) \cite{bogena2017-calibration} developed a procedure for calibration of low-cost moisture sensors and observed variability, suggesting sensor-specific calibration instead of a single global calibration curve. Overall, there is increasing interest in IoT sensors and their application to agriculture (see \cite{ruiz2025-iot-mapping} for a bibliometric analysis).\\
+Recent work has proposed the use of ESP32-class microcontrollers and low-cost moisture sensors for automated watering systems and measurement of soil water content (SWC) \cite{biswas2018-solar-pump, purnomo2021-lora, sudarmaji2024-smart-soil, afzal2025-arima}, motivated by mitigating water shortages \cite{afzal2025-arima}. As global heating increases, both flooding and increases in water shortages are expected world-wide \hl{cite}. In previous work, ESP32/capacitive sensor calibration has been performed by gravimetry \cite{sudarmaji2024-smart-soil} and WiFi connections. However, it is expected that these curves depend on a range of factors, including soil type (i.e. clay content), temperature \cite{merlin2007-calibration}, and salinity \hl{cite}, with unknown generalisability \hl{cite}. Furthermore, end users may find it difficult to undertake gravimetry for each specific application type. 
 
-The objective of this work was to introduce an automated system and statistical method for automated calibration of sensors with minimal user input. This aim was primarily motivated by the challenge end users may find with gravimetric calibration, as well as lack of generalisability of a given calibration curve.
+Typically, gravimetric sampling can be used to characterise SWC, which is destructive and time consuming. Other methods include time domain reflectometry and capacitance and impedence sensors \hl{cite}. Capacitive moisture sensors, as with all electromagnetic methods (EM) measure SWC indirectly through the dielectric permittivity \cite{kelleners2005-frequency-dependence}, since the dielectric permitivity of water exceeds that of other soil components \hl{cite}, though it is dependent on measurement electrical frequency \cite{kelleners2005-frequency-dependence,sheng2025-frequency} and temperature \cite{jones2005-em-methodology}.
+
+Bogena et al (2017) \cite{bogena2017-calibration} developed a procedure for calibration of low-cost SMT1000 moisture sensors and undertook systematic calibration of hundreds of sensors in a range of media, observing sensor-to-sensor variability and both density and temperature dependence. Overall, there is increasing interest in IoT sensors and their application to agriculture (see \cite{ruiz2025-iot-mapping} for a bibliometric analysis).
+
+The objective of this work was to introduce an automated system and statistical method for automated calibration of sensors with minimal user input. This aim was primarily motivated by the challenge end users may find with gravimetric calibration, as well as lack of generalisability of a given calibration curve. We aim to present a method providing automated measurements at least consistent with consumer-grade moisture detectors in general. \hl{TODO: we should use gravimetric measurement for assessment?}.
 
 \begin{itemize}
-  \item Frequency dependence \cite{kelleners2005-frequency-dependence}.
-  \item Standardized methodologies explicitly test salinity, temperature, and effective frequency \cite{jones2005-em-methodology}.
-  \item EM sensing accuracy \cite{sheng2025-frequency}.
   \item Sensitivity to salinity and temperature \cite{jones2005-em-methodology}.
   \item Frequency, conductivity, and temperature effects for sensors \cite{kizito2008-frequency}.
   \item Permittivity measurements and variability \cite{seyfried2004-50mhz}.
@@ -125,7 +126,11 @@ In order to characterise the performance of this algorithm under the given assum
   \label{fig:myfigure}
 \end{figure}
 
-\hl{TODO: there are unaccounted-for sources of noise throughout}
+\hl{TODO: there are unaccounted-for sources of noise throughout. Event false positives. Noise in water volume added. Sensor bias.}
+
+\subsection{Identifiability}
+
+\hl{TODO: There is some issue with identifiability or performance for single-sample sequences.}
 
 
 \subsection{Validation}
@@ -134,9 +139,9 @@ In order to characterise the performance of this algorithm under the given assum
 
 \subsection{Event detection performance}
 
-\subsection{Performance on simulated curves}
+\subsection{Performance in simulation}
 
-\subsection{Response curve estimation}
+\subsection{Performance with real data}
 
 \section{Discussion}
 \begin{itemize}
