@@ -70,9 +70,10 @@ def infer_response_func(
 
     Returns
     -------
-    dict with:
-        "c": np.ndarray of shifts
-        "h": callable h(u)
+    tuple with:
+        c: np.ndarray of shifts
+        h: callable h(u)
+        errors: list of weighted SSE values per iteration
     """
 
     # ---- prepare data ----
@@ -168,6 +169,18 @@ def infer_response_func(
         )
         return float(result.x)
 
+    def compute_error(h: Callable[[np.ndarray], np.ndarray]) -> float:
+        sse = 0.0
+        for s in range(n_traj):
+            resid = X_list[s] - h(S_list[s] + c[s])
+            sse += float(np.sum(resid ** 2))
+        if len(Z_anchor) > 0:
+            resid = X_anchor - h(Z_anchor)
+            sse += float(np.sum(anchor_weight * (resid ** 2)))
+        return sse
+
+    errors = []
+
     # ---- coordinate descent ----
     for _ in range(max_iter):
 
@@ -178,31 +191,27 @@ def infer_response_func(
         for s in range(n_traj):
             c[s] = update_shift(s, h)
 
-        # remove global translation ambiguity by centering shifts
-#        c -= np.mean(c)
-        print(c)
+        h = fit_h()
+        errors.append(compute_error(h))
 
         if np.max(np.abs(c - c_old)) < tol:
             break
 
-    # final h fit
-    h = fit_h()
-
-    return c, h
+    return c, h, errors
 
 if __name__ == "__main__":
     W = 0.1 # normalized, between 0 and 1
-    n_watering_events = 2
+    n_watering_events = 4
     sigma2 = 0.1
     response_func = sigmoid
     # Simulate sequences of dQs for each pot, they may not span the whole range Qmin, Qmax (plants have narrow viability ranges)
     samps = []
     Z0_real = []
     Z_real = []
-    nS = 100
+    nS = 50
     
     for s in range(nS):
-        Z0 = np.random.uniform(0.1, 0.9)
+        Z0 = np.random.uniform(0.1, 1.0-W*n_watering_events)
         Z, X = sim_pot_watering_sequence(W, n_watering_events, Z0, sigma2, response_func)
         dZs = Z2dZ(Z)
         S = dZ2S(dZs)
@@ -210,17 +219,17 @@ if __name__ == "__main__":
         Z0_real.append(Z0)
         Z_real.append(Z)
 
-    anchor_sigma2 = 2.0
+    anchor_sigma2 = 5.0
     anchors = [
         (x, max(0.0, response_func(x) + np.random.normal(0.0, anchor_sigma2)))
         for x in np.linspace(0.1, 0.9, num=10)
     ]
 
     c0 = np.random.uniform(0.0, 1.0, size=len(samps))
-    cest, hest = infer_response_func(samps, anchors, c_init=c0)
+    cest, hest, errors = infer_response_func(samps, anchors, c_init=c0, max_iter=10)
 
-    fig, axes = plt.subplots(2, 2, sharex=False, figsize=(10, 8))
-    ax0, ax1, ax2, ax3 = axes.flatten()
+    fig, axes = plt.subplots(2, 3, sharex=False, figsize=(14, 8))
+    ax0, ax1, ax2, ax3, ax4, ax5 = axes.flatten()
 
     ax0.scatter([z for z, _ in anchors], [x for _, x in anchors], c="black", s=30)
     ax0.set_title(f"Anchor points ($\sigma^2 = {anchor_sigma2}$)")
@@ -249,6 +258,18 @@ if __name__ == "__main__":
     ax3.set_title("Data alignment with estimated $\hat{c}$")
     ax3.set_ylabel("X")
     ax3.set_xlabel("Z")
+    z_grid = np.linspace(0.1, 0.9, num=200)
+    ax4.plot(z_grid, response_func(z_grid), c="#4136a3", label="True $h$")
+    ax4.plot(z_grid, hest(z_grid), c="#3ccf77", label="Estimated $\hat{h}$")
+    ax4.set_title("Response curve")
+    ax4.set_xlabel("Z")
+    ax4.set_ylabel("X")
+    ax4.legend(frameon=False)
+
+    ax5.plot(range(1, len(errors) + 1), errors, c="#4136a3")
+    ax5.set_title("Inference error (weighted SSE)")
+    ax5.set_xlabel("Iteration")
+    ax5.set_ylabel("Error")
 
     fig.suptitle(f"Example result for a single simulation ($W={W},\sigma^2={sigma2},h=1/(1 - exp(-x))$)", fontsize=16)
     plt.tight_layout()
