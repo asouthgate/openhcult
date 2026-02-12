@@ -18,17 +18,20 @@ def sim_pot_watering_sequence(W, n_watering_events, Z0, sigma2, response_func):
         response func: function mapping Z to X
     """
     dZ = np.ones(n_watering_events) * W
-    Z = Z0 + np.cumsum(dZ)
+    Z = np.cumsum(dZ) + Z0
+    Z = np.insert(Z, 0, Z0)
     X = np.array([response_func(z) for z in Z])
-    X += np.random.normal(0, sigma2, n_watering_events)
+    X += np.random.normal(0, sigma2, len(Z))
     return Z, X
 
 def Z2dZ(Z):
-    return np.diff(Z, prepend=0)
+    return np.diff(Z)  # we want the first val to be zero
 
 def dZ2S(dZ):
     # This is Z up to a constant. Z = c + sum dZ. We miss c.
-    return np.cumsum(dZ)
+    S = np.cumsum(dZ)
+    S = np.insert(S, 0, 0)
+    return S
 
 def Z2X(Z, response_func, sigma2):
     return response_func(Z) + np.random.normal(0, sigma2, len(Z))
@@ -37,8 +40,9 @@ def infer_response_func(
     samples: List[Tuple[np.ndarray, np.ndarray]],
     anchor_points: List[Tuple[float, float]],
     *,
-    anchor_weight: float = 1.0,
+    anchor_weight: float = 2.0,
     shift_ridge: float = 0.0,
+    shift_prior: float = 0.5,
     max_iter: int = 50,
     tol: float = 1e-6,
 ) -> Dict[str, object]:
@@ -58,6 +62,7 @@ def infer_response_func(
     anchor_points : list of (Z, X) anchor tuples
     anchor_weight : weight applied to anchor points
     shift_ridge : L2 penalty on shifts c_s (stabilizes weak overlap)
+    shift_prior : prior mean for c_s (used with shift_ridge)
     max_iter : max coordinate descent iterations
     tol : convergence tolerance on shifts
 
@@ -144,12 +149,14 @@ def infer_response_func(
             resid = X - h(S + cs)
             val = np.sum(resid ** 2)
             if shift_ridge > 0.0:
-                val += shift_ridge * cs ** 2
+                val += shift_ridge * (cs - shift_prior) ** 2
             return val
 
+        min_shift = -float(np.min(S))
+        max_shift = 1.0 - float(np.max(S))
         result = minimize_scalar(
             objective,
-            bounds=(c[s] - span, c[s] + span),
+            bounds=(max(c[s] - span, min_shift), min(c[s] + span, max_shift)),
             method="bounded",
         )
         return float(result.x)
@@ -165,7 +172,8 @@ def infer_response_func(
             c[s] = update_shift(s, h)
 
         # remove global translation ambiguity by centering shifts
-        c -= np.mean(c)
+#        c -= np.mean(c)
+        print(c)
 
         if np.max(np.abs(c - c_old)) < tol:
             break
@@ -177,24 +185,25 @@ def infer_response_func(
 
 if __name__ == "__main__":
     W = 0.1 # normalized, between 0 and 1
-    n_watering_events = 5
-    sigma2 = 0.2
+    n_watering_events = 2
+    sigma2 = 0.1
     response_func = sigmoid
     # Simulate sequences of dQs for each pot, they may not span the whole range Qmin, Qmax (plants have narrow viability ranges)
     samps = []
     Z0_real = []
     Z_real = []
-    nS = 5
+    nS = 100
     
     for s in range(nS):
-        Z0 = np.random.uniform(0.1, 0.5)
+        Z0 = np.random.uniform(0.1, 0.9)
         Z, X = sim_pot_watering_sequence(W, n_watering_events, Z0, sigma2, response_func)
-        S = dZ2S(Z2dZ(Z))
+        dZs = Z2dZ(Z)
+        S = dZ2S(dZs)
         samps.append((S, X))
         Z0_real.append(Z0)
         Z_real.append(Z)
 
-    anchors = [(0.1, response_func(0.1))]
+    anchors = [(0.1, response_func(0.1)), (0.2, response_func(0.2)), (0.5, response_func(0.5))]
     cest, hest = infer_response_func(samps, anchors)
     for s in range(nS):
         cests = cest[s]
@@ -205,7 +214,3 @@ if __name__ == "__main__":
         plt.plot(Zrs, X, c='blue')
         
     plt.show()
-    print(Z0_real)
-    print(cest)
-
-
