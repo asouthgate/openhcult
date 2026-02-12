@@ -117,13 +117,13 @@ Although we do not have ideal watering sequences for calibration, it is more rea
 \min\limits_{h, \vec{c}}{\sum_{s=1}^S \sum_{i=1}^{n_s} \Big[ X_{s,i} - h(c_s + S_{s,i})\Big]^2 + \sum_{j=1}^m w_{j} \Big[X_j - h(Z_j)]^2 \Big]}
 \]
 
-where the RHS term is the anchor samples, with weights $w_j$ (taken by default to be a single $w$). Optionally, with the additional regularisation:
+where the RHS term is the anchor samples, with weights $w_j$ (taken by default to be a single $w$). Optionally, with the additional regularisation toward a prior shift:
 
 \[
-\lambda \sum_s (c_s - \overline{c})^2
+\lambda \sum_s (c_s - c_0)^2
 \]
 
-\hl{Not sure that the $\overline{c}$ makes sense, can't it be zero?}. \\
+where $c_0$ is a prior mean for $c_s$ (e.g., $c_0 = 0.5$). We also constrain $c_s$ so that $Z$ remains within $[0,1]$ for each trajectory, which prevents shifts that separate parts of the curve. \\
 
 It is expected that, in order to characterise $h$ properly, the samples must sufficiently overlap. For regions of the response curve where there is no data, there is no information to estimate $h$. \\
 
@@ -131,13 +131,22 @@ In order to solve this optimisation problem, an iterative approach was used wher
 
 In order to characterise the performance of this algorithm under the given assumptions, simulation was performed.
 
+\begin{figure}[htb!]
+  \centering
+  \includegraphics[width=1.0\linewidth]{images/simulation_example.png}
+  \caption{Example simulation and inference. Simulated data was unaligned at initialization to the response curve (bottom left) with randomly initialized values for $c$ (top right). Anchor points were randomly sampled with Gaussian noise (top left). After inference, sampled data was aligned through joint estimation of the response curve and offsets $c$. }
+  \label{fig:myfigure}
+\end{figure}
+
+
+
 \subsection{Validation}
 
 \section{Results}
 
 \subsection{Event detection performance}
 
-\subsection{Simulated response curves}
+\subsection{Performance on simulated curves}
 
 \subsection{Response curve estimation}
 

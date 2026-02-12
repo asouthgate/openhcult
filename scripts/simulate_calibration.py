@@ -212,7 +212,7 @@ if __name__ == "__main__":
 
     anchor_sigma2 = 2.0
     anchors = [
-        (x, response_func(x) + np.random.normal(0.0, anchor_sigma2))
+        (x, max(0.0, response_func(x) + np.random.normal(0.0, anchor_sigma2)))
         for x in np.linspace(0.1, 0.9, num=10)
     ]
 
@@ -223,7 +223,7 @@ if __name__ == "__main__":
     ax0, ax1, ax2, ax3 = axes.flatten()
 
     ax0.scatter([z for z, _ in anchors], [x for _, x in anchors], c="black", s=30)
-    ax0.set_title("Anchor points")
+    ax0.set_title(f"Anchor points ($\sigma^2 = {anchor_sigma2}$)")
     ax0.set_ylabel("X")
 
     for s in range(nS):
@@ -231,20 +231,23 @@ if __name__ == "__main__":
         Zrs = Z_real[s]
 
         Zest0 = S + c0[s]
-        ax2.plot(Zest0, X, c="#96342d")
+        ax2.plot(Zest0, X, c="#3ccf77")
         ax2.plot(Zrs, X, c="#4136a3")
 
         Zest = S + cest[s]
-        ax3.plot(Zest, X, c="#96342d")
+        ax3.plot(Zest, X, c="#3ccf77")
         ax3.plot(Zrs, X, c="#4136a3")
 
     ax1.hist(c0, bins=20, color="#4136a3", alpha=0.8)
-    ax1.set_title("Initial c histogram")
+    ax1.set_title("$c_0$ histogram (uniform distribution)")
     ax1.set_xlabel("c0")
     ax1.set_ylabel("Count")
-    ax2.set_title("Before (initial c)")
+    ax2.set_title("Data alignment with randomly initialized $c_0$")
     ax2.set_ylabel("X")
-    ax3.set_title("After (estimated c)")
+    ax3.set_title("Data alignment with estimated $\hat{c}$")
     ax3.set_ylabel("X")
+
+    fig.suptitle(f"Example result for a single simulation ($W={W},\sigma^2={sigma2},h=1/(1 - exp(-x))$)", fontsize=16)
     plt.tight_layout()
+    plt.savefig("simulation_example.png")
     plt.show()
