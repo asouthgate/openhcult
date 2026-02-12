@@ -204,29 +204,54 @@ if __name__ == "__main__":
     n_watering_events = 4
     sigma2 = 0.1
     response_func = sigmoid
+    n_runs = 20
     # Simulate sequences of dQs for each pot, they may not span the whole range Qmin, Qmax (plants have narrow viability ranges)
-    samps = []
-    Z0_real = []
-    Z_real = []
     nS = 50
-    
-    for s in range(nS):
-        Z0 = np.random.uniform(0.1, 1.0-W*n_watering_events)
-        Z, X = sim_pot_watering_sequence(W, n_watering_events, Z0, sigma2, response_func)
-        dZs = Z2dZ(Z)
-        S = dZ2S(dZs)
-        samps.append((S, X))
-        Z0_real.append(Z0)
-        Z_real.append(Z)
-
     anchor_sigma2 = 5.0
-    anchors = [
-        (x, max(0.0, response_func(x) + np.random.normal(0.0, anchor_sigma2)))
-        for x in np.linspace(0.1, 0.9, num=10)
-    ]
 
-    c0 = np.random.uniform(0.0, 1.0, size=len(samps))
-    cest, hest, errors = infer_response_func(samps, anchors, c_init=c0, max_iter=10)
+    hests = []
+    errors_list = []
+
+    example_samps = None
+    example_Z_real = None
+    example_c0 = None
+    example_cest = None
+    example_anchors = None
+
+    for run in range(n_runs):
+        samps = []
+        Z_real = []
+
+        for s in range(nS):
+            Z0 = np.random.uniform(0.1, 1.0 - W * n_watering_events)
+            Z, X = sim_pot_watering_sequence(W, n_watering_events, Z0, sigma2, response_func)
+            dZs = Z2dZ(Z)
+            S = dZ2S(dZs)
+            samps.append((S, X))
+            Z_real.append(Z)
+
+        anchors = [
+            (x, max(0.0, response_func(x) + np.random.normal(0.0, anchor_sigma2)))
+            for x in np.linspace(0.1, 0.9, num=10)
+        ]
+
+        c0 = np.random.uniform(0.0, 1.0, size=len(samps))
+        cest, hest, errors = infer_response_func(samps, anchors, c_init=c0, max_iter=10)
+        hests.append(hest)
+        errors_list.append(errors)
+
+        if run == 0:
+            example_samps = samps
+            example_Z_real = Z_real
+            example_c0 = c0
+            example_cest = cest
+            example_anchors = anchors
+
+    samps = example_samps
+    Z_real = example_Z_real
+    c0 = example_c0
+    cest = example_cest
+    anchors = example_anchors
 
     fig, axes = plt.subplots(2, 3, sharex=False, figsize=(14, 8))
     ax0, ax1, ax2, ax3, ax4, ax5 = axes.flatten()
@@ -241,11 +266,11 @@ if __name__ == "__main__":
         Zrs = Z_real[s]
 
         Zest0 = S + c0[s]
-        ax2.plot(Zest0, X, c="#3ccf77")
+        ax2.plot(Zest0, X, c="#6b6b6b")
         ax2.plot(Zrs, X, c="#4136a3")
 
         Zest = S + cest[s]
-        ax3.plot(Zest, X, c="#3ccf77")
+        ax3.plot(Zest, X, c="#6b6b6b")
         ax3.plot(Zrs, X, c="#4136a3")
 
     ax1.hist(c0, bins=20, color="#4136a3", alpha=0.8)
@@ -260,18 +285,21 @@ if __name__ == "__main__":
     ax3.set_xlabel("Z")
     z_grid = np.linspace(0.1, 0.9, num=200)
     ax4.plot(z_grid, response_func(z_grid), c="#4136a3", label="True $h$")
-    ax4.plot(z_grid, hest(z_grid), c="#3ccf77", label="Estimated $\hat{h}$")
+    for i, hest in enumerate(hests):
+        label = "Estimated $\hat{h}$" if i == 0 else None
+        ax4.plot(z_grid, hest(z_grid), c="#e6a532", alpha=0.35, label=label)
     ax4.set_title("Response curve")
     ax4.set_xlabel("Z")
     ax4.set_ylabel("X")
     ax4.legend(frameon=False)
 
-    ax5.plot(range(1, len(errors) + 1), errors, c="#4136a3")
+    for errors in errors_list:
+        ax5.plot(range(1, len(errors) + 1), errors, c="#4136a3", alpha=0.35)
     ax5.set_title("Inference error (weighted SSE)")
     ax5.set_xlabel("Iteration")
     ax5.set_ylabel("Error")
 
-    fig.suptitle(f"Example result for a single simulation ($W={W},\sigma^2={sigma2},h=1/(1 - exp(-x))$)", fontsize=16)
+    fig.suptitle(f"Example result for {n_runs} simulations ($W={W},\sigma^2={sigma2},h=1/(1 - exp(-x))$)", fontsize=16)
     plt.tight_layout()
     plt.savefig("simulation_example.png")
     plt.show()
