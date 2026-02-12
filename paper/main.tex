@@ -28,16 +28,9 @@ Recent work has proposed the use of ESP32-class microcontrollers and low-cost mo
 
 Typically, gravimetric sampling can be used to characterise SWC, which is destructive and time consuming. Other methods include time domain reflectometry and capacitance and impedence sensors \hl{cite}. Capacitive moisture sensors, as with all electromagnetic methods (EM) measure SWC indirectly through the dielectric permittivity \cite{kelleners2005-frequency-dependence}, since the dielectric permitivity of water exceeds that of other soil components \hl{cite}, though it is dependent on measurement electrical frequency \cite{kelleners2005-frequency-dependence,sheng2025-frequency} and temperature \cite{jones2005-em-methodology}.
 
-Bogena et al (2017) \cite{bogena2017-calibration} developed a procedure for calibration of low-cost SMT1000 moisture sensors and undertook systematic calibration of hundreds of sensors in a range of media, observing sensor-to-sensor variability and both density and temperature dependence. Overall, there is increasing interest in IoT sensors and their application to agriculture (see \cite{ruiz2025-iot-mapping} for a bibliometric analysis).
+Bogena et al (2017) \cite{bogena2017-calibration} developed a procedure for calibration of low-cost SMT1000 moisture sensors and undertook systematic calibration of hundreds of sensors in a range of media, observing sensor-to-sensor variability and both density and temperature dependence. Overall, there is increasing interest in IoT sensors and their application to agriculture (see \cite{ruiz2025-iot-mapping} for a bibliometric analysis). In contrast, Kizito et al. (2008) \cite{kizito2008-frequency} found that for research-grade ECH2O probes (Decagon Devices Inc., Pullman, WA) and a measurement frequency of 70 MHz, a single calibration curve was sufficient for relating electrical conductivity to SWC across different soil salinities, though they did find variability with the degree of probe immersion and dependency of measurements on temperature, and the sensors used are more an order of magnitude more costly than the "capacitive soil moisture sensor v.2.0" used in other studies (e.g. \cite{sudarmaji2024-smart-soil}). 
 
 The objective of this work was to introduce an automated system and statistical method for automated calibration of sensors with minimal user input. This aim was primarily motivated by the challenge end users may find with gravimetric calibration, as well as lack of generalisability of a given calibration curve. We aim to present a method providing automated measurements at least consistent with consumer-grade moisture detectors in general. \hl{TODO: we should use gravimetric measurement for assessment?}.
-
-\begin{itemize}
-  \item Sensitivity to salinity and temperature \cite{jones2005-em-methodology}.
-  \item Frequency, conductivity, and temperature effects for sensors \cite{kizito2008-frequency}.
-  \item Permittivity measurements and variability \cite{seyfried2004-50mhz}.
-  \item Clayey soil deviation, structural effects \cite{gonzalez-teruel2020-mixing}.
-\end{itemize}
 
 \section{Methods}
 
@@ -130,29 +123,23 @@ In order to characterise the performance of this algorithm under the given assum
 
 \subsection{Identifiability}
 
-\hl{TODO: There is some issue with identifiability or performance for single-sample sequences.}
-
+\hl{TODO: Does not seem to work with $(dZ, X)$ pairs, i.e. watering sequences of length 1.}
 
 \subsection{Validation}
 
 \section{Results}
 
-\subsection{Event detection performance}
+\subsection{Event detection}
 
-\subsection{Performance in simulation}
+\subsection{Calibration simulation}
 
-\subsection{Performance with real data}
+\subsection{Sensor data}
+
+\subsubsection{Sensor variability}
+
+\subsection{Validation}
 
 \section{Discussion}
-\begin{itemize}
-  \item Sensor-to-sensor variability \cite{bogena2017-calibration}.
-  \item Soil-type and temperature effects observed in can dominate, soil-specific validation \cite{merlin2007-calibration}.
-  \item Measurement frequency effects in EM sensing constrain generalizability across sensors and soils \cite{sheng2025-frequency,kelleners2005-frequency-dependence}.
-  \item Low-cost capacitance sensors sensitive to conductivity and temp \cite{kizito2008-frequency}.
-  \item Model identifiability
-  \item Automated detection
-  \item Water is just one small part of growing plants
-\end{itemize}
 
 \section{Future work}
 
