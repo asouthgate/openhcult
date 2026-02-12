@@ -43,7 +43,8 @@ def infer_response_func(
     anchor_weight: float = 2.0,
     shift_ridge: float = 0.0,
     shift_prior: float = 0.5,
-    max_iter: int = 50,
+    c_init: np.ndarray | None = None,
+    max_iter: int = 20,
     tol: float = 1e-6,
 ) -> Dict[str, object]:
     """
@@ -63,6 +64,7 @@ def infer_response_func(
     anchor_weight : weight applied to anchor points
     shift_ridge : L2 penalty on shifts c_s (stabilizes weak overlap)
     shift_prior : prior mean for c_s (used with shift_ridge)
+    c_init : optional initial shifts, length must match samples
     max_iter : max coordinate descent iterations
     tol : convergence tolerance on shifts
 
@@ -94,7 +96,12 @@ def infer_response_func(
         X_anchor = np.empty((0,), dtype=float)
 
     # initialize shifts
-    c = np.zeros(n_traj)
+    if c_init is None:
+        c = np.zeros(n_traj)
+    else:
+        c = np.asarray(c_init, dtype=float).ravel().copy()
+        if c.shape[0] != n_traj:
+            raise ValueError(f"c_init length {c.shape[0]} does not match samples {n_traj}")
 
     iso = IsotonicRegression(increasing=True, out_of_bounds="clip")
 
@@ -203,14 +210,41 @@ if __name__ == "__main__":
         Z0_real.append(Z0)
         Z_real.append(Z)
 
-    anchors = [(0.1, response_func(0.1)), (0.2, response_func(0.2)), (0.5, response_func(0.5))]
-    cest, hest = infer_response_func(samps, anchors)
+    anchor_sigma2 = 2.0
+    anchors = [
+        (x, response_func(x) + np.random.normal(0.0, anchor_sigma2))
+        for x in np.linspace(0.1, 0.9, num=10)
+    ]
+
+    c0 = np.random.uniform(0.0, 1.0, size=len(samps))
+    cest, hest = infer_response_func(samps, anchors, c_init=c0)
+
+    fig, axes = plt.subplots(2, 2, sharex=False, figsize=(10, 8))
+    ax0, ax1, ax2, ax3 = axes.flatten()
+
+    ax0.scatter([z for z, _ in anchors], [x for _, x in anchors], c="black", s=30)
+    ax0.set_title("Anchor points")
+    ax0.set_ylabel("X")
+
     for s in range(nS):
-        cests = cest[s]
         S, X = samps[s]
         Zrs = Z_real[s]
-        Zest = S + cests
-        plt.plot(Zest, X, c='red')
-        plt.plot(Zrs, X, c='blue')
-        
+
+        Zest0 = S + c0[s]
+        ax2.plot(Zest0, X, c="#96342d")
+        ax2.plot(Zrs, X, c="#4136a3")
+
+        Zest = S + cest[s]
+        ax3.plot(Zest, X, c="#96342d")
+        ax3.plot(Zrs, X, c="#4136a3")
+
+    ax1.hist(c0, bins=20, color="#4136a3", alpha=0.8)
+    ax1.set_title("Initial c histogram")
+    ax1.set_xlabel("c0")
+    ax1.set_ylabel("Count")
+    ax2.set_title("Before (initial c)")
+    ax2.set_ylabel("X")
+    ax3.set_title("After (estimated c)")
+    ax3.set_ylabel("X")
+    plt.tight_layout()
     plt.show()
