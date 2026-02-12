@@ -90,6 +90,7 @@
             ]
           },
           "custom": {
+            "spanNulls": true,
             "thresholdsStyle": {
               "mode": "area"
             }
