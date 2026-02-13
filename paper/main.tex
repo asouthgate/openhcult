@@ -106,8 +106,6 @@ where the RHS term is the anchor samples, with weights $w_j$ (taken by default t
 \lambda \sum_s (c_s - c_0)^2
 \]
 
-where $c_0$ is a prior mean for $c_s$ (e.g., $c_0 = 0.5$). We also constrain $c_s$ so that $Z$ remains within $[0,1]$ for each trajectory, which prevents observed shifts that separate parts of the curve. \\
-
 In order to solve this optimisation problem, an iterative approach was used where 1) given a candidate $h$, $c$ can be identified by one-dimensional optimisation and 2) given $c$, $h$ can be estimated with isotonic regression. \\
 
 \begin{figure}[htb!]

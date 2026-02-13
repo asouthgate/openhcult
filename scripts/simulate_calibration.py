@@ -196,12 +196,12 @@ if __name__ == "__main__":
     W = 10.0
     n_watering_events = 4
     sigma2 = 0.1
-    n_boot = 1
+    n_boot = 50
     # Simulate sequences of dQs for each pot, they may not span the whole range Qmin, Qmax (plants have narrow viability ranges)
     nS = 30
     anchor_weight = 1.0
-    anchor_sigma2 = 5.0
-    n_anchors = 5
+    anchor_sigma2 = 75.0
+    n_anchors = 10
     Zmax_true = 100.0
     X_at_Zmax = 50
     X_at_Zmin = 200
@@ -249,10 +249,11 @@ if __name__ == "__main__":
     for _ in range(n_boot):
         idx = np.random.randint(0, nS, size=nS)
         boot_samps = [samps[i] for i in idx]
+        boot_anchors = [anchors[bi] for bi in np.random.randint(0, len(anchors), size=len(anchors))]
         c0_boot = np.random.uniform(0.0, 1.0, size=len(boot_samps))
         _, hest_boot, errors_boot = infer_response_func(
             boot_samps,
-            anchors,
+            boot_anchors,
             Zmax_true,
             c_init=c0_boot,
             anchor_weight=anchor_weight,
@@ -333,7 +334,7 @@ if __name__ == "__main__":
     ax5.plot(range(1, len(errors) + 1), np.log(errors), c="#313045", alpha=0.8)
     ax5.set_title("Inference error (weighted SSE)")
     ax5.set_xlabel("Iteration")
-    ax5.set_ylabel("Error")
+    ax5.set_ylabel("Log Error")
 
     fig.suptitle(f"Example result with {n_boot} bootstraps ($W={W},\sigma^2={sigma2},h=1/(1 - exp(-x))$)", fontsize=16)
     plt.tight_layout()
