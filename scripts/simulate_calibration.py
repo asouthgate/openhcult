@@ -2,9 +2,7 @@ from __future__ import annotations
 from typing import List, Tuple, Callable, Dict
 import matplotlib.pyplot as plt
 import numpy as np
-from sklearn.isotonic import IsotonicRegression
 from scipy.optimize import minimize_scalar
-from scipy.interpolate import UnivariateSpline
 
 def decreasing_logistic(x: np.ndarray, *, mid: float, L: float, k) -> np.ndarray:
     x = np.asarray(x, dtype=float)
@@ -52,48 +50,14 @@ def infer_response_func(
     anchor_points: List[Tuple[float, float]],
     Zmax_true: float,
     *,
-    anchor_weight: float = 2.0,
-    shift_ridge: float = 0.0,
-    shift_prior: float = 0.5,
+    anchor_weight: float = 1.0,
     c_init: np.ndarray | None = None,
-    h_model: str = "isotonic",
-    spline_s: float | None = None,
+    h_model: str = "poly",
+    poly_degree: int = 3,
     max_iter: int = 20,
     tol: float = 1e-6,
     return_diag: bool = False,
 ) -> Dict[str, object]:
-    """
-    Jointly estimate:
-        - monotone decreasing function h
-        - per-trajectory shifts c_s
-
-    Model:
-        Z_{s,i} = c_s + S_{s,i}
-        X_{s,i} = h(Z_{s,i}) + eps
-        Anchor points: (Z_a, X_a) noisy observations of same h
-
-    Parameters
-    ----------
-    samples : list of (S, X) arrays
-    anchor_points : list of (Z, X) anchor tuples
-    anchor_weight : weight applied to anchor points
-    shift_ridge : L2 penalty on shifts c_s (stabilizes weak overlap)
-    shift_prior : prior mean for c_s (used with shift_ridge)
-    c_init : optional initial shifts, length must match samples
-    h_model : "isotonic" or "spline" for looser fits
-    spline_s : smoothing factor for spline fits
-    max_iter : max coordinate descent iterations
-    tol : convergence tolerance on shifts
-    return_diag : when True, return diagnostics
-
-    Returns
-    -------
-    tuple with:
-        c: np.ndarray of shifts
-        h: callable h(u)
-        errors: list of weighted SSE values per iteration
-    """
-
     # ---- prepare data ----
     n_traj = len(samples)
 
@@ -107,12 +71,8 @@ def infer_response_func(
         S_list.append(S)
         X_list.append(X)
 
-    if len(anchor_points) > 0:
-        Z_anchor = Zmax_true * np.array([q for (q, _) in anchor_points], dtype=float)
-        X_anchor = np.array([x for (_, x) in anchor_points], dtype=float)
-    else:
-        Z_anchor = np.empty((0,), dtype=float)
-        X_anchor = np.empty((0,), dtype=float)
+    Z_anchor = Zmax_true * np.array([q for (q, _) in anchor_points], dtype=float)
+    X_anchor = np.array([x for (_, x) in anchor_points], dtype=float)
 
     # initialize shifts
     if c_init is None:
@@ -127,55 +87,16 @@ def infer_response_func(
         X_sorted: np.ndarray,
         W_sorted: np.ndarray,
     ) -> Callable[[np.ndarray], np.ndarray]:
-        if h_model == "isotonic":
-            iso = IsotonicRegression(increasing=True, out_of_bounds="clip")
-            iso.fit(U_sorted, -X_sorted, sample_weight=W_sorted)
+        if h_model == "poly":
+            coeffs = np.polyfit(U_sorted, X_sorted, deg=poly_degree, w=W_sorted)
 
             def h(u: np.ndarray) -> np.ndarray:
                 u = np.asarray(u, dtype=float)
-                return -iso.predict(u)
-
-            return h
-
-        if h_model == "spline":
-            uniq_u, inv = np.unique(U_sorted, return_inverse=True)
-            if uniq_u.size != U_sorted.size:
-                sum_w = np.zeros(uniq_u.size)
-                sum_xw = np.zeros(uniq_u.size)
-                for i, idx in enumerate(inv):
-                    sum_w[idx] += W_sorted[i]
-                    sum_xw[idx] += W_sorted[i] * X_sorted[i]
-                X_use = sum_xw / sum_w
-                W_use = sum_w
-                U_use = uniq_u
-            else:
-                U_use = U_sorted
-                X_use = X_sorted
-                W_use = W_sorted
-
-            spline = UnivariateSpline(U_use, X_use, w=W_use, s=spline_s)
-
-            def h(u: np.ndarray) -> np.ndarray:
-                u = np.asarray(u, dtype=float)
-                return spline(u)
+                return np.polyval(coeffs, u)
 
             return h
 
         raise ValueError(f"Unknown h_model '{h_model}'")
-
-    def fit_h_from_anchors() -> Callable[[np.ndarray], np.ndarray] | None:
-        """
-        Fit a monotone decreasing h using anchor points only.
-        """
-        if len(Z_anchor) == 0:
-            return None
-
-        order = np.argsort(Z_anchor)
-        Z_sorted = Z_anchor[order]
-        X_sorted = X_anchor[order]
-        W_sorted = np.full_like(X_sorted, anchor_weight)
-
-        return fit_h_model(Z_sorted, X_sorted, W_sorted)
 
     def fit_h() -> Callable[[np.ndarray], np.ndarray]:
         """
@@ -190,10 +111,9 @@ def infer_response_func(
             X_all.append(X_list[s])
             W_all.append(np.ones_like(X_list[s]))
 
-        if len(Z_anchor) > 0:
-            U_all.append(Z_anchor)
-            X_all.append(X_anchor)
-            W_all.append(np.full_like(X_anchor, anchor_weight))
+        U_all.append(Z_anchor)
+        X_all.append(X_anchor)
+        W_all.append(np.full_like(X_anchor, anchor_weight))
 
         U_all = np.concatenate(U_all)
         X_all = np.concatenate(X_all)
@@ -213,27 +133,15 @@ def infer_response_func(
         S = S_list[s]
         X = X_list[s]
 
-        span = np.ptp(S)
-        if span == 0.0:
-            span = 1.0
-
         def objective(cs: float) -> float:
             resid = X - h(S + cs)
             val = np.sum(resid ** 2)
-            if shift_ridge > 0.0:
-                val += shift_ridge * (cs - shift_prior) ** 2
             return val
 
-        lower = c[s] - span
-        upper = c[s] + span
         result = minimize_scalar(
-            objective,
-            bounds=(lower, upper),
-            method="bounded",
+            objective
         )
-        bound_eps = 1e-6 * max(1.0, span)
-        hit_bound = abs(result.x - lower) <= bound_eps or abs(result.x - upper) <= bound_eps
-        return float(result.x), hit_bound
+        return float(result.x)
 
     def compute_error(h: Callable[[np.ndarray], np.ndarray]) -> float:
         sse = 0.0
@@ -246,41 +154,41 @@ def infer_response_func(
         return sse
 
     errors = []
-    bound_hits = 0
     bound_total = 0
 
-    # ---- initialize shifts from anchor-only h, if available ----
-    if c_init is None:
-        h_anchor = fit_h_from_anchors()
-        if h_anchor is not None:
-            for s in range(n_traj):
-                c_s, hit_bound = update_shift(s, h_anchor)
-                c[s] = c_s
-                bound_hits += int(hit_bound)
-                bound_total += 1
-
+    h = fit_h()
     # ---- coordinate descent ----
     for _ in range(max_iter):
 
+
+        plt.scatter(Z_anchor, X_anchor)
+        z_h = np.linspace(0, Zmax_true, 100)
+        plt.plot(z_h, h(z_h), color='red')
+
         h = fit_h()
+
+        plt.scatter(Z_anchor, X_anchor)
+        z_h = np.linspace(0, Zmax_true, 100)
+        plt.plot(z_h, h(z_h), color='blue')
+
 
         c_old = c.copy()
 
         for s in range(n_traj):
-            c_s, hit_bound = update_shift(s, h)
+            c_s = update_shift(s, h)
             c[s] = c_s
-            bound_hits += int(hit_bound)
-            bound_total += 1
 
-        h = fit_h()
         errors.append(compute_error(h))
+        for si, samp in enumerate(samples):
+            Ssi, Xsi = samp
+            plt.plot(Ssi + c[si], Xsi, linestyle="--")
+        
+        plt.show()
 
         if np.max(np.abs(c - c_old)) < tol:
             break
 
-    if return_diag:
-        diag = {"bound_hits": bound_hits, "bound_total": bound_total}
-        return c, h, errors, diag
+    print("done")
     return c, h, errors
 
 if __name__ == "__main__":
@@ -290,7 +198,7 @@ if __name__ == "__main__":
     n_boot = 1
     # Simulate sequences of dQs for each pot, they may not span the whole range Qmin, Qmax (plants have narrow viability ranges)
     nS = 30
-    anchor_weight = 0.2
+    anchor_weight = 100.0
     anchor_sigma2 = 0.0
     Zmax_true = 100.0
     X_at_Zmax = 50
@@ -326,19 +234,14 @@ if __name__ == "__main__":
     c0 = np.random.uniform(0.0, Zmax_true, size=len(samps))
 
     anchors = list(zip(anchor_q, anchor_x))
-    cest, hest, errors, diag = infer_response_func(
+    cest, hest, errors = infer_response_func(
         samps,
         anchors,
         Zmax_true,
         c_init=c0,
         anchor_weight=anchor_weight,
-        max_iter=8,
-        return_diag=True,
+        max_iter=20,
     )
-
-    if diag["bound_total"] > 0:
-        hit_rate = 100.0 * diag["bound_hits"] / diag["bound_total"]
-        print(f"Shift bounds hit: {diag['bound_hits']} / {diag['bound_total']} ({hit_rate:.1f}%)")
 
 
     for _ in range(n_boot):
