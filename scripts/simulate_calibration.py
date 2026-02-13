@@ -198,8 +198,9 @@ if __name__ == "__main__":
     n_boot = 1
     # Simulate sequences of dQs for each pot, they may not span the whole range Qmin, Qmax (plants have narrow viability ranges)
     nS = 30
-    anchor_weight = 100.0
-    anchor_sigma2 = 0.0
+    anchor_weight = 1.0
+    anchor_sigma2 = 50.0
+    n_anchors = 5
     Zmax_true = 100.0
     X_at_Zmax = 50
     X_at_Zmin = 200
@@ -223,7 +224,7 @@ if __name__ == "__main__":
         samps.append((S, X))
         Z_real.append(Z)
 
-    anchor_q = np.linspace(0.1, 0.9, num=10)
+    anchor_q = np.linspace(0.1, 0.9, num=n_anchors)
     anchor_x = [
         max(0.0, response_func(Zmax_true * q) + np.random.normal(0.0, anchor_sigma2))
         for q in anchor_q
