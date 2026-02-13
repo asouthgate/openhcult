@@ -50,6 +50,7 @@ def Z2X(Z, response_func, sigma2):
 def infer_response_func(
     samples: List[Tuple[np.ndarray, np.ndarray]],
     anchor_points: List[Tuple[float, float]],
+    Zmax_true: float,
     *,
     anchor_weight: float = 2.0,
     shift_ridge: float = 0.0,
@@ -107,7 +108,7 @@ def infer_response_func(
         X_list.append(X)
 
     if len(anchor_points) > 0:
-        Z_anchor = np.array([z for (z, _) in anchor_points], dtype=float)
+        Z_anchor = Zmax_true * np.array([q for (q, _) in anchor_points], dtype=float)
         X_anchor = np.array([x for (_, x) in anchor_points], dtype=float)
     else:
         Z_anchor = np.empty((0,), dtype=float)
@@ -292,9 +293,9 @@ if __name__ == "__main__":
     anchor_weight = 0.2
     anchor_sigma2 = 0.0
     Zmax_true = 100.0
-    XofZmax = 50
-
-    response_func = lambda z: decreasing_logistic(z, mid= 0.5 * Zmax_true, L=XofZmax, k=0.1)
+    X_at_Zmax = 50
+    X_at_Zmin = 200
+    response_func = lambda z: X_at_Zmax + decreasing_logistic(z, mid= 0.8 * Zmax_true, L=X_at_Zmin, k=0.1)
 
 #    debug_z = np.linspace(0, Zmax_true)
 #    plt.scatter(debug_z, [response_func(z) for z in debug_z])
@@ -314,7 +315,6 @@ if __name__ == "__main__":
         samps.append((S, X))
         Z_real.append(Z)
 
-    x_at_zmax = response_func(Zmax_true)
     anchor_q = np.linspace(0.1, 0.9, num=10)
     anchor_x = [
         max(0.0, response_func(Zmax_true * q) + np.random.normal(0.0, anchor_sigma2))
@@ -323,19 +323,19 @@ if __name__ == "__main__":
     plt.scatter(anchor_q, anchor_x)
     plt.show()
 
-    c0 = np.random.uniform(0.0, 1.0, size=len(samps))
-    zmax_est = 0.8 * Zmax_true
-    for _ in range(5):
-        anchors = [(zmax_est * q, x) for q, x in zip(anchor_q, anchor_x)]
-        cest, hest, errors, diag = infer_response_func(
-            samps,
-            anchors,
-            c_init=c0,
-            anchor_weight=anchor_weight,
-            max_iter=8,
-            return_diag=True,
-        )
-        zmax_est = invert_monotone(hest, x_at_zmax, z_min=0.1 * Zmax_true, z_max=2.0 * Zmax_true)
+    c0 = np.random.uniform(0.0, Zmax_true, size=len(samps))
+
+    anchors = list(zip(anchor_q, anchor_x))
+    cest, hest, errors, diag = infer_response_func(
+        samps,
+        anchors,
+        Zmax_true,
+        c_init=c0,
+        anchor_weight=anchor_weight,
+        max_iter=8,
+        return_diag=True,
+    )
+
     if diag["bound_total"] > 0:
         hit_rate = 100.0 * diag["bound_hits"] / diag["bound_total"]
         print(f"Shift bounds hit: {diag['bound_hits']} / {diag['bound_total']} ({hit_rate:.1f}%)")
@@ -348,6 +348,7 @@ if __name__ == "__main__":
         _, hest_boot, errors_boot = infer_response_func(
             boot_samps,
             anchors,
+            Zmax_true,
             c_init=c0_boot,
             anchor_weight=anchor_weight,
             max_iter=10,
