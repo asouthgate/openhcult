@@ -76,41 +76,39 @@ Given an event candidate at $t_{i+1}$ and window size $k$; for the sensors chose
 
 \subsection{Automated response curve calibration}
 
-Consumer-grade soil moisture probes generally report coarse, normalized measurements. Here, we define dimensionless soil water content as $Z$, the ratio of water volume to container volume (such as in a pot), instead of the usual $\theta$, which is the ratio of water to total soil volume. We assume that $Z$ itself is not directly measurable, although at a given watering, $\Delta Z$ is known. We fix this and refer to it as $W$. This is a simplifying assumption that disregards runoff and user measurement error. \\
+Consumer-grade soil moisture probes generally report coarse, normalized measurements. Here, we define soil water content as $Z$ as total water volume in a given container with fixed soil content (such as in a pot), instead of the usual $\theta$, which is the ratio of water to total soil volume. We assume that $Z$ itself is not directly measurable, although at a given watering, $\Delta Z$ is known, unlike $\Delta \theta$. We fix this for a given pot and soil volume, and refer to it as $W$. This is a simplifying assumption that disregards runoff and user measurement error. \\
 
-For convenience, the system relies on automatically detected watering events previously described. For a given event at time $t_i$, we extract associated $X_{i,s}$. This leads to sampled pairs $(\Delta Z_{i,s}, X_{i,s})$. We asssume the relationship:
+Many consumer-grade soil moisture probes report a normalized score (e.g. between 0 and 10). Importantly, with only $\Delta Z$ as a water volume, with $Z_{max}$ a normalized score can be obtained. $Z_{max}$ requires experiment to determine. Alternatively, a practical way to determine $X(Z_{max})$ is to take the minimum database sensor value under the assumption that fully soil has occurred at least once. \\
+
+For convenience, the system relies on automatically detected watering events previously described. For a given event at time $t_i$, and sensor $s$, we extract associated $X_{i,s}$. This leads to sampled pairs $(\Delta Z_{i,s}, X_{i,s})$. We asssume the relationship:
 
 \[
-X_{i,s} = h(Z_{i,s}) + \epsilon_i
+X_{i,s} = h(Z_{i,s}) + \epsilon_i + \epsilon_s
 \]
 
-Where $\epsilon_i$ is Gaussian noise. In this equation, both the response function $h(\cdot)$ and the water content $Z$ are unknown. Given a known starting point, such as $Z_0 = 0$, and a sequence of waterings, $Z_{i,s}$ could be reconstructed as $Z_0 + \sum_{i} \Delta Z_{i,s}$ and $h(\cdot)$ determined by regression. However, we assume in general that the range $[Z_0, Z_{max}]$ of completely dry to completely saturated is not tolerable for any plant, so such watering sequences will not be obtainable outside from specific calibrations which may be noisy. Instead of relying on a small number of calibration points, we aim to also use continuously detected watering events to inform estimation.  We assume that our system will produce at best sequences of waterings within a range, and at best single samples. \hl{TODO: drying in between waterings}. Then we have:
+Where $\epsilon_i$ is Gaussian sensor measurement noise and a $\epsilon_s$ Gaussian noise offset per-sensor per-placement (accounting for factors such as sensor-specific offsets and variable depth and packing). In this equation, both the response function $h(\cdot)$ and the water content $Z$ are unknown. Given a known starting point, such as $Z_0 = 0$, and a sequence of waterings, $Z_{i,s}$ could be reconstructed as $Z_0 + \sum_{i} \Delta Z_{i,s}$ and $h(\cdot)$ determined by regression. However, we assume in general that the range $[Z_0, Z_{max}]$ of completely dry to completely saturated is not tolerable for any plant, so such watering sequences will not be obtainable outside from specific calibration experiments which we wish to avoid. We require that sequence events are close in time in order to assume the effect of drying in between waterings is close to zero. Then we have:
 
 \[
-X_{i, s}^{(k)} = h(c + \sum_{j<i}\Delta Z_{j,s}^{(k)}) + \epsilon_i = h(c + S_{i, s}^{(k)}) + \epsilon_i
+X_{i, s}^{(k)} = h(c + \sum_{j<i}\Delta Z_{j,s}^{(k)}) + \epsilon_i + \epsilon_s = h(c + S_{i, s}^{(k)}) + \epsilon_i + \epsilon_s
 \]
 
 Where $(k)$ is an index for a given sample trajectory samples from the collection of sensors. In this case, $h$ could be determined by regression except for the unknown constants $c$, which also must be determined. These unknown values $c$ determine horizontal shifts or coordinate change in the curve $X(Z)$. This model is a translation-only special case of the shape invariant model, which has an iterative solution described in \cite{lawton1972self, kneip1988convergence}. Similar models include the single-index model (usually $y_i = g(x_i^T \beta) + \epsilon_i$) \cite{ichimura-1993-index}. \\
 
-Although we do not have ideal watering sequences for calibration, it is more reasonable to assume it is possible to obtain some noisy sampled pairs $(Z, X)$, such as at in fully dry or fully wet conditions, which can be used to constrain the estimation problem. Then, we want to solve:
+Although we do not have ideal watering sequences for calibration, it is more reasonable to assume it is possible to obtain some ad-hoc noisy sampled pairs $(Q, X)$ (where $Q = Z/Z_{max}$) from a moisture meter, such as at in fully dry or fully wet conditions, which can be used to constrain the estimation problem. Then, we want to solve:
 
 \[
-\min\limits_{h, \vec{c}}{\sum_{s=1}^S \sum_{i=1}^{n_s} \Big[ X_{s,i} - h(c_s + S_{s,i})\Big]^2 + \sum_{j=1}^m w_{j} \Big[X_j - h(Z_j)]^2 \Big]}
+\min\limits_{h, \vec{c}}{\sum_{s=1}^S \sum_{i=1}^{n_s} \Big[ X_{s,i} - h(c_s + S_{s,i})\Big]^2 + \sum_{j=1}^m w_{j} \Big[X_j - h(Z_{max} Q_j)]^2 \Big]}
 \]
 
-where the RHS term is the anchor samples, with weights $w_j$ (taken by default to be a single $w$). Optionally, with the additional regularisation toward a prior shift:
+where the RHS term is the anchor samples, with weights $w_j$ (taken by default to be a single $w$). Optionally, we assessed additional regularisation:
 
 \[
 \lambda \sum_s (c_s - c_0)^2
 \]
 
-where $c_0$ is a prior mean for $c_s$ (e.g., $c_0 = 0.5$). We also constrain $c_s$ so that $Z$ remains within $[0,1]$ for each trajectory, which prevents shifts that separate parts of the curve. \\
-
-It is expected that, in order to characterise $h$ properly, the samples must sufficiently overlap. For regions of the response curve where there is no data, there is no information to estimate $h$. \\
+where $c_0$ is a prior mean for $c_s$ (e.g., $c_0 = 0.5$). We also constrain $c_s$ so that $Z$ remains within $[0,1]$ for each trajectory, which prevents observed shifts that separate parts of the curve. \\
 
 In order to solve this optimisation problem, an iterative approach was used where 1) given a candidate $h$, $c$ can be identified by one-dimensional optimisation and 2) given $c$, $h$ can be estimated with isotonic regression. \\
-
-In order to characterise the performance of this algorithm under the given assumptions, simulation was performed.\\
 
 \begin{figure}[htb!]
   \centering
@@ -118,8 +116,6 @@ In order to characterise the performance of this algorithm under the given assum
   \caption{Example simulation and inference. Simulated data was unaligned at initialization to the response curve (bottom left) with randomly initialized values for $c$ (top middle). Anchor points were randomly sampled with Gaussian noise (top left). After inference, sampled data was aligned through iterative estimation of the response curve and offsets $c$ (bottom left). Bootstrap resampling was used to obtain confidence intervals (bottom middle). Finally, inference error over iteration is shown (bottom right) }
   \label{fig:myfigure}
 \end{figure}
-
-TODO: there are unaccounted-for sources of noise throughout. Event false positives. Noise in water volume added. Sensor bias.
 
 \subsection{Identifiability}
 
