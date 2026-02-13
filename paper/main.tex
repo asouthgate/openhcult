@@ -18,17 +18,17 @@
 
 \begin{abstract}
 
-ESP32s equipped with capacitive moisture sensors have recently been suggested for IoT plant watering systems. However, measuring moisture in soil is complex and requires careful calibration in order to characterise the response curve mapping soil water content to sensor measurements, which end consumers are unlikely to undertake. Even accurately measuring soil moisture content requires effort, with variability across soils and environmental conditions, and consumer-grade probes tending to offer coarse measurements only. As a result, in a consumer growing context, soil moisture is commonly ascertained by intuition. If IoT sensor systems are to be practically useful, calibration must be easy. Here, we demonstrate a novel approach for automated calibration of sensor systems requiring minimal end-user inputs, and offering measures of uncertainty. This work has the potential to assist with low-cost automated monitoring of growing conditions.
+ESP32s equipped with capacitive moisture sensors have recently been suggested for IoT plant watering systems. However, measuring moisture in soil is complex and requires careful calibration in order to characterise the response curve mapping soil water content to sensor measurements, which end consumers are unlikely to undertake. Even accurately measuring soil moisture content requires effort, with variability across soils and environmental conditions, and consumer-grade probes tending to offer coarse measurements only. As a result, in a consumer growing context, soil moisture is commonly ascertained by intuition. If IoT sensor systems are to be practically useful, calibration must be easy. The objective of this work was to develop an open source, low-effort, near-automous software system for online calibration and monitoring.
 
 \end{abstract}
 
 \section{Introduction}
 
-Recent work has proposed the use of ESP32-class microcontrollers and low-cost moisture sensors for automated watering systems and measurement of soil water content (SWC) \cite{biswas2018-solar-pump, purnomo2021-lora, sudarmaji2024-smart-soil, afzal2025-arima}, motivated by mitigating water shortages \cite{afzal2025-arima}. As global heating increases, both flooding and increases in water shortages are expected world-wide \hl{cite}. In previous work, ESP32/capacitive sensor calibration has been performed by gravimetry \cite{sudarmaji2024-smart-soil} and WiFi connections. However, it is expected that these curves depend on a range of factors, including soil type (i.e. clay content), temperature \cite{merlin2007-calibration}, and salinity \hl{cite}, with unknown generalisability \hl{cite}. Furthermore, end users may find it difficult to undertake gravimetry for each specific application type. 
+Recent work has proposed the use of ESP32-class microcontrollers and low-cost moisture sensors for automated watering systems and measurement of soil water content (SWC) \cite{biswas2018-solar-pump, purnomo2021-lora, sudarmaji2024-smart-soil, afzal2025-arima}, motivated by mitigating water shortages \cite{afzal2025-arima}. As global heating increases, both flooding and increases in water shortages are expected world-wide \hl{cite}. In previous work, ESP32/capacitive sensor calibration has been performed by gravimetry \cite{sudarmaji2024-smart-soil} and WiFi connections. However, it is expected that these curves depend on a range of factors, including soil type (i.e. clay content), temperature \cite{merlin2007-calibration}, and salinity \hl{cite}, with unknown generalisability \hl{cite}. Furthermore, end users may find it difficult to undertake gravimetry for each specific application type. Overall, there is increasing interest in IoT sensors and their application to agriculture (see \cite{ruiz2025-iot-mapping} for a bibliometric analysis). 
 
 Typically, gravimetric sampling can be used to characterise SWC, which is destructive and time consuming. Other methods include time domain reflectometry and capacitance and impedence sensors \hl{cite}. Capacitive moisture sensors, as with all electromagnetic methods (EM) measure SWC indirectly through the dielectric permittivity \cite{kelleners2005-frequency-dependence}, since the dielectric permitivity of water exceeds that of other soil components \hl{cite}, though it is dependent on measurement electrical frequency \cite{kelleners2005-frequency-dependence,sheng2025-frequency} and temperature \cite{jones2005-em-methodology}.
 
-Bogena et al (2017) \cite{bogena2017-calibration} developed a procedure for calibration of low-cost SMT1000 moisture sensors and undertook systematic calibration of hundreds of sensors in a range of media, observing sensor-to-sensor variability and both density and temperature dependence. Overall, there is increasing interest in IoT sensors and their application to agriculture (see \cite{ruiz2025-iot-mapping} for a bibliometric analysis). In contrast, Kizito et al. (2008) \cite{kizito2008-frequency} found that for research-grade ECH2O probes (Decagon Devices Inc., Pullman, WA) and a measurement frequency of 70 MHz, a single calibration curve was sufficient for relating electrical conductivity to SWC across different soil salinities, though they did find variability with the degree of probe immersion and dependency of measurements on temperature, and the sensors used are more an order of magnitude more costly than the "capacitive soil moisture sensor v.2.0" used in other studies (e.g. \cite{sudarmaji2024-smart-soil}). 
+Bogena et al (2017) \cite{bogena2017-calibration} developed a procedure for calibration of low-cost SMT1000 moisture sensors and undertook systematic calibration of hundreds of sensors in a range of media, observing sensor-to-sensor variability and both density and temperature dependence. In contrast, Kizito et al. (2008) \cite{kizito2008-frequency} found that for research-grade ECH2O probes (Decagon Devices Inc., Pullman, WA) and a measurement frequency of 70 MHz, a single calibration curve was sufficient for relating electrical conductivity to SWC across different soil salinities, though they did find variability with the degree of probe immersion and dependency of measurements on temperature, and the sensors used are more an order of magnitude more costly than the "capacitive soil moisture sensor v.2.0" used in other studies (e.g. \cite{sudarmaji2024-smart-soil}). 
 
 The objective of this work was to introduce an automated system and statistical method for automated calibration of sensors with minimal user input. This aim was primarily motivated by the challenge end users may find with gravimetric calibration, as well as lack of generalisability of a given calibration curve. We aim to present a method providing automated measurements at least consistent with consumer-grade moisture detectors in general. \hl{TODO: we should use gravimetric measurement for assessment?}.
 
@@ -54,7 +54,7 @@ In our test system, ESP32s were used with low-cost capacitive moisture sensors. 
 
 \subsection{Watering event detection}
 
-Raw sensor data is continuously streamed into the database system. From there, event detection is performed on recent time intervals. Event detection is performed in several steps: initial triggers based on outlier time series deltas; of the trigger events, hysteresis detection by testing for stability of change in a window; subsetting to events with a sign consistent with watering; consensus amongst sensors for a single microcontroller; manual exclusion of known non-watering events such as sensor removal or repositioning; evaluation. Firstly, denoting measurement at $t_i$ of sensor $s$ as $X_{i,s}$, which are assumed to be continuously generated by the software system previously described, the distribution of $\Delta X_{i,s}$ in manually-defined event-free time intervals can be gathered, and with a threshold $p$, extreme values are taken as candidates if $|\Delta X_{i,s}|$ is greater than a threshold. In this case, using the median absolute deviation \hl{TODO: cite}:
+Raw sensor data is continuously streamed into the database system. From there, event detection is performed on recent time intervals. Event detection is performed in several steps: initial triggers based on outlier time series deltas; trigger event hysteresis detection by testing for stability of change in a window; subsetting to events with a sign consistent with watering; consensus amongst sensors for a single microcontroller; manual exclusion of known non-watering events such as sensor removal or repositioning; evaluation. Firstly, denoting measurement at $t_i$ of sensor $s$ as $X_{i,s}$, which are assumed to be continuously generated by the software system previously described, the distribution of $\Delta X_{i,s}$ in manually-defined event-free time intervals can be gathered, and with a threshold $p$, extreme values are taken as candidates if $|\Delta X_{i,s}|$ is greater than a threshold. In this case, using the median absolute deviation \hl{TODO: cite}:
 
 \[
  \frac{|\Delta X_{i,s}|}{c \cdot median_i(\Delta X_{i-w:i})} > p
@@ -76,7 +76,7 @@ Manual recording of watering times, false negatives, and false positives via the
 
 \subsection{Automated response curve calibration}
 
-In general, soil water content is difficult to measure, requiring completely comparison of completely dry soil mass to a given wet soil mass \hl{TODO: cite}. Consumer-grade soil moisture probes generally report coarse, normalized measurements. Here, we define dimensionless moisture content as $Z$, the ratio of water volume to dry soil volume (such as in a pot). We assume that $Z$ itself is not directly measurable, although at a given watering, $\Delta Z$ is measurable if a known amount of water is added. We fix this and refer to it as $W$ \hl{TODO: this is a simplifying assumption; you can add 100 ml of water at peak saturation and $\Delta Z$ is zero, or lose water to runoff} \\
+In general, soil water content is difficult to measure, requiring comparison of dry soil mass to a given wet soil mass \hl{TODO: cite}. Consumer-grade soil moisture probes generally report coarse, normalized measurements. Here, we define dimensionless moisture content as $Z$, the ratio of water volume to dry soil volume (such as in a pot). We assume that $Z$ itself is not directly measurable, although at a given watering, $\Delta Z$ is measurable if a known amount of water is added. We fix this and refer to it as $W$ \hl{TODO: this is a simplifying assumption; you can add 100 ml of water at peak saturation and $\Delta Z$ is zero, or lose water to runoff} \\
 
 For convenience, the system relies on automatically detected watering events previously described. For a given event at time $t_i$, we extract associated $X_{i,s}$. This leads to sampled pairs $(\Delta Z_{i,s}, X_{i,s})$. We asssume the relationship:
 
@@ -84,13 +84,13 @@ For convenience, the system relies on automatically detected watering events pre
 X_{i,s} = h(Z_{i,s}) + \epsilon_i
 \]
 
-Where $\epsilon_i$ is Gaussian noise. In this equation, both the response function $h(\cdot)$ and the water content $Z$ are unknown. Given a known starting point, such as $Z_0 = 0$, and a sequence of waterings, $Z_{i,s}$ could be reconstructed as $Z_0 + \sum_{i} \Delta Z_{i,s}$ and $h(\cdot)$ determined by regression. However, we assume in general that the range $[Z_0, Z_{max}]$ of completely dry to completely saturated is not tolerable for any plant, so such watering sequences will not be obtainable outside from specific calibrations which do not generalise well. We assume that our system will produce at best sequences of waterings within a range, and at best single samples. \hl{TODO: drying in between waterings}. Then we have:
+Where $\epsilon_i$ is Gaussian noise. In this equation, both the response function $h(\cdot)$ and the water content $Z$ are unknown. Given a known starting point, such as $Z_0 = 0$, and a sequence of waterings, $Z_{i,s}$ could be reconstructed as $Z_0 + \sum_{i} \Delta Z_{i,s}$ and $h(\cdot)$ determined by regression. However, we assume in general that the range $[Z_0, Z_{max}]$ of completely dry to completely saturated is not tolerable for any plant, so such watering sequences will not be obtainable outside from specific calibrations which may be noisy. Instead of relying on a small number of calibration points, we aim to also use continuously detected watering events to inform estimation.  We assume that our system will produce at best sequences of waterings within a range, and at best single samples. \hl{TODO: drying in between waterings}. Then we have:
 
 \[
 X_{i, s}^{(k)} = h(c + \sum_{j<i}\Delta Z_{j,s}^{(k)}) + \epsilon_i = h(c + S_{i, s}^{(k)}) + \epsilon_i
 \]
 
-Where $(k)$ is an index for a given sample trajectory samples from the collection of sensors. In this case, $h$ could be determined by regression except for the unknown constants $c$, which also must be determined. These unknown values $c$ determine horizontal shifts or coordinate change in the curve $X(Z)$. \\
+Where $(k)$ is an index for a given sample trajectory samples from the collection of sensors. In this case, $h$ could be determined by regression except for the unknown constants $c$, which also must be determined. These unknown values $c$ determine horizontal shifts or coordinate change in the curve $X(Z)$. This model is a translation-only special case of the shape invariant model, which has an iterative solution described in \cite{lawton1972self, kneip1988convergence}. Similar models include the single-index model (usually $y_i = g(x_i^T \beta) + \epsilon_i$) \cite{ichimura-1993-index}. \\
 
 Although we do not have ideal watering sequences for calibration, it is more reasonable to assume it is possible to obtain some noisy sampled pairs $(Z, X)$, such as at in fully dry or fully wet conditions, which can be used to constrain the estimation problem. Then, we want to solve:
 
@@ -115,7 +115,7 @@ In order to characterise the performance of this algorithm under the given assum
 \begin{figure}[htb!]
   \centering
   \includegraphics[width=1.0\linewidth]{images/simulation_example.png}
-  \caption{Example simulation and inference. Simulated data was unaligned at initialization to the response curve (bottom left) with randomly initialized values for $c$ (top right). Anchor points were randomly sampled with Gaussian noise (top left). After inference, sampled data was aligned through joint estimation of the response curve and offsets $c$. }
+  \caption{Example simulation and inference. Simulated data was unaligned at initialization to the response curve (bottom left) with randomly initialized values for $c$ (top right). Anchor points were randomly sampled with Gaussian noise (top left). After inference, sampled data was aligned through iterative estimation of the response curve and offsets $c$. }
   \label{fig:myfigure}
 \end{figure}
 
@@ -123,7 +123,7 @@ In order to characterise the performance of this algorithm under the given assum
 
 \subsection{Identifiability}
 
-\hl{TODO: Does not seem to work with $(dZ, X)$ pairs, i.e. watering sequences of length 1.}
+\hl{TODO: Does not seem to work with $(dZ, X)$ pairs, i.e. watering sequences of length 1. With isotonic regression + a scalar c for each sample trajectory, it makes 2 * N params. So it makes sense that it would require sequences of length $> 2$. Looks like mathematicians cited in the methods have analysed this.}
 
 \subsection{Validation}
 
@@ -144,6 +144,14 @@ Sensor measurements depend on placement, probe depth, and packing. As a result, 
 \section{Discussion}
 
 \section{Future work}
+
+\section{Conflicts of interest}
+
+The authors declare no conficts of interest
+
+\section{LLM usage declaration}
+
+No text generated by LLMs was used in this manuscript. LLM generation was used for general search queries during method development and generation of scripts for early prototyping.
 
 \bibliographystyle{plain}
 \bibliography{references}
