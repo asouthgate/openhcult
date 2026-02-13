@@ -178,6 +178,8 @@ def infer_response_func(
         for s in range(n_traj):
             c_s = update_shift(s, h)
             c[s] = c_s
+            c_s = max(-samples[s][0][0], c_s)
+            c_s = min(c_s, Zmax_true * 2)
 
         errors.append(compute_error(h))
 #        for si, samp in enumerate(samples):
@@ -200,8 +202,8 @@ if __name__ == "__main__":
     # Simulate sequences of dQs for each pot, they may not span the whole range Qmin, Qmax (plants have narrow viability ranges)
     nS = 30
     anchor_weight = 1.0
-    anchor_sigma2 = 75.0
-    n_anchors = 10
+    anchor_sigma2 = 90.0
+    n_anchors = 8
     Zmax_true = 100.0
     X_at_Zmax = 50
     X_at_Zmin = 200
@@ -245,6 +247,14 @@ if __name__ == "__main__":
         max_iter=100,
     )
 
+    cest_anchor_only, hest_anchor_only, errors = infer_response_func(
+        samps,
+        anchors,
+        Zmax_true,
+        c_init=c0,
+        anchor_weight=anchor_weight,
+        max_iter=0,
+    )
 
     for _ in range(n_boot):
         idx = np.random.randint(0, nS, size=nS)
@@ -286,7 +296,7 @@ if __name__ == "__main__":
             Zrs,
             X,
             c="#424161",
-            label="Aligned sequences" if s == 0 else None,
+            label="Samples" if s == 0 else None,
         )
 
         Zest = S + cest[s]
@@ -295,13 +305,13 @@ if __name__ == "__main__":
             X,
             c="#6b6b6b",
             linestyle="--",
-            label="Unaligned sequences" if s == 0 else None,
+            label="Aligned sequences" if s == 0 else None,
         )
         ax3.plot(
             Zrs,
             X,
             c="#313045",
-            label="Aligned sequences" if s == 0 else None,
+            label="Samples" if s == 0 else None,
         )
 
     ax1.hist(c0, bins=20, color="#424161", alpha=1.0)
@@ -321,6 +331,7 @@ if __name__ == "__main__":
     z_grid = np.linspace(0.0, Zmax_true, num=200)
     ax4.plot(z_grid, response_func(z_grid), c="#4136a3", label="True $h$")
     ax4.plot(z_grid, hest(z_grid), c="#e6a532", label="Estimated $\hat{h}$")
+    ax4.plot(z_grid, hest_anchor_only(z_grid), c="red", label="Estimated $\hat{h}$ (anchors only)")
     if len(hests) > 0:
         boot_preds = np.vstack([h(z_grid) for h in hests])
         lo = np.percentile(boot_preds, 2.5, axis=0)
