@@ -98,7 +98,7 @@ def infer_response_func(
 
         raise ValueError(f"Unknown h_model '{h_model}'")
 
-    def fit_h() -> Callable[[np.ndarray], np.ndarray]:
+    def fit_h(anchor_only=False) -> Callable[[np.ndarray], np.ndarray]:
         """
         Fit monotone decreasing h given current shifts c_s.
         """
@@ -106,10 +106,11 @@ def infer_response_func(
         X_all = []
         W_all = []
 
-        for s in range(n_traj):
-            U_all.append(S_list[s] + c[s])
-            X_all.append(X_list[s])
-            W_all.append(np.ones_like(X_list[s]))
+        if not anchor_only:
+            for s in range(n_traj):
+                U_all.append(S_list[s] + c[s])
+                X_all.append(X_list[s])
+                W_all.append(np.ones_like(X_list[s]))
 
         U_all.append(Z_anchor)
         X_all.append(X_anchor)
@@ -156,20 +157,20 @@ def infer_response_func(
     errors = []
     bound_total = 0
 
-    h = fit_h()
+    h = fit_h(True)
     # ---- coordinate descent ----
     for _ in range(max_iter):
 
 
-        plt.scatter(Z_anchor, X_anchor)
-        z_h = np.linspace(0, Zmax_true, 100)
-        plt.plot(z_h, h(z_h), color='red')
+#        plt.scatter(Z_anchor, X_anchor)
+#        z_h = np.linspace(0, Zmax_true, 100)
+#        plt.plot(z_h, h(z_h), color='red')
 
         h = fit_h()
 
-        plt.scatter(Z_anchor, X_anchor)
-        z_h = np.linspace(0, Zmax_true, 100)
-        plt.plot(z_h, h(z_h), color='blue')
+#        plt.scatter(Z_anchor, X_anchor)
+#        z_h = np.linspace(0, Zmax_true, 100)
+#        plt.plot(z_h, h(z_h), color='blue')
 
 
         c_old = c.copy()
@@ -179,9 +180,9 @@ def infer_response_func(
             c[s] = c_s
 
         errors.append(compute_error(h))
-        for si, samp in enumerate(samples):
-            Ssi, Xsi = samp
-            plt.plot(Ssi + c[si], Xsi, linestyle="--")
+#        for si, samp in enumerate(samples):
+#            Ssi, Xsi = samp
+#            plt.plot(Ssi + c[si], Xsi, linestyle="--")
         
         plt.show()
 
@@ -199,7 +200,7 @@ if __name__ == "__main__":
     # Simulate sequences of dQs for each pot, they may not span the whole range Qmin, Qmax (plants have narrow viability ranges)
     nS = 30
     anchor_weight = 1.0
-    anchor_sigma2 = 50.0
+    anchor_sigma2 = 5.0
     n_anchors = 5
     Zmax_true = 100.0
     X_at_Zmax = 50
@@ -224,7 +225,7 @@ if __name__ == "__main__":
         samps.append((S, X))
         Z_real.append(Z)
 
-    anchor_q = np.linspace(0.1, 0.9, num=n_anchors)
+    anchor_q = np.linspace(0.0, 1.0, num=n_anchors)
     anchor_x = [
         max(0.0, response_func(Zmax_true * q) + np.random.normal(0.0, anchor_sigma2))
         for q in anchor_q
@@ -241,7 +242,7 @@ if __name__ == "__main__":
         Zmax_true,
         c_init=c0,
         anchor_weight=anchor_weight,
-        max_iter=20,
+        max_iter=100,
     )
 
 
@@ -255,7 +256,7 @@ if __name__ == "__main__":
             Zmax_true,
             c_init=c0_boot,
             anchor_weight=anchor_weight,
-            max_iter=10,
+            max_iter=100,
         )
         hests.append(hest_boot)
         errors_list.append(errors_boot)
@@ -329,7 +330,7 @@ if __name__ == "__main__":
     ax4.set_ylabel("X")
     ax4.legend(frameon=False)
 
-    ax5.plot(range(1, len(errors) + 1), errors, c="#313045", alpha=0.8)
+    ax5.plot(range(1, len(errors) + 1), np.log(errors), c="#313045", alpha=0.8)
     ax5.set_title("Inference error (weighted SSE)")
     ax5.set_xlabel("Iteration")
     ax5.set_ylabel("Error")
