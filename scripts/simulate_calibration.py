@@ -53,7 +53,7 @@ def infer_response_func(
     anchor_weight: float = 1.0,
     c_init: np.ndarray | None = None,
     h_model: str = "poly",
-    poly_degree: int = 3,
+    poly_degree: int = 4,
     max_iter: int = 20,
     tol: float = 1e-6,
     return_diag: bool = False,
@@ -233,7 +233,7 @@ if __name__ == "__main__":
     Zmax_true = 100.0
     X_at_Zmax = 50
     X_at_Zmin = 200
-    max_iter = 100
+    max_iter = 20
     response_func = lambda z: X_at_Zmax + decreasing_logistic(z, mid= 0.8 * Zmax_true, L=X_at_Zmin, k=0.1)
 
 #    debug_z = np.linspace(0, Zmax_true)
@@ -275,7 +275,7 @@ if __name__ == "__main__":
         max_iter=100,
     )
 
-    cest_anchor_only, hest_anchor_only, errors = infer_response_func(
+    cest_anchor_only, hest_anchor_only, errors_anchor_only = infer_response_func(
         samps,
         anchors,
         Zmax_true,
