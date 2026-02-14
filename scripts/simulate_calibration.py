@@ -3,6 +3,7 @@ from typing import List, Tuple, Callable, Dict
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.optimize import minimize_scalar
+from numpy.polynomial import Chebyshev
 
 def decreasing_logistic(x: np.ndarray, *, mid: float, L: float, k) -> np.ndarray:
     x = np.asarray(x, dtype=float)
@@ -88,12 +89,13 @@ def infer_response_func(
         W_sorted: np.ndarray,
     ) -> Callable[[np.ndarray], np.ndarray]:
         if h_model == "poly":
-            coeffs = np.polyfit(U_sorted, X_sorted, deg=poly_degree, w=W_sorted)
+            # coeffs = np.polyfit(U_sorted, X_sorted, deg=poly_degree, w=W_sorted)
 
-            def h(u: np.ndarray) -> np.ndarray:
-                u = np.asarray(u, dtype=float)
-                return np.polyval(coeffs, u)
-
+            # def h(u: np.ndarray) -> np.ndarray:
+            #     u = np.asarray(u, dtype=float)
+            #     return np.polyval(coeffs, u)
+            ch = Chebyshev.fit(U_sorted, X_sorted, deg=poly_degree, w=W_sorted)
+            return lambda u: ch(u)
             return h
 
         raise ValueError(f"Unknown h_model '{h_model}'")
@@ -178,18 +180,19 @@ def infer_response_func(
             c_s_prev = c[s]
             c[s] = c_s
             e_ssh = compute_error(h)
-            if e_ssh > e_bsh_i + 0.0001 * abs(e_bsh_i):
-                print(f"\t{s} moving to error: {e_bsh_i}->{e_ssh}")   
-                plt.scatter(Z_anchor, X_anchor, color='grey')
-                z_h = np.linspace(0, Zmax_true, 100)
-                plt.plot(z_h, h(z_h), color='black')
+            # debug = True
+            # if debug and e_ssh > e_bsh_i + 0.0001 * abs(e_bsh_i):
+            #     print(f"\t{s} moving to error: {e_bsh_i}->{e_ssh}")   
+            #     plt.scatter(Z_anchor, X_anchor, color='grey')
+            #     z_h = np.linspace(0, Zmax_true, 100)
+            #     plt.plot(z_h, h(z_h), color='black')
 
-                print(f"Something very bad has happened, shift optimisation failed for {s}")
-                Ssi, Xsi = samples[s]
-                plt.plot(Ssi + c_s, Xsi, linestyle="--", color='red')   
-                plt.plot(Ssi + c_s_prev, Xsi, linestyle="--", color='blue') 
+            #     print(f"Something very bad has happened, shift optimisation failed for {s}")
+            #     Ssi, Xsi = samples[s]
+            #     plt.plot(Ssi + c_s, Xsi, linestyle="--", color='red')   
+            #     plt.plot(Ssi + c_s_prev, Xsi, linestyle="--", color='blue') 
 
-                plt.show()
+            #     plt.show()
             c[s] = c_s
 
         errors.append(compute_error(h))
@@ -205,7 +208,8 @@ def bootstrap_inference(n_boot, nS, samps, anchors, anchor_weight, max_iter, sta
     for _ in range(n_boot):
         idx = np.random.randint(0, nS, size=nS)
         boot_samps = [samps[i] for i in idx]
-        boot_anchors = [anchors[bi] for bi in np.random.randint(0, len(anchors), size=len(anchors))]
+        # boot_anchors = [anchors[bi] for bi in np.random.randint(0, len(anchors), size=len(anchors))]
+        boot_anchors = anchors
         c0_boot = np.random.uniform(0.0, start_zmax, size=len(boot_samps))
         _, hest_boot, errors_boot = infer_response_func(
             boot_samps,
@@ -224,17 +228,17 @@ if __name__ == "__main__":
     W = 10.0
     n_watering_events = 4
     sigma2 = 0.1
-    n_boot = 2
+    n_boot = 50
     # Simulate sequences of dQs for each pot, they may not span the whole range Qmin, Qmax (plants have narrow viability ranges)
     nS = 30
-    anchor_weight = 1.0
+    anchor_weight = 0.2
     anchor_sigma2 = 90.0
     n_anchors = 8
     Zmax_true = 100.0
     X_at_Zmax = 50
     X_at_Zmin = 200
-    max_iter = 20
-    response_func = lambda z: X_at_Zmax + decreasing_logistic(z, mid= 0.8 * Zmax_true, L=X_at_Zmin, k=0.1)
+    max_iter = 30
+    response_func = lambda z: X_at_Zmax + decreasing_logistic(z, mid= 0.5 * Zmax_true, L=X_at_Zmin, k=0.1)
 
 #    debug_z = np.linspace(0, Zmax_true)
 #    plt.scatter(debug_z, [response_func(z) for z in debug_z])
