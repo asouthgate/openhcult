@@ -31,8 +31,8 @@ def derivative_gp_simulation(x, dy_noisy, y_xmax):
 
     print(X_train.shape, len(y_train))
 
-    kernel = C(1.0) * RBF(length_scale=1.0, length_scale_bounds=(0.1, 1.0))
-    kernel  += WhiteKernel(noise_level=0.01, noise_level_bounds=(1e-5, 2.0))
+    kernel = C(1.0) * RBF(length_scale=10.0, length_scale_bounds=(0.1, 20.0))
+    kernel  += WhiteKernel(noise_level=0.01, noise_level_bounds=(1e-5, 20.0))
     gp = GaussianProcessRegressor(kernel=kernel, alpha=0.0)
     gp.fit(X_train, y_train)
 
@@ -118,7 +118,7 @@ if __name__ == "__main__":
     # Xmid = np.array(Xmid)
     # dqdx = np.array(dqdx)
 
-    X_test, f_mean, f_std = derivative_gp_simulation(sorted_xs_, sorted_dzdx_, Zmax)
+    X_test, dy_samples, f_mean, f_std = derivative_gp_simulation(sorted_xs_, sorted_dzdx_, Zmax)
 
 
     # -----------------------------
@@ -144,19 +144,33 @@ if __name__ == "__main__":
     ax[1].set_xlabel("Z")
     ax[1].set_ylabel("dZ/dX")
 
-    ax[2].plot(sorted_xs_, 1.0/sorted_dzdx_)
-    ax[2].scatter(sorted_xs_, 1.0/sorted_dzdx_)
+    # ax[2].plot(sorted_xs_, 1.0/sorted_dzdx_)
+    # ax[2].scatter(sorted_xs_, 1.0/sorted_dzdx_)
+    ax[2].plot(sorted_xs_,  sorted_dzdx_, color = 'orange')
+    ax[2].scatter(sorted_xs_, sorted_dzdx_, color = 'orange')
     ax[2].set_xlabel("X")
-    ax[2].set_ylabel("dX/dZ")
+    ax[2].set_ylabel("dZ/dX")
 
-    ax[3].scatter(sorted_xs_, sorted_zmids, c="blue", label="Noisy data")
-    ax[3].plot(sorted_xs_, sorted_zmids)
-    ax[3].plot(X_test.flatten(), f_mean)
+    ax[3].plot(sorted_xs_, sorted_dzdx_)
+    ax[3].scatter(sorted_xs_, sorted_dzdx_)
+    dmean = np.mean(dy_samples, axis=1)
+    dstd = np.std(dy_samples, axis=1)
+    ax[3].plot(X_test.flatten(), dmean)
     ax[3].fill_between(
+        X_test.flatten(),
+        dmean - 2 * dstd,
+        dmean + 2 * dstd,
+        alpha=0.3
+    )
+
+    ax[4].scatter(sorted_xs_, sorted_zmids, c="blue", label="Noisy data")
+    ax[4].plot(sorted_xs_, sorted_zmids)
+    ax[4].plot(X_test.flatten(), f_mean, color = 'orange')
+    ax[4].fill_between(
         X_test.flatten(),
         f_mean - 2 * f_std,
         f_mean + 2 * f_std,
-        alpha=0.3
+        alpha=0.3, color = 'orange'
     )
     ax[4].set_xlabel("X")
     ax[4].set_ylabel("f(X)")
