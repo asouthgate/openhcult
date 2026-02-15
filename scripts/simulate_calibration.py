@@ -67,7 +67,7 @@ if __name__ == "__main__":
     Zmax = 150.0
     Q_at_Xmin = 1.0
     sigma2 = 0.1
-    sigma2_z = 10.0
+    sigma2_z = 1.0
     X_at_Zmin = 2000
     Z_at_Xmax = 0.0
     # X_at_Zmax = 300
@@ -84,12 +84,12 @@ if __name__ == "__main__":
     xs_ = []
     zmids_ = []
     for z in zs_:
-        rfz = response_func_z(z) + np.random.normal(0, np.sqrt(sigma2_z))
-        rfz_w = response_func_z(z + W) + np.random.normal(0, np.sqrt(sigma2_z))
+        rfz = response_func_z(z) 
+        rfz_w = response_func_z(z + W)
         zmids_.append(z + 0.5 * W)
         dx = rfz_w - rfz
         xs_.append(rfz + 0.5 * dx)
-        dzdx_.append(W/dx)
+        dzdx_.append(( W/dx) + np.random.normal(0, np.sqrt(sigma2)))
 
 
     sorted_zs_inds = np.argsort(zs_)
@@ -120,12 +120,12 @@ if __name__ == "__main__":
     ax[2].plot(sorted_zmids, sorted_dzdx_)
     ax[2].scatter(sorted_zmids, sorted_dzdx_)
     ax[2].set_xlabel("Z")
-    ax[2].set_ylabel("dZ/dX")
+    ax[2].set_ylabel("$dZ/dX + \epsilon$")
 
     ax[3].plot(sorted_xs_,  sorted_dzdx_)
     ax[3].scatter(sorted_xs_, sorted_dzdx_)
     ax[3].set_xlabel("X")
-    ax[3].set_ylabel("dZ/dX")
+    ax[3].set_ylabel("$dZ/dX + \epsilon$")
 
     ax[4].plot(sorted_xs_, sorted_dzdx_)
     ax[4].scatter(sorted_xs_, sorted_dzdx_, label="Sampled derivative data")
