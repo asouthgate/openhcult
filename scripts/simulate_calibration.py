@@ -51,6 +51,9 @@ def dZ2S(dZ):
 def Z2X(Z, response_func, sigma2):
     return response_func(Z) + np.random.normal(0, sigma2, len(Z))
 
+def cal_hit_bounds(S, Z_max):
+    return ( (Z_max - W * len(S)) , (Z_max - W * (len(S) - 1)) )
+
 def infer_response_func(
     samples: List[Tuple[np.ndarray, np.ndarray]],
     anchor_points: List[Tuple[float, float]],
@@ -133,9 +136,9 @@ def infer_response_func(
         else:
             W_all.append(np.full_like(X_anchor, anchor_weight))
 
-        X_all.append([X_at_Zmax])
-        U_all.append([1.0])
-        W_all.append([1.0])
+        # X_all.append([X_at_Zmax])
+        # U_all.append([1.0])
+        # W_all.append([1.0])
 
         U_all = np.concatenate(U_all)
         X_all = np.concatenate(X_all)
@@ -164,7 +167,7 @@ def infer_response_func(
 
         bounds = (-min(S), Z_max - max(S))
         if hit_zmax:
-            bounds = ( (Z_max - W * (len(S) + 1)) , (Z_max - W * (len(S))) ) # The end must be fixed at Zmax now 
+            bounds = cal_hit_bounds(S, Z_max) # The end must be fixed at Zmax now 
         
         result = minimize_scalar(
             objective,
@@ -322,6 +325,11 @@ if __name__ == "__main__":
 
     samps = []
     Z_real = []
+
+    testz, testx, testhit = sim_pot_watering_sequence(W, 11, 0, sigma2, response_func_z, Zmax_true)
+    print(testhit, cal_hit_bounds(testz, Zmax_true))
+    plt.scatter(testz, testx)
+    plt.show()
 
     start_zmax = Zmax_true
     for s in range(nS):
