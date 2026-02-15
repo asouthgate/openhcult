@@ -52,7 +52,14 @@ def Z2X(Z, response_func, sigma2):
     return response_func(Z) + np.random.normal(0, sigma2, len(Z))
 
 def cal_hit_bounds(S, Z_max):
-    return ( max(0, (Z_max - W * len(S))), max(0.0, min(Z_max, (Z_max - W * (len(S) - 1)))) )
+    w = S[-1] - S[-2]
+    return ( max(0, (Z_max - w * len(S))), max(0.0, min(Z_max, (Z_max - w * (len(S) - 1)))) )
+
+def cal_hit_bounds_01(S, Z_max):
+    w = S[-1] - S[-2]
+    lower = 1.0 - len(S) * (w / Z_max)
+    upper = 1.0 - (len(S) - 1) * (w / Z_max)
+    return ( max(0, lower), min(1.0, upper) )
 
 def infer_response_func(
     samples: List[Tuple[np.ndarray, np.ndarray]],
@@ -65,7 +72,7 @@ def infer_response_func(
     anchor_weight: float = 1.0,
     c_init: np.ndarray | None = None,
     h_model: str = "poly",
-    poly_degree: int = 3,
+    poly_degree: int = 4,
     max_iter: int = 20,
     tol: float = 1e-6,
     return_diag: bool = False,
@@ -108,14 +115,14 @@ def infer_response_func(
         W_sorted: np.ndarray,
     ) -> Callable[[np.ndarray], np.ndarray]:
         if h_model == "poly":
-            # coeffs = np.polyfit(U_sorted, X_sorted, deg=poly_degree, w=W_sorted)
 
-            # def h(u: np.ndarray) -> np.ndarray:
-            #     u = np.asarray(u, dtype=float)
-            #     return np.polyval(coeffs, u)
-            ch = Chebyshev.fit(U_sorted, X_sorted, deg=poly_degree, w=np.sqrt(W_sorted), domain=[0.0, 1.0])
+            ch = Chebyshev.fit(U_sorted, X_sorted, deg=poly_degree, w=W_sorted, domain=[0.0, 1.0])
+
+            plt.scatter(U_sorted, X_sorted, color='grey')
+            plt.plot(np.linspace(0, 1.0, 100), ch(np.linspace(0, 1.0, 100)), color='black')
+            plt.show()
+
             return lambda u: ch(u)
-            return h
 
         raise ValueError(f"Unknown h_model '{h_model}'")
 
@@ -129,7 +136,7 @@ def infer_response_func(
 
         if not anchor_only:
             for s in range(n_traj):
-                U_all.append((S_list[s] + c[s])/Zmax_est)
+                U_all.append((S_list[s]/Zmax_est + c[s]))
                 X_all.append(X_list[s])
                 W_all.append(np.ones_like(X_list[s]))
 
@@ -146,6 +153,7 @@ def infer_response_func(
         # W_all.append([1.0])
 
         U_all = np.concatenate(U_all)
+        # U_all = U_all / np.max(U_all)
         X_all = np.concatenate(X_all)
         W_all = np.concatenate(W_all)
 
@@ -166,13 +174,13 @@ def infer_response_func(
         hit_zmax = hit_zmax_list[s]
 
         def objective(cs: float) -> float:
-            resid = X - h((S + cs) / Z_max)
+            resid = X - h((S/Zmax_est + cs))
             val = np.sum(resid ** 2)
             return val
 
-        bounds = (-min(S), Z_max - max(S))
-        if hit_zmax:
-            bounds = cal_hit_bounds(S, Z_max) # The end must be fixed at Zmax now 
+        bounds = (0.0, 1.0 - max(S)/Z_max)
+        # if hit_zmax:
+        #     bounds = cal_hit_bounds_01(S, Z_max) # The end must be fixed at Zmax now 
         # print(bounds)
         result = minimize_scalar(
             objective,
@@ -187,7 +195,7 @@ def infer_response_func(
                 return np.inf
             sse = 0.0
             for s in range(n_traj):
-                U = (S_list[s] + c[s]) / Z
+                U = (S_list[s]/Z + c[s])
                 resid = X_list[s] - h(U)
                 sse += np.sum(resid**2)
             return float(sse)
@@ -203,7 +211,7 @@ def infer_response_func(
     def compute_error(h: Callable[[np.ndarray], np.ndarray]) -> float:
         sse = 0.0
         for s in range(n_traj):
-            resid = X_list[s] - h((S_list[s] + c[s])/Zmax_est)
+            resid = X_list[s] - h((S_list[s]/Zmax_est + c[s]))
             sse += float(np.sum(resid ** 2))
         if len(Q_anchor) > 0:
             resid = X_anchor - h(Q_anchor)
@@ -238,8 +246,8 @@ def infer_response_func(
         e_pre_h = compute_error(h)
         h = fit_h()
         e_post_h = compute_error(h)
-        if (e_post_h > e_pre_h):
-            h = h_prev
+        # if (e_post_h > e_pre_h):
+            # h = h_prev
         if (e_post_h > e_pre_h + e_pre_h * 1e-12):
             print(f"Something very bad has happened at iteration {j}, h optimisation failed")
 
@@ -259,18 +267,16 @@ def infer_response_func(
             # if debug and e_ssh > e_bsh_i + 0.0001 * abs(e_bsh_i):
             shift_opt_failed = e_ssh > e_bsh_i + 1e-8 * abs(e_bsh_i)
             if shift_opt_failed:
-                print(f"Something very bad has happened, shift optimisation failed for {s}")
-            if debug and shift_opt_failed:
-                print(f"\t{s} moving to error: {e_bsh_i}->{e_ssh}")   
+                print(f"Something very bad has happened, shift optimisation failed for {s}, hit_zmax={hit_z}")
+            if debug:
+                # print(f"\t{s} moving to error: {e_bsh_i}->{e_ssh}")   
                 plt.scatter(Q_anchor, X_anchor, color='grey')
                 q_h = np.linspace(0, 1.0, 100)
                 plt.plot(q_h, h(q_h), color='black')
 
-                print(f"Something very bad has happened, shift optimisation failed for {s}")
                 Ssi, Xsi, hit_zmax = samples[s]
-                plt.plot((Ssi + c_s) /Zmax_est, Xsi, linestyle="--", color='red')   
-                plt.plot((Ssi + c_s_prev) /Zmax_est, Xsi, linestyle="--", color='blue') 
-                plt.show()
+                plt.plot((Ssi /Zmax_est + c_s), Xsi, linestyle="--", color='red')   
+                plt.plot((Ssi /Zmax_est + c_s_prev), Xsi, linestyle="--", color='blue') 
             # if e_ssh > e_bsh:  # can be numerical reasons for tiny tiny diff, ifts small enough no problem
             #     c[s] = c_s_prev
             # else:
@@ -293,7 +299,7 @@ def infer_response_func(
             break
     print(len(errors))
     print(f"final error: {errors[-1]}")
-    return c, h, errors
+    return c, h, Zmax_est, errors
 
 def bootstrap_inference(n_boot, nS, samps, anchors, anchor_weight, max_iter, start_zmax, X_at_Zmax):
     hests = []
@@ -356,7 +362,7 @@ if __name__ == "__main__":
     Z_real = []
 
     testz, testx, testhit = sim_pot_watering_sequence(W, 11, 0, sigma2, response_func_z, Zmax_true)
-    print(testhit, cal_hit_bounds(testz, Zmax_true))
+    # print(testhit, cal_hit_bounds(testz, Zmax_true))
     plt.scatter(testz, testx)
     plt.show()
 
@@ -380,7 +386,7 @@ if __name__ == "__main__":
     c0 = np.random.uniform(0.0, 1.0, size=len(samps))
 
     anchors = list(zip(anchor_q, anchor_x))
-    cest, hest, errors = infer_response_func(
+    cest, hest, zest, errors = infer_response_func(
         samps,
         anchors,
         Zmax_true,
@@ -392,7 +398,7 @@ if __name__ == "__main__":
         max_iter=max_iter
     )
 
-    cest_anchor_only, hest_anchor_only, errors_anchor_only = infer_response_func(
+    _, hest_anchor_only, _, errors_anchor_only = infer_response_func(
         samps,
         anchors,
         Zmax_true,
@@ -418,7 +424,7 @@ if __name__ == "__main__":
         S, X, hit_zmax = samps[s]
         Zrs = Z_real[s]
 
-        Zest0 = S + c0[s]
+        Zest0 = S + c0[s] * Zmax_true
         ax2.plot(
             Zest0,
             X,
@@ -433,7 +439,7 @@ if __name__ == "__main__":
             label="Samples" if s == 0 else None,
         )
 
-        Zest = S + cest[s]
+        Zest = S + cest[s] * zest
         ax3.plot(
             Zest,
             X,
