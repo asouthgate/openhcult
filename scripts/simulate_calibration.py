@@ -470,7 +470,7 @@ def plot_reconstructed_curve(samps):
     Z += abs(min(Z))
     return xv, Z
 
-def derivative_gp_simulation(x, dy_noisy):
+def derivative_gp_simulation(x, dy_noisy, y_xmin):
     import numpy as np
     import matplotlib.pyplot as plt
     from sklearn.gaussian_process import GaussianProcessRegressor
@@ -483,7 +483,9 @@ def derivative_gp_simulation(x, dy_noisy):
     X_train = X.reshape(-1, 1)
     y_train = dy_noisy
 
-    kernel = C(1.0) * RBF(length_scale=1.0) + WhiteKernel(noise_level=0.1)
+
+    kernel = C(1.0) * RBF(length_scale=1.0, length_scale_bounds=(0.1, 1.0))
+    kernel  += WhiteKernel(noise_level=0.01, noise_level_bounds=(1e-5, 1.0))
     gp = GaussianProcessRegressor(kernel=kernel, alpha=0.0)
     gp.fit(X_train, y_train)
 
@@ -500,8 +502,8 @@ def derivative_gp_simulation(x, dy_noisy):
     dx_test = X_test[1] - X_test[0]
     f_samples = np.cumsum(dy_samples, axis=0) * dx_test
 
-    # Anchor each sample at first true value
-    f_samples += y_true[0] - f_samples[0, :]
+    # # Anchor each sample at first true value
+    f_samples += y_xmin - f_samples[0, :]
 
     # Compute mean and std of reconstructed function
     f_mean = np.mean(f_samples, axis=1)
@@ -529,11 +531,11 @@ def derivative_gp_simulation(x, dy_noisy):
 if __name__ == "__main__":
     import sys
     W = 10.0
-    n_watering_events = 8
+    n_watering_events = 3
     sigma2 = 0.0
     n_boot = int(sys.argv[1])
     # Simulate sequences of dQs for each pot, they may not span the whole range Qmin, Qmax (plants have narrow viability ranges)
-    nS = 30
+    nS = 50
     anchor_weight = 0.0
     anchor_sigma2 = 10.0
     n_anchors = 8
@@ -545,34 +547,22 @@ if __name__ == "__main__":
     response_func_z = lambda z: X_at_Zmax + decreasing_logistic(z, mid= 0.5 * Zmax_true, L=X_at_Zmin, k=0.05)
     response_func_q = lambda q: decreasing_logistic(q, mid= 0.5, L=1.0, k=0.1 * Zmax_true)
 
-
-    # -----------------------------
-    # 1. Simulate true function
-    # -----------------------------
     np.random.seed(0)
     n = 100
-    X = np.linspace(0, 1, n)
-
-    # def f(x):
-    #     return np.sin(3.0 * x) + 0.3 * x
-
-    y_true = response_func_q(X)
+    X = np.linspace(0, 1.0, n)
+    noise_std = 0.01
+    y_true = response_func_q(X) + np.random.normal(0, noise_std, size=n)
 
     plt.plot(X, y_true, label="True function")
     plt.show()
 
-    # -----------------------------
-    # 2. Finite difference derivative
-    # -----------------------------
     dx = X[1] - X[0]
-    dy = np.gradient(y_true, dx)
+    dy_noisy = np.gradient(y_true, dx)
 
-    # Add noise to derivative observations
-    noise_std = 0.5
-    dy_noisy = dy + np.random.normal(0, noise_std, size=n)
+    # dy_noisy = dy + np.random.normal(0, noise_std, size=n)
 
 
-    derivative_gp_simulation(X, dy_noisy)
+    derivative_gp_simulation(X, dy_noisy, 1.0)
 
     debug_q = np.linspace(0, 1.0)
     plt.scatter(debug_q, [response_func_q(q) for q in debug_q])
