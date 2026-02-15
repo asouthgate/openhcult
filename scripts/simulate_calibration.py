@@ -67,7 +67,7 @@ if __name__ == "__main__":
     Zmax = 150.0
     Q_at_Xmin = 1.0
     sigma2 = 0.1
-    sigma2_z = 0
+    sigma2_z = 10.0
     X_at_Zmin = 2000
     Z_at_Xmax = 0.0
     # X_at_Zmax = 300
@@ -97,27 +97,6 @@ if __name__ == "__main__":
     sorted_dzdx_ = np.array(dzdx_)[sorted_zs_inds]
     sorted_xs_ = np.array(xs_)[sorted_zs_inds]
 
-
-    # np.random.seed(50)
-
-    # response_func_q = lambda q: 1.0 + 0.2 * q - 1.2 * q**2
-
-    # n = 100
-    # X = np.random.uniform(0, 1.0, size=n)
-    # noise_std = 0.1
-    # y_true = response_func_q(X) + np.random.normal(0, noise_std, size=n)
-
-    # Xmid = []
-    # dqdx = []
-    # for i in range(1, n-1):
-    #     x_mid = 0.5 * (X[i-1] + X[i])
-    #     dy_dx = (y_true[i] - y_true[i-1]) / (X[i] - X[i-1])
-    #     Xmid.append(x_mid)
-    #     dqdx.append(dy_dx)
-
-    # Xmid = np.array(Xmid)
-    # dqdx = np.array(dqdx)
-
     X_test, dy_samples, f_mean, f_std = derivative_gp_simulation(sorted_xs_, sorted_dzdx_, Zmax)
 
 
@@ -127,12 +106,6 @@ if __name__ == "__main__":
     
     fig, axes = plt.subplots(nrows=2, ncols=3)
     ax = axes.flatten()
-
-
-
-    # Xsorted_inds = np.argsort(X)
-    # Xsorted = X[Xsorted_inds]
-    # Qsorted = y_true[Xsorted_inds]
 
     ax[0].plot(sorted_xs_,sorted_zmids)
     ax[0].scatter(sorted_xs_,sorted_zmids)
