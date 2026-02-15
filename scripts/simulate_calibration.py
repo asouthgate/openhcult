@@ -6,6 +6,11 @@ from scipy.optimize import minimize_scalar
 from numpy.polynomial import Chebyshev
 from scipy.interpolate import BSpline
 from scipy.linalg import solve
+import numpy as np
+from scipy.interpolate import interp1d
+from scipy.ndimage import gaussian_filter1d
+from scipy.integrate import cumulative_trapezoid
+from scipy.interpolate import PchipInterpolator, UnivariateSpline
 
 def decreasing_logistic(x: np.ndarray, *, mid: float, L: float, k) -> np.ndarray:
     x = np.asarray(x, dtype=float)
@@ -233,13 +238,13 @@ def infer_response_func(
         hit_zmax = hit_zmax_list[s]
 
         def objective(cs: float) -> float:
-            resid = X - h((S/Zmax_est + cs))
+            resid = X - h((S/Z_max + cs))
             val = np.sum(resid ** 2)
             return val
 
         bounds = (0.0, 1.0 - max(S)/Z_max)
-        # if hit_zmax:
-        #     bounds = cal_hit_bounds_01(S, Z_max) # The end must be fixed at Zmax now 
+        if hit_zmax:
+            bounds = cal_hit_bounds_01(S, Z_max) # The end must be fixed at Zmax now 
         # print(bounds)
         result = minimize_scalar(
             objective,
@@ -267,10 +272,10 @@ def infer_response_func(
         return float(result.x)
 
 
-    def compute_error(h: Callable[[np.ndarray], np.ndarray]) -> float:
+    def compute_error(h: Callable[[np.ndarray], np.ndarray], z) -> float:
         sse = 0.0
         for s in range(n_traj):
-            resid = X_list[s] - h((S_list[s]/Zmax_est + c[s]))
+            resid = X_list[s] - h((S_list[s]/z + c[s]))
             sse += float(np.sum(resid ** 2))
         if len(Q_anchor) > 0:
             resid = X_anchor - h(Q_anchor)
@@ -280,12 +285,12 @@ def infer_response_func(
 
     h = fit_h(True)
     errors = []
-    errors.append(compute_error(h))
+    errors.append(compute_error(h, Zmax_est))
 
     for s in range(n_traj):
         hit_z = hit_zmax_list[s]
         if hit_z == True:
-            e_bsh_i = compute_error(h)
+            e_bsh_i = compute_error(h, Zmax_est)
             c_s = update_shift(s, h, Zmax_est)
             # c_s = max(-samples[s][0][0], c_s)
             # c_s = min(c_s, Zmax_true * 2)
@@ -296,15 +301,15 @@ def infer_response_func(
     bound_total = 0
 
     # h = fit_h(True)
-    errors.append(compute_error(h))
+    errors.append(compute_error(h, Zmax_est))
 
     # ---- coordinate descent ----
     for j in range(max_iter):
 
         h_prev = h
-        e_pre_h = compute_error(h)
+        e_pre_h = compute_error(h, Zmax_est)
         h = fit_h()
-        e_post_h = compute_error(h)
+        e_post_h = compute_error(h, Zmax_est)
         # if (e_post_h > e_pre_h):
             # h = h_prev
         if (e_post_h > e_pre_h + e_pre_h * 1e-12):
@@ -313,21 +318,22 @@ def infer_response_func(
 
         c_old = c.copy()
 
-        e_bsh = compute_error(h)
+        e_bsh = compute_error(h, Zmax_est)
         for s in range(n_traj):
-            e_bsh_i = compute_error(h)
+            e_bsh_i = compute_error(h, Zmax_est)
             c_s = update_shift(s, h, Zmax_est)
-            # c_s = max(-samples[s][0][0], c_s)
-            # c_s = min(c_s, Zmax_true * 2)
             c_s_prev = c[s]
             c[s] = c_s
-            e_ssh = compute_error(h)
-            debug = False
+            e_ssh = compute_error(h, Zmax_est)
+            debug = True
             # if debug and e_ssh > e_bsh_i + 0.0001 * abs(e_bsh_i):
             shift_opt_failed = e_ssh > e_bsh_i + 1e-8 * abs(e_bsh_i)
             if shift_opt_failed:
-                print(f"Something very bad has happened, shift optimisation failed for {s}, hit_zmax={hit_z}")
-            if debug:
+                print(f"THIS SHOULD ONLY EVER HAPPEN IF c_s_prev IS OUT OF BOUNDS, WE TAKE ERROR IMMEDIATELY BEFORE: shift optimisation failed for {s}, hit_zmax={hit_z}, {e_ssh} > {e_bsh_i}")
+                print(f"\t c_s_prev: {c_s_prev}, c_s: {c_s}")
+                if hit_z:
+                    print(f"\tBounds for c: {cal_hit_bounds_01(S_list[s], Zmax_est)}")
+            if debug and shift_opt_failed:
                 # print(f"\t{s} moving to error: {e_bsh_i}->{e_ssh}")   
                 plt.scatter(Q_anchor, X_anchor, color='grey')
                 q_h = np.linspace(0, 1.0, 100)
@@ -336,20 +342,21 @@ def infer_response_func(
                 Ssi, Xsi, hit_zmax = samples[s]
                 plt.plot((Ssi /Zmax_est + c_s), Xsi, linestyle="--", color='red')   
                 plt.plot((Ssi /Zmax_est + c_s_prev), Xsi, linestyle="--", color='blue') 
+                plt.show()
             # if e_ssh > e_bsh:  # can be numerical reasons for tiny tiny diff, ifts small enough no problem
             #     c[s] = c_s_prev
             # else:
             c[s] = c_s
         if debug: plt.show()
         print(Zmax_est)
-        e_pre_zmove = compute_error(h)
+        e_pre_zmove = compute_error(h, Zmax_est)
         # Zmax_est = update_Zmax(h, c, Zmin, Zmax)
-        e_post_zmove = compute_error(h)
+        e_post_zmove = compute_error(h, Zmax_est)
         # if debug:
         if (e_post_zmove > e_pre_zmove):
             print(f"Something very bad has happened at iteration {j}, Zmax optimisation failed")
 
-        errors.append(compute_error(h))
+        errors.append(compute_error(h, Zmax_est))
         if (errors[-1] > errors[-2]):
             print(f"Something very bad has happened at iteration {j}, overall optimisation failed")
 
@@ -385,6 +392,139 @@ def bootstrap_inference(n_boot, nS, samps, anchors, anchor_weight, max_iter, sta
         errors_list.append(errors_boot)
     return hests, errors_list
 
+def plot_reconstructed_curve(samps):
+    xs = []
+    derivatives = []
+    for s in range(len(samps)):
+        S, X, dZs, hit_zmax = samps[s]
+        for j in range(1, len(X) - 1):
+            dXj = (X[j] - X[j-1])
+            derivative = dZs[j] / dXj
+            xmid = (X[j] + X[j-1]) / 2
+            xs.append(xmid)
+            derivatives.append(derivative)
+
+    plt.scatter(xs, derivatives)
+    plt.ylabel("dZ/dX")
+    plt.xlabel("X")
+    plt.show()
+    x = np.asarray(xs, dtype=float)
+    g = np.asarray(derivatives, dtype=float)
+
+    # 1) Clean
+    m = np.isfinite(x) & np.isfinite(g)
+    x, g = x[m], g[m]
+
+    # Optional: drop insane spikes (robust winsorization via MAD)
+    med = np.median(g)
+    mad = np.median(np.abs(g - med)) + 1e-12
+    z = 0.6745 * (g - med) / mad
+    g = np.clip(g, med - 6*mad, med + 6*mad)
+
+    # 2) Sort
+    idx = np.argsort(x)
+    x, g = x[idx], g[idx]
+
+    # 3) Collapse near-duplicates in x (robustly) by binning x very finely, taking median g per bin
+    #    (this avoids oscillations / overweighting dense regions)
+    nb = 1000  # raise/lower depending on how fine you want the "unique x" support
+    edges = np.linspace(x.min(), x.max(), nb + 1)
+    bin_id = np.digitize(x, edges) - 1
+    good = (bin_id >= 0) & (bin_id < nb)
+    x, g, bin_id = x[good], g[good], bin_id[good]
+
+    x_u = np.empty(nb)
+    g_u = np.empty(nb)
+    x_u[:] = np.nan
+    g_u[:] = np.nan
+
+    for b in range(nb):
+        sel = (bin_id == b)
+        if np.any(sel):
+            x_u[b] = np.nanmedian(x[sel])
+            g_u[b] = np.nanmedian(g[sel])
+
+    keep = np.isfinite(x_u) & np.isfinite(g_u)
+    x_u, g_u = x_u[keep], g_u[keep]
+
+    # 4) Interpolate g(x) across gaps
+    #    PCHIP is shape-preserving and avoids overshoot; good default for derivatives.
+    interp = PchipInterpolator(x_u, g_u, extrapolate=False)
+
+    # Regular grid to integrate on
+    xgrid = np.linspace(x_u.min(), x_u.max(), 2000)
+    ggrid = interp(xgrid)
+
+    # If there are big gaps, interp gives NaN there. We'll integrate only where we have values.
+    valid = np.isfinite(ggrid)
+    xv = xgrid[valid]
+    gv = ggrid[valid]
+
+    # Optional smoothing before integrating (helps if derivatives are noisy)
+    # spline = UnivariateSpline(xv, gv, s=len(xv)*0.5)
+    # gv = spline(xv)
+
+    # 5) Integrate
+    Z = cumulative_trapezoid(gv, xv, initial=0.0)  # Z(x) up to an additive constant
+
+    Z += abs(min(Z))
+    return xv, Z
+
+def derivative_gp_simulation(x, dy_noisy):
+    import numpy as np
+    import matplotlib.pyplot as plt
+    from sklearn.gaussian_process import GaussianProcessRegressor
+    from sklearn.gaussian_process.kernels import RBF, ConstantKernel as C, WhiteKernel
+
+
+    # -----------------------------
+    # 3. GP regression on derivatives only
+    # -----------------------------
+    X_train = X.reshape(-1, 1)
+    y_train = dy_noisy
+
+    kernel = C(1.0) * RBF(length_scale=1.0) + WhiteKernel(noise_level=0.1)
+    gp = GaussianProcessRegressor(kernel=kernel, alpha=0.0)
+    gp.fit(X_train, y_train)
+
+    # Dense grid for prediction
+    X_test = np.linspace(0, max(x), 400).reshape(-1, 1)
+
+    # Sample derivative functions from GP posterior
+    n_samples = 100
+    dy_samples = gp.sample_y(X_test, n_samples=n_samples)
+
+    # -----------------------------
+    # 4. Integrate samples
+    # -----------------------------
+    dx_test = X_test[1] - X_test[0]
+    f_samples = np.cumsum(dy_samples, axis=0) * dx_test
+
+    # Anchor each sample at first true value
+    f_samples += y_true[0] - f_samples[0, :]
+
+    # Compute mean and std of reconstructed function
+    f_mean = np.mean(f_samples, axis=1)
+    f_std = np.std(f_samples, axis=1)
+
+    # -----------------------------
+    # 5. Plot (single plot only)
+    # -----------------------------
+    plt.figure()
+    plt.plot(X, y_true)
+    plt.plot(X_test.flatten(), f_mean)
+    plt.fill_between(
+        X_test.flatten(),
+        f_mean - 2 * f_std,
+        f_mean + 2 * f_std,
+        alpha=0.3
+    )
+    plt.xlabel("X")
+    plt.ylabel("f(X)")
+    plt.title("Function Recovery from Derivative-Only GP (with Uncertainty)")
+    plt.show()
+
+
 
 if __name__ == "__main__":
     import sys
@@ -402,17 +542,42 @@ if __name__ == "__main__":
     X_at_Zmin = 200
     max_iter = 10
 
-    response_func_z = lambda z: X_at_Zmax + decreasing_logistic(z, mid= 0.5 * Zmax_true, L=X_at_Zmin, k=0.1)
-    response_func_q = lambda q: X_at_Zmax + decreasing_logistic(q, mid= 0.5, L=X_at_Zmin, k=0.1 * Zmax_true)
+    response_func_z = lambda z: X_at_Zmax + decreasing_logistic(z, mid= 0.5 * Zmax_true, L=X_at_Zmin, k=0.05)
+    response_func_q = lambda q: decreasing_logistic(q, mid= 0.5, L=1.0, k=0.1 * Zmax_true)
 
 
-    # debug_z = np.linspace(0, 1.0)
-    # plt.scatter(debug_z, [response_func_q(z) for z in debug_z])
-    # plt.show()
+    # -----------------------------
+    # 1. Simulate true function
+    # -----------------------------
+    np.random.seed(0)
+    n = 100
+    X = np.linspace(0, 1, n)
 
-    # debug_z = np.linspace(0, Zmax_true)
-    # plt.scatter(debug_z, [response_func_z(z) for z in debug_z])
-    # plt.show()
+    # def f(x):
+    #     return np.sin(3.0 * x) + 0.3 * x
+
+    y_true = response_func_q(X)
+
+    plt.plot(X, y_true, label="True function")
+    plt.show()
+
+    # -----------------------------
+    # 2. Finite difference derivative
+    # -----------------------------
+    dx = X[1] - X[0]
+    dy = np.gradient(y_true, dx)
+
+    # Add noise to derivative observations
+    noise_std = 0.5
+    dy_noisy = dy + np.random.normal(0, noise_std, size=n)
+
+
+    derivative_gp_simulation(X, dy_noisy)
+
+    debug_q = np.linspace(0, 1.0)
+    plt.scatter(debug_q, [response_func_q(q) for q in debug_q])
+    plt.show()
+
 
 
     hests = []
@@ -421,19 +586,54 @@ if __name__ == "__main__":
     samps = []
     Z_real = []
 
-    testz, testx, testhit = sim_pot_watering_sequence(W, 11, 0, sigma2, response_func_z, Zmax_true)
-    # print(testhit, cal_hit_bounds(testz, Zmax_true))
-    plt.scatter(testz, testx)
-    plt.show()
 
     start_zmax = Zmax_true
     for s in range(nS):
         Z0 = np.random.uniform(0.0, Zmax_true)
         Z, X, hit_zmax = sim_pot_watering_sequence(W, n_watering_events, Z0, sigma2, response_func_z, Zmax_true)
+        Q = Z / Zmax_true
+        dQs = Z2dZ(Q)
         dZs = Z2dZ(Z)
         S = dZ2S(dZs)
-        samps.append((S, X, hit_zmax))
+        samps.append((S, X, dZs, dQs, hit_zmax))
         Z_real.append(Z)
+
+
+    xs = []
+    derivatives = []
+    for s in range(len(samps)):
+        S, X, dZs, dQs, hit_zmax = samps[s]
+        for j in range(1, len(X) - 1):
+            dXj = (X[j] - X[j-1])
+            derivative = dQs[j] / dXj
+            xmid = (X[j] + X[j-1]) / 2
+            xs.append(xmid)
+            derivatives.append(derivative)
+    
+    xs = np.array(xs)
+    derivatives = np.array(derivatives)
+
+    xmin, xmax = xs.min(), xs.max()
+    xs = (xs - xmin) / (xmax - xmin)
+    # Anchor x0 also scaled
+    xs_01 = (X_at_Zmax - xmin) / (xmax - xmin)
+
+    print(len(xs), len(derivatives))
+    plt.scatter(xs, derivatives)
+    plt.show()
+
+    print(f"max derivative: {max(derivatives)}, min derivative: {min(derivatives)}")
+
+    gp, mean, std, x_test = gp_fit_Z_from_derivatives(xs, derivatives)
+
+    # xv, Z = plot_reconstructed_curve(samps)
+
+    # debug_z = np.linspace(0, Zmax_true)
+    # plt.scatter(debug_z, [response_func_z(z) for z in debug_z])
+    # plt.plot(Z, xv)
+    # plt.show()
+
+
 
     anchor_q = np.linspace(0.0, 1.0, num=n_anchors)
     anchor_x = [
