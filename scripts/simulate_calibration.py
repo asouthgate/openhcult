@@ -240,7 +240,7 @@ def infer_response_func(
         e_post_h = compute_error(h)
         if (e_post_h > e_pre_h):
             h = h_prev
-        if (e_post_h > e_pre_h + e_pre_h * 1e-5):
+        if (e_post_h > e_pre_h + e_pre_h * 1e-12):
             print(f"Something very bad has happened at iteration {j}, h optimisation failed")
 
 
@@ -255,9 +255,9 @@ def infer_response_func(
             c_s_prev = c[s]
             c[s] = c_s
             e_ssh = compute_error(h)
-            debug = True
+            debug = False
             # if debug and e_ssh > e_bsh_i + 0.0001 * abs(e_bsh_i):
-            shift_opt_failed = c_s - c_s_prev > 5e-2 * Zmax_est and e_ssh > e_bsh_i + 1e-5 * abs(e_bsh_i)
+            shift_opt_failed = e_ssh > e_bsh_i + 1e-8 * abs(e_bsh_i)
             if shift_opt_failed:
                 print(f"Something very bad has happened, shift optimisation failed for {s}")
             if debug and shift_opt_failed:
@@ -271,10 +271,10 @@ def infer_response_func(
                 plt.plot((Ssi + c_s) /Zmax_est, Xsi, linestyle="--", color='red')   
                 plt.plot((Ssi + c_s_prev) /Zmax_est, Xsi, linestyle="--", color='blue') 
                 plt.show()
-            if e_ssh > e_bsh:  # can be numerical reasons for tiny tiny diff, ifts small enough no problem
-                c[s] = c_s_prev
-            else:
-                c[s] = c_s
+            # if e_ssh > e_bsh:  # can be numerical reasons for tiny tiny diff, ifts small enough no problem
+            #     c[s] = c_s_prev
+            # else:
+            c[s] = c_s
         if debug: plt.show()
         print(Zmax_est)
         e_pre_zmove = compute_error(h)
@@ -331,7 +331,7 @@ if __name__ == "__main__":
     anchor_weight = 0.0
     anchor_sigma2 = 90.0
     n_anchors = 8
-    Zmax_true = 100.0
+    Zmax_true = 150.0
     X_at_Zmax = 50
     X_at_Zmin = 200
     max_iter = 20
