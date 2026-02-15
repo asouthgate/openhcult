@@ -134,47 +134,55 @@ if __name__ == "__main__":
     # Xsorted = X[Xsorted_inds]
     # Qsorted = y_true[Xsorted_inds]
 
-    ax[0].plot(sorted_zmids, sorted_xs_)
-    ax[0].scatter(sorted_zmids, sorted_xs_)
-    ax[0].set_xlabel("Z")
-    ax[0].set_ylabel("X")
+    ax[0].plot(sorted_xs_,sorted_zmids)
+    ax[0].scatter(sorted_xs_,sorted_zmids)
+    ax[0].set_xlabel("X")
+    ax[0].set_ylabel("Z")
 
-    ax[1].plot(sorted_zmids, sorted_dzdx_)
-    ax[1].scatter(sorted_zmids, sorted_dzdx_)
+    ax[1].plot(sorted_zmids, sorted_xs_)
+    ax[1].scatter(sorted_zmids, sorted_xs_)
     ax[1].set_xlabel("Z")
-    ax[1].set_ylabel("dZ/dX")
+    ax[1].set_ylabel("X")
 
-    # ax[2].plot(sorted_xs_, 1.0/sorted_dzdx_)
-    # ax[2].scatter(sorted_xs_, 1.0/sorted_dzdx_)
-    ax[2].plot(sorted_xs_,  sorted_dzdx_, color = 'orange')
-    ax[2].scatter(sorted_xs_, sorted_dzdx_, color = 'orange')
-    ax[2].set_xlabel("X")
+    ax[2].plot(sorted_zmids, sorted_dzdx_)
+    ax[2].scatter(sorted_zmids, sorted_dzdx_)
+    ax[2].set_xlabel("Z")
     ax[2].set_ylabel("dZ/dX")
 
-    ax[3].plot(sorted_xs_, sorted_dzdx_)
+    ax[3].plot(sorted_xs_,  sorted_dzdx_)
     ax[3].scatter(sorted_xs_, sorted_dzdx_)
+    ax[3].set_xlabel("X")
+    ax[3].set_ylabel("dZ/dX")
+
+    ax[4].plot(sorted_xs_, sorted_dzdx_)
+    ax[4].scatter(sorted_xs_, sorted_dzdx_, label="Sampled derivative data")
     dmean = np.mean(dy_samples, axis=1)
     dstd = np.std(dy_samples, axis=1)
-    ax[3].plot(X_test.flatten(), dmean)
-    ax[3].fill_between(
+    ax[4].plot(X_test.flatten(), dmean, label="GP mean")
+    ax[4].fill_between(
         X_test.flatten(),
         dmean - 2 * dstd,
         dmean + 2 * dstd,
-        alpha=0.3
+        alpha=0.3,
+        label="GP 95% CI",
     )
+    ax[4].set_xlabel("X")
+    ax[4].set_ylabel("f'(X)")
+    ax[4].legend()
 
-    ax[4].scatter(sorted_xs_, sorted_zmids, c="blue", label="Noisy data")
-    ax[4].plot(sorted_xs_, sorted_zmids)
-    ax[4].plot(X_test.flatten(), f_mean, color = 'orange')
-    ax[4].fill_between(
+    ax[5].scatter(sorted_xs_, sorted_zmids,)
+    ax[5].plot(sorted_xs_, sorted_zmids, label="True response curve")
+    ax[5].plot(X_test.flatten(), f_mean, color = 'orange', label="Integrated GP mean")
+    ax[5].fill_between(
         X_test.flatten(),
         f_mean - 2 * f_std,
         f_mean + 2 * f_std,
-        alpha=0.3, color = 'orange'
+        alpha=0.3, color = 'orange', label="Integrated GP samples at 95% CI",
     )
-    ax[4].set_xlabel("X")
-    ax[4].set_ylabel("f(X)")
-    ax[4].set_title("Function Recovery from Derivative-Only GP (with Uncertainty)")
+    ax[5].set_xlabel("X")
+    ax[5].set_ylabel("f(X)")
+    ax[5].legend()
+    plt.suptitle("GP regression on derivatives with integration to reconstruct response curve")
     plt.show()
 
 
