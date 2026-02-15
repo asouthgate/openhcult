@@ -9,7 +9,7 @@ def decreasing_logistic(x: np.ndarray, *, mid: float, L: float, k) -> np.ndarray
     x = np.asarray(x, dtype=float)
     return L / (1.0 + np.exp(k * (x - mid)))
 
-def sim_pot_watering_sequence(W, n_watering_events, Z0, sigma2, response_func):
+def sim_pot_watering_sequence(W, n_watering_events, Z0, sigma2, response_func, Z_max):
     """Samples tuples (Z, X).
     Params:
         W: water quantity, fixed dZ
@@ -17,13 +17,27 @@ def sim_pot_watering_sequence(W, n_watering_events, Z0, sigma2, response_func):
         Z0: starting water content
         sigma2: noise in response
         response func: function mapping Z to X
+        Zmax: maximum Z
     """
     dZ = np.ones(n_watering_events) * W
     Z = np.cumsum(dZ) + Z0
     Z = np.insert(Z, 0, Z0)
     X = np.array([response_func(z) for z in Z])
     X += np.random.normal(0, sigma2, len(Z))
-    return Z, X
+
+    # bounds = (-min(S), (Z_max - max(S)) )
+
+    hit_zmax = False
+
+    for zi, z in enumerate(Z):
+        if z >= Z_max:
+            Z[zi:] = Z_max
+            X[zi:] = response_func(Z_max) + np.random.normal(0, sigma2, len(Z) - zi)
+            # bounds = ( (Z_max - W * zi) , (Z_max - W * (zi + 1)) ) # The end must be fixed at Zmax now 
+            hit_zmax = True
+            return Z[:zi + 1], X[:zi + 1], hit_zmax
+
+    return Z, X, hit_zmax
 
 def Z2dZ(Z):
     return np.diff(Z)  # we want the first val to be zero
@@ -41,6 +55,8 @@ def infer_response_func(
     samples: List[Tuple[np.ndarray, np.ndarray]],
     anchor_points: List[Tuple[float, float]],
     Zmax_0: float,
+    Zmin,
+    Zmax,
     X_at_Zmax,
     *,
     anchor_weight: float = 1.0,
@@ -56,19 +72,20 @@ def infer_response_func(
 
     S_list = []
     X_list = []
-    for S, X in samples:
+    hit_zmax_list = []
+    for S, X, hit_zmax in samples:
         S = np.asarray(S).ravel()
         X = np.asarray(X).ravel()
         if S.shape != X.shape:
             raise ValueError(f"Each (S, X) must have same shape, got {S.shape} {X.shape}")
         S_list.append(S)
         X_list.append(X)
+        hit_zmax_list.append(hit_zmax)
 
     X_anchor = np.array([x for (_, x) in anchor_points], dtype=float)
     Zmax_est = Zmax_0
     Q_anchor = np.array([q for (q, _) in anchor_points], dtype=float)
     
-
     # initialize shifts
     if c_init is None:
         c = np.zeros(n_traj)
@@ -138,18 +155,42 @@ def infer_response_func(
 
         S = S_list[s]
         X = X_list[s]
+        hit_zmax = hit_zmax_list[s]
 
         def objective(cs: float) -> float:
             resid = X - h((S + cs) / Z_max)
             val = np.sum(resid ** 2)
             return val
 
+        bounds = (-min(S), Z_max - max(S))
+        if hit_zmax:
+            bounds = ( (Z_max - W * (len(S) + 1)) , (Z_max - W * (len(S))) ) # The end must be fixed at Zmax now 
+        
         result = minimize_scalar(
             objective,
             method="bounded",
-            bounds=(-min(S), Z_max - max(S))
+            bounds=bounds
         )
         return float(result.x)
+
+    def update_Zmax(h, c, Zmin, Zmax):
+        def objective(Z):
+            if Z <= 0:
+                return np.inf
+            sse = 0.0
+            for s in range(n_traj):
+                U = (S_list[s] + c[s]) / Z
+                resid = X_list[s] - h(U)
+                sse += np.sum(resid**2)
+            return float(sse)
+
+        result = minimize_scalar(
+            objective,
+            method="bounded",
+            bounds=(Zmin, Zmax),
+        )
+        return float(result.x)
+
 
     def compute_error(h: Callable[[np.ndarray], np.ndarray]) -> float:
         sse = 0.0
@@ -161,10 +202,25 @@ def infer_response_func(
             sse += float(np.sum(anchor_weight * (resid ** 2)))
         return sse
 
-    errors = []
-    bound_total = 0
 
     h = fit_h(True)
+    errors = []
+    errors.append(compute_error(h))
+
+    for s in range(n_traj):
+        hit_z = hit_zmax_list[s]
+        if hit_z == True:
+            e_bsh_i = compute_error(h)
+            c_s = update_shift(s, h, Zmax_est)
+            # c_s = max(-samples[s][0][0], c_s)
+            # c_s = min(c_s, Zmax_true * 2)
+            c_s_prev = c[s]
+            c[s] = c_s
+
+
+    bound_total = 0
+
+    # h = fit_h(True)
     errors.append(compute_error(h))
 
     # ---- coordinate descent ----
@@ -183,21 +239,23 @@ def infer_response_func(
             c_s_prev = c[s]
             c[s] = c_s
             e_ssh = compute_error(h)
-            # debug = True
+            debug = False
             # if debug and e_ssh > e_bsh_i + 0.0001 * abs(e_bsh_i):
-            #     print(f"\t{s} moving to error: {e_bsh_i}->{e_ssh}")   
-            #     plt.scatter(Q_anchor, X_anchor, color='grey')
-            #     z_h = np.linspace(0, Zmax_true, 100)
-            #     plt.plot(z_h, h(z_h), color='black')
+            if debug:
+                print(f"\t{s} moving to error: {e_bsh_i}->{e_ssh}")   
+                plt.scatter(Q_anchor, X_anchor, color='grey')
+                q_h = np.linspace(0, 1.0, 100)
+                plt.plot(q_h, h(q_h), color='black')
 
-            #     print(f"Something very bad has happened, shift optimisation failed for {s}")
-            #     Ssi, Xsi = samples[s]
-            #     plt.plot(Ssi + c_s, Xsi, linestyle="--", color='red')   
-            #     plt.plot(Ssi + c_s_prev, Xsi, linestyle="--", color='blue') 
+                print(f"Something very bad has happened, shift optimisation failed for {s}")
+                Ssi, Xsi, hit_zmax = samples[s]
+                plt.plot((Ssi + c_s) /Zmax_est, Xsi, linestyle="--", color='red')   
+                plt.plot((Ssi + c_s_prev) /Zmax_est, Xsi, linestyle="--", color='blue') 
 
-            #     plt.show()
             c[s] = c_s
-
+        if debug: plt.show()
+        print(Zmax_est)
+        # Zmax_est = update_Zmax(h, c, Zmin, Zmax)
         errors.append(compute_error(h))
         if np.max(np.abs(c - c_old)) < tol:
             break
@@ -218,6 +276,8 @@ def bootstrap_inference(n_boot, nS, samps, anchors, anchor_weight, max_iter, sta
             boot_samps,
             boot_anchors,
             Zmax_true,
+            Zmax_true / 2,
+            Zmax_true * 2,
             X_at_Zmax,
             c_init=c0_boot,
             anchor_weight=anchor_weight,
@@ -248,13 +308,13 @@ if __name__ == "__main__":
     response_func_q = lambda q: X_at_Zmax + decreasing_logistic(q, mid= 0.5, L=X_at_Zmin, k=0.1 * Zmax_true)
 
 
-    debug_z = np.linspace(0, 1.0)
-    plt.scatter(debug_z, [response_func_q(z) for z in debug_z])
-    plt.show()
+    # debug_z = np.linspace(0, 1.0)
+    # plt.scatter(debug_z, [response_func_q(z) for z in debug_z])
+    # plt.show()
 
-    debug_z = np.linspace(0, Zmax_true)
-    plt.scatter(debug_z, [response_func_z(z) for z in debug_z])
-    plt.show()
+    # debug_z = np.linspace(0, Zmax_true)
+    # plt.scatter(debug_z, [response_func_z(z) for z in debug_z])
+    # plt.show()
 
 
     hests = []
@@ -263,13 +323,13 @@ if __name__ == "__main__":
     samps = []
     Z_real = []
 
-    start_zmax = Zmax_true - W * n_watering_events
+    start_zmax = Zmax_true
     for s in range(nS):
-        Z0 = np.random.uniform(0.0, start_zmax)
-        Z, X = sim_pot_watering_sequence(W, n_watering_events, Z0, sigma2, response_func_z)
+        Z0 = np.random.uniform(0.0, Zmax_true)
+        Z, X, hit_zmax = sim_pot_watering_sequence(W, n_watering_events, Z0, sigma2, response_func_z, Zmax_true)
         dZs = Z2dZ(Z)
         S = dZ2S(dZs)
-        samps.append((S, X))
+        samps.append((S, X, hit_zmax))
         Z_real.append(Z)
 
     anchor_q = np.linspace(0.0, 1.0, num=n_anchors)
@@ -287,6 +347,8 @@ if __name__ == "__main__":
         samps,
         anchors,
         Zmax_true,
+        Zmax_true / 2,
+        Zmax_true * 2,
         X_at_Zmax,
         c_init=c0,
         anchor_weight=anchor_weight,
@@ -297,6 +359,8 @@ if __name__ == "__main__":
         samps,
         anchors,
         Zmax_true,
+        Zmax_true / 2,
+        Zmax_true * 2,
         X_at_Zmax,
         c_init=c0,
         anchor_weight=anchor_weight,
@@ -314,7 +378,7 @@ if __name__ == "__main__":
     ax0.set_xlabel("Q")
 
     for s in range(nS):
-        S, X = samps[s]
+        S, X, hit_zmax = samps[s]
         Zrs = Z_real[s]
 
         Zest0 = S + c0[s]
