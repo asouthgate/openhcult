@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.optimize import minimize_scalar
 from numpy.polynomial import Chebyshev
+from scipy.interpolate import BSpline
+from scipy.linalg import solve
 
 def decreasing_logistic(x: np.ndarray, *, mid: float, L: float, k) -> np.ndarray:
     x = np.asarray(x, dtype=float)
@@ -109,22 +111,75 @@ def infer_response_func(
         if c.shape[0] != n_traj:
             raise ValueError(f"c_init length {c.shape[0]} does not match samples {n_traj}")
 
-    def fit_h_model(
-        U_sorted: np.ndarray,
-        X_sorted: np.ndarray,
-        W_sorted: np.ndarray,
-    ) -> Callable[[np.ndarray], np.ndarray]:
-        if h_model == "poly":
+    def fit_h_model(U_sorted, X_sorted, W_sorted):
+        U = np.asarray(U_sorted)
+        X = np.asarray(X_sorted)
+        W = np.asarray(W_sorted)
 
-            ch = Chebyshev.fit(U_sorted, X_sorted, deg=poly_degree, w=W_sorted, domain=[0.0, 1.0])
+        # knots
+        n_knots = 8
+        knots = np.linspace(0, 1, n_knots)
+        degree = 3
 
-            plt.scatter(U_sorted, X_sorted, color='grey')
-            plt.plot(np.linspace(0, 1.0, 100), ch(np.linspace(0, 1.0, 100)), color='black')
-            plt.show()
+        # augmented knot vector
+        t = np.concatenate((
+            np.repeat(knots[0], degree),
+            knots,
+            np.repeat(knots[-1], degree)
+        ))
 
-            return lambda u: ch(u)
+        # build spline basis matrix
+        n_basis = len(t) - degree - 1
+        B = np.zeros((len(U), n_basis))
+        for i in range(n_basis):
+            coeff = np.zeros(n_basis)
+            coeff[i] = 1
+            spline = BSpline(t, coeff, degree)
+            B[:, i] = spline(U)
 
-        raise ValueError(f"Unknown h_model '{h_model}'")
+        # weighted ridge regression
+        W_sqrt = np.sqrt(W)
+        B_w = B * W_sqrt[:, None]
+        X_w = X * W_sqrt
+
+        lam = 1e-4
+        beta = solve(B_w.T @ B_w + lam*np.eye(n_basis),
+                    B_w.T @ X_w)
+
+        def h(u):
+            u = np.asarray(u)
+            B_u = np.zeros((len(u), n_basis))
+            for i in range(n_basis):
+                coeff = np.zeros(n_basis)
+                coeff[i] = 1
+                spline = BSpline(t, coeff, degree)
+                B_u[:, i] = spline(u)
+            return B_u @ beta
+
+    #     plt.scatter(U_sorted, X_sorted, color='grey')
+    #     plt.plot(np.linspace(0, 1.0, 100), ch(np.linspace(0, 1.0, 100)), color='black')
+    #     plt.show()
+
+
+        return h
+
+    # def fit_h_model(
+    #     U_sorted: np.ndarray,
+    #     X_sorted: np.ndarray,
+    #     W_sorted: np.ndarray,
+    # ) -> Callable[[np.ndarray], np.ndarray]:
+
+        # if h_model == "poly":
+
+        #     ch = Chebyshev.fit(U_sorted, X_sorted, deg=poly_degree, w=W_sorted, domain=[0.0, 1.0])
+
+        #     plt.scatter(U_sorted, X_sorted, color='grey')
+        #     plt.plot(np.linspace(0, 1.0, 100), ch(np.linspace(0, 1.0, 100)), color='black')
+        #     plt.show()
+
+        #     return lambda u: ch(u)
+
+        # raise ValueError(f"Unknown h_model '{h_model}'")
 
     def fit_h(anchor_only=False) -> Callable[[np.ndarray], np.ndarray]:
         """
