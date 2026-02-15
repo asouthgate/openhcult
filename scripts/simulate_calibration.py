@@ -70,6 +70,7 @@ def infer_response_func(
     Zmin,
     Zmax,
     X_at_Zmax,
+    X_at_Zmin,
     *,
     anchor_weight: float = 1.0,
     c_init: np.ndarray | None = None,
@@ -203,9 +204,12 @@ def infer_response_func(
         else:
             W_all.append(np.full_like(X_anchor, anchor_weight))
 
-        # X_all.append([X_at_Zmax])
-        # U_all.append([1.0])
-        # W_all.append([1.0])
+        X_all.append([X_at_Zmax])
+        U_all.append([1.0])
+        W_all.append([1.0])
+        X_all.append([X_at_Zmin])
+        U_all.append([0.0])
+        W_all.append([1.0])
 
         U_all = np.concatenate(U_all)
         # U_all = U_all / np.max(U_all)
@@ -339,7 +343,7 @@ def infer_response_func(
         if debug: plt.show()
         print(Zmax_est)
         e_pre_zmove = compute_error(h)
-        Zmax_est = update_Zmax(h, c, Zmin, Zmax)
+        # Zmax_est = update_Zmax(h, c, Zmin, Zmax)
         e_post_zmove = compute_error(h)
         # if debug:
         if (e_post_zmove > e_pre_zmove):
@@ -365,13 +369,14 @@ def bootstrap_inference(n_boot, nS, samps, anchors, anchor_weight, max_iter, sta
         # boot_anchors = [anchors[bi] for bi in np.random.randint(0, len(anchors), size=len(anchors))]
         boot_anchors = anchors
         c0_boot = np.random.uniform(0.0, 1.0, size=len(boot_samps))
-        _, hest_boot, errors_boot = infer_response_func(
+        _, hest_boot, _, errors_boot = infer_response_func(
             boot_samps,
             boot_anchors,
             Zmax_true,
             Zmax_true / 2,
             Zmax_true * 2,
             X_at_Zmax,
+            X_at_Zmin,
             c_init=c0_boot,
             anchor_weight=anchor_weight,
             max_iter=max_iter
@@ -385,17 +390,17 @@ if __name__ == "__main__":
     import sys
     W = 10.0
     n_watering_events = 8
-    sigma2 = 0.1
+    sigma2 = 0.0
     n_boot = int(sys.argv[1])
     # Simulate sequences of dQs for each pot, they may not span the whole range Qmin, Qmax (plants have narrow viability ranges)
     nS = 30
     anchor_weight = 0.0
-    anchor_sigma2 = 90.0
+    anchor_sigma2 = 10.0
     n_anchors = 8
     Zmax_true = 150.0
     X_at_Zmax = 50
     X_at_Zmin = 200
-    max_iter = 20
+    max_iter = 10
 
     response_func_z = lambda z: X_at_Zmax + decreasing_logistic(z, mid= 0.5 * Zmax_true, L=X_at_Zmin, k=0.1)
     response_func_q = lambda q: X_at_Zmax + decreasing_logistic(q, mid= 0.5, L=X_at_Zmin, k=0.1 * Zmax_true)
@@ -448,6 +453,7 @@ if __name__ == "__main__":
         Zmax_true / 2,
         Zmax_true * 2,
         X_at_Zmax,
+        X_at_Zmin,
         c_init=c0,
         anchor_weight=anchor_weight,
         max_iter=max_iter
@@ -460,6 +466,7 @@ if __name__ == "__main__":
         Zmax_true / 2,
         Zmax_true * 2,
         X_at_Zmax,
+        X_at_Zmin,
         c_init=c0,
         anchor_weight=anchor_weight,
         max_iter=0
