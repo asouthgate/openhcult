@@ -9,15 +9,6 @@ def decreasing_logistic(x: np.ndarray, *, mid: float, L: float, k) -> np.ndarray
     x = np.asarray(x, dtype=float)
     return L / (1.0 + np.exp(k * (x - mid)))
 
-def invert_monotone(h, target, *, z_min: float, z_max: float, n: int = 512) -> float:
-    """Invert a monotone function by grid search and linear interpolation."""
-    z_grid = np.linspace(z_min, z_max, num=n)
-    h_grid = h(z_grid)
-    if h_grid[0] > h_grid[-1]:
-        h_grid = h_grid[::-1]
-        z_grid = z_grid[::-1]
-    return float(np.interp(target, h_grid, z_grid))
-
 def sim_pot_watering_sequence(W, n_watering_events, Z0, sigma2, response_func):
     """Samples tuples (Z, X).
     Params:
@@ -49,12 +40,13 @@ def Z2X(Z, response_func, sigma2):
 def infer_response_func(
     samples: List[Tuple[np.ndarray, np.ndarray]],
     anchor_points: List[Tuple[float, float]],
-    Zmax_true: float,
+    Zmax_0: float,
+    X_at_Zmax,
     *,
     anchor_weight: float = 1.0,
     c_init: np.ndarray | None = None,
     h_model: str = "poly",
-    poly_degree: int = 4,
+    poly_degree: int = 3,
     max_iter: int = 20,
     tol: float = 1e-6,
     return_diag: bool = False,
@@ -72,8 +64,10 @@ def infer_response_func(
         S_list.append(S)
         X_list.append(X)
 
-    Z_anchor = Zmax_true * np.array([q for (q, _) in anchor_points], dtype=float)
     X_anchor = np.array([x for (_, x) in anchor_points], dtype=float)
+    Zmax_est = Zmax_0
+    Q_anchor = np.array([q for (q, _) in anchor_points], dtype=float)
+    
 
     # initialize shifts
     if c_init is None:
@@ -110,19 +104,28 @@ def infer_response_func(
 
         if not anchor_only:
             for s in range(n_traj):
-                U_all.append(S_list[s] + c[s])
+                U_all.append((S_list[s] + c[s])/Zmax_est)
                 X_all.append(X_list[s])
                 W_all.append(np.ones_like(X_list[s]))
 
-        U_all.append(Z_anchor)
+        U_all.append(Q_anchor)
         X_all.append(X_anchor)
-        W_all.append(np.full_like(X_anchor, anchor_weight))
+
+        if anchor_only:
+            W_all.append(np.ones_like(X_anchor))
+        else:
+            W_all.append(np.full_like(X_anchor, anchor_weight))
+
+        X_all.append([X_at_Zmax])
+        U_all.append([1.0])
+        W_all.append([1.0])
 
         U_all = np.concatenate(U_all)
         X_all = np.concatenate(X_all)
         W_all = np.concatenate(W_all)
 
         order = np.argsort(U_all)
+
         U_sorted = U_all[order]
         W_sorted = W_all[order]
         X_sorted = X_all[order]
@@ -137,7 +140,7 @@ def infer_response_func(
         X = X_list[s]
 
         def objective(cs: float) -> float:
-            resid = X - h(S + cs)
+            resid = X - h((S + cs) / Z_max)
             val = np.sum(resid ** 2)
             return val
 
@@ -151,10 +154,10 @@ def infer_response_func(
     def compute_error(h: Callable[[np.ndarray], np.ndarray]) -> float:
         sse = 0.0
         for s in range(n_traj):
-            resid = X_list[s] - h(S_list[s] + c[s])
+            resid = X_list[s] - h((S_list[s] + c[s])/Zmax_est)
             sse += float(np.sum(resid ** 2))
-        if len(Z_anchor) > 0:
-            resid = X_anchor - h(Z_anchor)
+        if len(Q_anchor) > 0:
+            resid = X_anchor - h(Q_anchor)
             sse += float(np.sum(anchor_weight * (resid ** 2)))
         return sse
 
@@ -174,7 +177,7 @@ def infer_response_func(
         e_bsh = compute_error(h)
         for s in range(n_traj):
             e_bsh_i = compute_error(h)
-            c_s = update_shift(s, h, Zmax_true)
+            c_s = update_shift(s, h, Zmax_est)
             # c_s = max(-samples[s][0][0], c_s)
             # c_s = min(c_s, Zmax_true * 2)
             c_s_prev = c[s]
@@ -183,7 +186,7 @@ def infer_response_func(
             # debug = True
             # if debug and e_ssh > e_bsh_i + 0.0001 * abs(e_bsh_i):
             #     print(f"\t{s} moving to error: {e_bsh_i}->{e_ssh}")   
-            #     plt.scatter(Z_anchor, X_anchor, color='grey')
+            #     plt.scatter(Q_anchor, X_anchor, color='grey')
             #     z_h = np.linspace(0, Zmax_true, 100)
             #     plt.plot(z_h, h(z_h), color='black')
 
@@ -202,7 +205,7 @@ def infer_response_func(
     print(f"final error: {errors[-1]}")
     return c, h, errors
 
-def bootstrap_inference(n_boot, nS, samps, anchors, anchor_weight, max_iter, start_zmax):
+def bootstrap_inference(n_boot, nS, samps, anchors, anchor_weight, max_iter, start_zmax, X_at_Zmax):
     hests = []
     errors_list =[]
     for _ in range(n_boot):
@@ -210,14 +213,15 @@ def bootstrap_inference(n_boot, nS, samps, anchors, anchor_weight, max_iter, sta
         boot_samps = [samps[i] for i in idx]
         # boot_anchors = [anchors[bi] for bi in np.random.randint(0, len(anchors), size=len(anchors))]
         boot_anchors = anchors
-        c0_boot = np.random.uniform(0.0, start_zmax, size=len(boot_samps))
+        c0_boot = np.random.uniform(0.0, 1.0, size=len(boot_samps))
         _, hest_boot, errors_boot = infer_response_func(
             boot_samps,
             boot_anchors,
             Zmax_true,
+            X_at_Zmax,
             c_init=c0_boot,
             anchor_weight=anchor_weight,
-            max_iter=max_iter,
+            max_iter=max_iter
         )
         hests.append(hest_boot)
         errors_list.append(errors_boot)
@@ -225,24 +229,33 @@ def bootstrap_inference(n_boot, nS, samps, anchors, anchor_weight, max_iter, sta
 
 
 if __name__ == "__main__":
+    import sys
     W = 10.0
     n_watering_events = 4
     sigma2 = 0.1
-    n_boot = 50
+    n_boot = int(sys.argv[1])
     # Simulate sequences of dQs for each pot, they may not span the whole range Qmin, Qmax (plants have narrow viability ranges)
     nS = 30
-    anchor_weight = 0.2
+    anchor_weight = 0.05
     anchor_sigma2 = 90.0
     n_anchors = 8
     Zmax_true = 100.0
     X_at_Zmax = 50
     X_at_Zmin = 200
-    max_iter = 30
-    response_func = lambda z: X_at_Zmax + decreasing_logistic(z, mid= 0.5 * Zmax_true, L=X_at_Zmin, k=0.1)
+    max_iter = 20
 
-#    debug_z = np.linspace(0, Zmax_true)
-#    plt.scatter(debug_z, [response_func(z) for z in debug_z])
-#    plt.show()
+    response_func_z = lambda z: X_at_Zmax + decreasing_logistic(z, mid= 0.5 * Zmax_true, L=X_at_Zmin, k=0.1)
+    response_func_q = lambda q: X_at_Zmax + decreasing_logistic(q, mid= 0.5, L=X_at_Zmin, k=0.1 * Zmax_true)
+
+
+    debug_z = np.linspace(0, 1.0)
+    plt.scatter(debug_z, [response_func_q(z) for z in debug_z])
+    plt.show()
+
+    debug_z = np.linspace(0, Zmax_true)
+    plt.scatter(debug_z, [response_func_z(z) for z in debug_z])
+    plt.show()
+
 
     hests = []
     errors_list = []
@@ -253,7 +266,7 @@ if __name__ == "__main__":
     start_zmax = Zmax_true - W * n_watering_events
     for s in range(nS):
         Z0 = np.random.uniform(0.0, start_zmax)
-        Z, X = sim_pot_watering_sequence(W, n_watering_events, Z0, sigma2, response_func)
+        Z, X = sim_pot_watering_sequence(W, n_watering_events, Z0, sigma2, response_func_z)
         dZs = Z2dZ(Z)
         S = dZ2S(dZs)
         samps.append((S, X))
@@ -261,34 +274,36 @@ if __name__ == "__main__":
 
     anchor_q = np.linspace(0.0, 1.0, num=n_anchors)
     anchor_x = [
-        max(0.0, response_func(Zmax_true * q) + np.random.normal(0.0, anchor_sigma2))
+        max(0.0, response_func_q(q) + np.random.normal(0.0, anchor_sigma2))
         for q in anchor_q
     ]
     plt.scatter(anchor_q, anchor_x)
     plt.show()
 
-    c0 = np.random.uniform(0.0, start_zmax, size=len(samps))
+    c0 = np.random.uniform(0.0, 1.0, size=len(samps))
 
     anchors = list(zip(anchor_q, anchor_x))
     cest, hest, errors = infer_response_func(
         samps,
         anchors,
         Zmax_true,
+        X_at_Zmax,
         c_init=c0,
         anchor_weight=anchor_weight,
-        max_iter=100,
+        max_iter=max_iter
     )
 
     cest_anchor_only, hest_anchor_only, errors_anchor_only = infer_response_func(
         samps,
         anchors,
         Zmax_true,
+        X_at_Zmax,
         c_init=c0,
         anchor_weight=anchor_weight,
-        max_iter=0,
+        max_iter=0
     )
 
-    hests, errors_list = bootstrap_inference(n_boot, nS, samps, anchors, anchor_weight, max_iter, start_zmax)
+    hests, errors_list = bootstrap_inference(n_boot, nS, samps, anchors, anchor_weight, max_iter, start_zmax, X_at_Zmax)
 
     fig, axes = plt.subplots(2, 3, sharex=False, figsize=(14, 8))
     ax0, ax1, ax2, ax3, ax4, ax5 = axes.flatten()
@@ -346,15 +361,15 @@ if __name__ == "__main__":
     ax3.set_xlabel("Z")
     ax3.legend(frameon=False)
 
-    z_grid = np.linspace(0.0, Zmax_true, num=200)
-    ax4.plot(z_grid, response_func(z_grid), c="#4136a3", label="True $h$")
-    ax4.plot(z_grid, hest(z_grid), c="#e6a532", label="Estimated $\hat{h}$")
-    ax4.plot(z_grid, hest_anchor_only(z_grid), c="red", label="Estimated $\hat{h}$ (anchors only)")
+    q_grid = np.linspace(0.0, 1.0, num=200)
+    ax4.plot(q_grid, response_func_q(q_grid), c="#4136a3", label="True $h$")
+    ax4.plot(q_grid, hest(q_grid), c="#e6a532", label="Estimated $\hat{h}$")
+    ax4.plot(q_grid, hest_anchor_only(q_grid), c="red", label="Estimated $\hat{h}$ (anchors only)")
     if len(hests) > 0:
-        boot_preds = np.vstack([h(z_grid) for h in hests])
+        boot_preds = np.vstack([h(q_grid) for h in hests])
         lo = np.percentile(boot_preds, 2.5, axis=0)
         hi = np.percentile(boot_preds, 97.5, axis=0)
-        ax4.fill_between(z_grid, lo, hi, color="#e6a532", alpha=0.2, label="Bootstrap 95% CI")
+        ax4.fill_between(q_grid, lo, hi, color="#e6a532", alpha=0.2, label="Bootstrap 95% CI")
     ax4.set_title("Response curve")
     ax4.set_xlabel("Z")
     ax4.set_ylabel("X")
