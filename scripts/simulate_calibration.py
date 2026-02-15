@@ -52,7 +52,7 @@ def Z2X(Z, response_func, sigma2):
     return response_func(Z) + np.random.normal(0, sigma2, len(Z))
 
 def cal_hit_bounds(S, Z_max):
-    return ( (Z_max - W * len(S)) , (Z_max - W * (len(S) - 1)) )
+    return ( max(0, (Z_max - W * len(S))), max(0.0, min(Z_max, (Z_max - W * (len(S) - 1)))) )
 
 def infer_response_func(
     samples: List[Tuple[np.ndarray, np.ndarray]],
@@ -72,6 +72,11 @@ def infer_response_func(
 ) -> Dict[str, object]:
     # ---- prepare data ----
     n_traj = len(samples)
+    
+    Smax = max(np.max(S) for (S, _, _) in samples)
+    if Zmin < Smax:
+        print(f"Warning: Zmin {Zmin} is less than max S {Smax}, which is a bound on the min, setting Zmin to {Smax}")
+        Zmin = Smax
 
     S_list = []
     X_list = []
@@ -108,7 +113,7 @@ def infer_response_func(
             # def h(u: np.ndarray) -> np.ndarray:
             #     u = np.asarray(u, dtype=float)
             #     return np.polyval(coeffs, u)
-            ch = Chebyshev.fit(U_sorted, X_sorted, deg=poly_degree, w=W_sorted)
+            ch = Chebyshev.fit(U_sorted, X_sorted, deg=poly_degree, w=np.sqrt(W_sorted), domain=[0.0, 1.0])
             return lambda u: ch(u)
             return h
 
@@ -168,7 +173,7 @@ def infer_response_func(
         bounds = (-min(S), Z_max - max(S))
         if hit_zmax:
             bounds = cal_hit_bounds(S, Z_max) # The end must be fixed at Zmax now 
-        
+        # print(bounds)
         result = minimize_scalar(
             objective,
             method="bounded",
@@ -227,9 +232,17 @@ def infer_response_func(
     errors.append(compute_error(h))
 
     # ---- coordinate descent ----
-    for _ in range(max_iter):
+    for j in range(max_iter):
 
+        h_prev = h
+        e_pre_h = compute_error(h)
         h = fit_h()
+        e_post_h = compute_error(h)
+        if (e_post_h > e_pre_h):
+            h = h_prev
+        if (e_post_h > e_pre_h + e_pre_h * 1e-5):
+            print(f"Something very bad has happened at iteration {j}, h optimisation failed")
+
 
         c_old = c.copy()
 
@@ -242,9 +255,12 @@ def infer_response_func(
             c_s_prev = c[s]
             c[s] = c_s
             e_ssh = compute_error(h)
-            debug = False
+            debug = True
             # if debug and e_ssh > e_bsh_i + 0.0001 * abs(e_bsh_i):
-            if debug:
+            shift_opt_failed = c_s - c_s_prev > 5e-2 * Zmax_est and e_ssh > e_bsh_i + 1e-5 * abs(e_bsh_i)
+            if shift_opt_failed:
+                print(f"Something very bad has happened, shift optimisation failed for {s}")
+            if debug and shift_opt_failed:
                 print(f"\t{s} moving to error: {e_bsh_i}->{e_ssh}")   
                 plt.scatter(Q_anchor, X_anchor, color='grey')
                 q_h = np.linspace(0, 1.0, 100)
@@ -254,12 +270,25 @@ def infer_response_func(
                 Ssi, Xsi, hit_zmax = samples[s]
                 plt.plot((Ssi + c_s) /Zmax_est, Xsi, linestyle="--", color='red')   
                 plt.plot((Ssi + c_s_prev) /Zmax_est, Xsi, linestyle="--", color='blue') 
-
-            c[s] = c_s
+                plt.show()
+            if e_ssh > e_bsh:  # can be numerical reasons for tiny tiny diff, ifts small enough no problem
+                c[s] = c_s_prev
+            else:
+                c[s] = c_s
         if debug: plt.show()
         print(Zmax_est)
-        # Zmax_est = update_Zmax(h, c, Zmin, Zmax)
+        e_pre_zmove = compute_error(h)
+        Zmax_est = update_Zmax(h, c, Zmin, Zmax)
+        e_post_zmove = compute_error(h)
+        # if debug:
+        if (e_post_zmove > e_pre_zmove):
+            print(f"Something very bad has happened at iteration {j}, Zmax optimisation failed")
+
         errors.append(compute_error(h))
+        if (errors[-1] > errors[-2]):
+            print(f"Something very bad has happened at iteration {j}, overall optimisation failed")
+
+        
         if np.max(np.abs(c - c_old)) < tol:
             break
     print(len(errors))
@@ -294,12 +323,12 @@ def bootstrap_inference(n_boot, nS, samps, anchors, anchor_weight, max_iter, sta
 if __name__ == "__main__":
     import sys
     W = 10.0
-    n_watering_events = 4
+    n_watering_events = 8
     sigma2 = 0.1
     n_boot = int(sys.argv[1])
     # Simulate sequences of dQs for each pot, they may not span the whole range Qmin, Qmax (plants have narrow viability ranges)
     nS = 30
-    anchor_weight = 0.05
+    anchor_weight = 0.0
     anchor_sigma2 = 90.0
     n_anchors = 8
     Zmax_true = 100.0
