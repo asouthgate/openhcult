@@ -63,35 +63,38 @@ def derivative_gp_simulation(x, dy_noisy, y_xmax):
 
 if __name__ == "__main__":
     import sys
-    W = 10.0
-    Zmax = 150.0
+    W = 20.0
+    Zmax = 160.0
     Q_at_Xmin = 1.0
     sigma2 = 0.1
-    sigma2_z = 1.0
+    sigma2_z = 0.01
+    sigma2_w = 1.0
     X_at_Zmin = 2000
     Z_at_Xmax = 0.0
     # X_at_Zmax = 300
     # X_unscaled = np.random.uniform(X_at_Zmax, X_at_Zmin, size=100)
     # response_func_z = lambda z: X_at_Zmax + decreasing_logistic(z, mid= 0.5 * Zmax, L=X_at_Zmin, k=0.05)
 
-    response_func_z = lambda z: X_at_Zmin  + (1.2/Zmax) * z - (5.2/Zmax) * z**2
+    response_func_z = lambda z: X_at_Zmin  - (5.2/Zmax) * z - (10.2/Zmax) * z**2 + (0.01/Zmax) * z**3
     print(response_func_z(0), response_func_z(Zmax))
     # # now known dZ, choose dX to get derivatives; take dZ = 1, we compute response X
-    zs_ = np.random.uniform(0, Zmax-W, 100)
+    zs_ = np.random.uniform(0, Zmax-W+W/2, 200)  # /2 because of the midpointing later
     plt.hist(zs_)
     plt.show()
     dzdx_ = []
     xs_ = []
     zmids_ = []
     for z in zs_:
+        w = W + np.random.normal(0, np.sqrt(sigma2_w))
         rfz = response_func_z(z) 
-        rfz_w = response_func_z(z + W)
-        zmids_.append(z + 0.5 * W)
+        rfz_w = response_func_z(z + w)
+        zmids_.append(z + 0.5 * w)
         dx = rfz_w - rfz
         xs_.append(rfz + 0.5 * dx)
-        dzdx_.append(( W/dx) + np.random.normal(0, np.sqrt(sigma2)))
+        wdx = ( w / dx )  
+        dzdx_.append(wdx + np.random.normal(0, np.sqrt(sigma2_z)))
 
-
+    print(max(zs_))
     sorted_zs_inds = np.argsort(zs_)
     sorted_zmids = np.array(zmids_)[sorted_zs_inds]
     sorted_dzdx_ = np.array(dzdx_)[sorted_zs_inds]
