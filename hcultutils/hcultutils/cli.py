@@ -69,7 +69,7 @@ def _add_plotter_args(parser):
     parser.add_argument(
         "--diff-lag",
         type=int,
-        default=1,
+        default=3,
         help="Lag (in samples) for d(t) = s(t) - s(t-h)",
     )
     parser.add_argument(

@@ -21,7 +21,7 @@ import matplotlib.dates as mdates
 import numpy as np
 
 
-from hcultinf.inference import compute_ewma, compute_zscore
+from hcultinf.inference import compute_ewma, compute_zscore, classify_events
 
 
 def _repo_root() -> Path:
@@ -322,18 +322,33 @@ def main(args) -> int:
         values = np.array([v for _, v in points], dtype=float)
         ewma = compute_ewma(values, args.ewma_alpha)
         zscores = compute_zscore(
-            values, lag=args.diff_lag, window=args.mad_window, c=args.mad_scale
+            values, lag=args.diff_lag, mad_window=args.mad_window, c=args.mad_scale
+        )
+        zscores2 = compute_zscore(
+            values, lag=args.diff_lag * 3, mad_window=args.mad_window, c=args.mad_scale
         )
         zscores_map[name] = zscores
         # print(args.z_pvalue)
         pvals = 2 * (1 - norm.cdf(np.abs(zscores)))
+        pvals2 = 2 * (1 - norm.cdf(np.abs(zscores2)))
         trigger_bools_map[name] = pvals < args.z_pvalue
         values_map[name] = values
         baseline_map[name] = ewma
         times_map[name] = times
+        triggers, starts = classify_events(values, args.diff_lag, args.mad_window, args.mad_scale, args.z_pvalue)
+        starts_t = times[starts]
+        triggers_t = times[triggers]
+
         trigger_times[name] = times[np.where(trigger_bools_map[name])[0]]
-        for tt in trigger_times[name]:
-            raw_axes[idx].axvline(tt, color="red", alpha=1.0, linewidth=1)
+        # for tt in trigger_times[name]:
+        #     raw_axes[idx].axvline(tt, color="red", alpha=1.0, linewidth=1)
+        deltas = np.timedelta64(int(60), 's')
+        for tt in triggers_t:
+            raw_axes[idx].axvline(tt + deltas, color="red", alpha=0.5, linestyle="--", linewidth=2)
+        for tt in starts_t:
+            raw_axes[idx].axvline(tt - deltas, color="purple", alpha=0.5, linewidth=1)
+
+
         _plot_raw_subsensor_readings(ax, raw_axes[idx], times, values, ewma, name, args, locator)
         # now plot observations on the raw axes as well
 
