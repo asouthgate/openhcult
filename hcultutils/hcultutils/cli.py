@@ -55,6 +55,12 @@ def _add_plotter_args(parser):
         help="Filter to a plant name (requires hcultctrl)",
     )
     parser.add_argument(
+        "--z-pvalue",
+        type=float,
+        default=0.00001,
+        help="Two-sided p-value threshold for z(t) triggers",
+    )
+    parser.add_argument(
         "--limit",
         type=int,
         default=100000,
@@ -69,7 +75,7 @@ def _add_plotter_args(parser):
     parser.add_argument(
         "--mad-window",
         type=int,
-        default=50,
+        default=500,
         help="Window size (in samples) for rolling MAD",
     )
     parser.add_argument(

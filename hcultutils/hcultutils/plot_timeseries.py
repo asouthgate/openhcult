@@ -14,7 +14,7 @@ import urllib.request
 from pathlib import Path
 from urllib.parse import urlparse, unquote
 from typing import Dict, List, Tuple
-
+from scipy.stats import norm
 import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
@@ -179,6 +179,7 @@ def _plot_raw_subsensor_readings(ax, raw_ax, times, values, ewma, name, args, lo
     ax.plot(times, values, label=name, linewidth=1.2)
     ax.plot(times, ewma, label=f"{name} EWMA", linewidth=1.2, linestyle="--")
     raw_ax.plot(times, values, label=name, linewidth=1.2)
+    raw_ax.scatter(times, values, label=name, linewidth=1.2, s=0.5)
     raw_ax.plot(times, ewma, label="EWMA", linewidth=1.2, linestyle="--")
     raw_ax.legend()
     raw_ax.set_title(name)
@@ -309,9 +310,11 @@ def main(args) -> int:
         raw_axes.append(fig.add_subplot(grid[r, c]))
     ax = fig.add_subplot(grid[rows, :])
     zscores_map: Dict[str, np.ndarray] = {}
+    trigger_bools_map: Dict[str, np.ndarray] = {}
     values_map: Dict[str, np.ndarray] = {}
     baseline_map: Dict[str, np.ndarray] = {}
     times_map: Dict[str, np.ndarray] = {}
+    trigger_times: Dict[str, np.ndarray] = {}
 
     for idx, name in enumerate(sensor_names):
         points = series[name]
@@ -322,13 +325,18 @@ def main(args) -> int:
             values, lag=args.diff_lag, window=args.mad_window, c=args.mad_scale
         )
         zscores_map[name] = zscores
+        # print(args.z_pvalue)
+        pvals = 2 * (1 - norm.cdf(np.abs(zscores)))
+        trigger_bools_map[name] = pvals < args.z_pvalue
         values_map[name] = values
         baseline_map[name] = ewma
         times_map[name] = times
+        trigger_times[name] = times[np.where(trigger_bools_map[name])[0]]
+        for tt in trigger_times[name]:
+            raw_axes[idx].axvline(tt, color="red", alpha=1.0, linewidth=1)
         _plot_raw_subsensor_readings(ax, raw_axes[idx], times, values, ewma, name, args, locator)
+        # now plot observations on the raw axes as well
 
-    if observations:
-        _plot_observations(observations, sensor_names, ax, raw_axes)
 
     ax.set_title("Sensor Readings")
     ax.set_xlabel("Timestamp")
@@ -349,22 +357,24 @@ def main(args) -> int:
         zraw_axes.append(zfig.add_subplot(zgrid[r, c]))
     zax = zfig.add_subplot(zgrid[rows, :])
 
-    rfig = plt.figure(figsize=(14, 4 + 4 * math.ceil(len(sensor_names) / 2)))
-    rgrid = rfig.add_gridspec(rows + 1, cols)
-    rraw_axes = []
-    for i in range(len(sensor_names)):
-        r = i // cols
-        c = i % cols
-        rraw_axes.append(rfig.add_subplot(rgrid[r, c]))
+    # rfig = plt.figure(figsize=(14, 4 + 4 * math.ceil(len(sensor_names) / 2)))
+    # rgrid = rfig.add_gridspec(rows + 1, cols)
+    # rraw_axes = []
+    # for i in range(len(sensor_names)):
+    #     r = i // cols
+    #     c = i % cols
+    #     rraw_axes.append(rfig.add_subplot(rgrid[r, c]))
 
-    rax = rfig.add_subplot(rgrid[rows, :])
+    # rax = rfig.add_subplot(rgrid[rows, :])
 
     for idx, name in enumerate(sensor_names):
         times = times_map[name]
         zscores = zscores_map[name]
-        residuals = values_map[name] - baseline_map[name]
+        # residuals = values_map[name] - baseline_map[name]
+        for tt in trigger_times[name]:
+            zraw_axes[idx].axvline(tt, color="red", alpha=0.1, linewidth=1)
         _plot_z_subsensor_readings(zax, zraw_axes[idx], times, zscores, name, args, locator)    
-        _plot_residual_subsensor_readings(rax, rraw_axes[idx], times, residuals, name, args, locator)   
+        # _plot_residual_subsensor_readings(rax, rraw_axes[idx], times, residuals, name, args, locator)   
 
     zax.set_title("z(t) = d(t) / (c * MAD)")
     zax.set_xlabel("Timestamp")
@@ -376,14 +386,14 @@ def main(args) -> int:
     zfig.autofmt_xdate()
     zfig.tight_layout()
 
-    rax.set_title("Residuals x(t) - B(t)")
-    rax.set_xlabel("Timestamp")
-    rax.set_ylabel("x(t) - B(t)")
-    rax.xaxis.set_major_locator(locator)
-    rax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
-    rax.legend()
-    rfig.autofmt_xdate()
-    rfig.tight_layout()
+    # rax.set_title("Residuals x(t) - B(t)")
+    # rax.set_xlabel("Timestamp")
+    # rax.set_ylabel("x(t) - B(t)")
+    # rax.xaxis.set_major_locator(locator)
+    # rax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
+    # rax.legend()
+    # rfig.autofmt_xdate()
+    # rfig.tight_layout()
 
     if args.out:
         out_path = Path(args.out)
@@ -393,9 +403,9 @@ def main(args) -> int:
         z_out = out_path.with_name(f"{out_path.stem}_z{out_path.suffix}")
         zfig.savefig(z_out, dpi=150)
         print(f"Wrote {z_out}")
-        r_out = out_path.with_name(f"{out_path.stem}_resid{out_path.suffix}")
-        rfig.savefig(r_out, dpi=150)
-        print(f"Wrote {r_out}")
+        # r_out = out_path.with_name(f"{out_path.stem}_resid{out_path.suffix}")
+        # rfig.savefig(r_out, dpi=150)
+        # print(f"Wrote {r_out}")
     else:
         plt.show()
 
