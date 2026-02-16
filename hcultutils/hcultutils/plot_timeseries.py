@@ -24,12 +24,10 @@ import numpy as np
 from hcultinf.inference import compute_ewma, compute_zscore, classify_events
 from hcultutils.fetch_data import fetch_data
 
-def _plot_raw_subsensor_readings(ax, raw_ax, times, values, ewma, name, args, locator):
+def _plot_raw_subsensor_readings(ax, raw_ax, times, values, name, args, locator):
     ax.plot(times, values, label=name, linewidth=1.2)
-    ax.plot(times, ewma, label=f"{name} EWMA", linewidth=1.2, linestyle="--")
     raw_ax.plot(times, values, label=name, linewidth=1.2)
     raw_ax.scatter(times, values, label=name, linewidth=1.2, s=0.5)
-    raw_ax.plot(times, ewma, label="EWMA", linewidth=1.2, linestyle="--")
     raw_ax.legend()
     raw_ax.set_title(name)
     raw_ax.set_xlabel("Timestamp")
@@ -124,15 +122,18 @@ def main(args) -> int:
     zscores_map: Dict[str, np.ndarray] = {}
     trigger_bools_map: Dict[str, np.ndarray] = {}
     values_map: Dict[str, np.ndarray] = {}
-    baseline_map: Dict[str, np.ndarray] = {}
     times_map: Dict[str, np.ndarray] = {}
     trigger_times: Dict[str, np.ndarray] = {}
+
+    equilibrium_x_values = []
+    equilibrium_delta_values = []
+    equilibrium_sensors = []
+    event_time_intervals = []
 
     for idx, name in enumerate(sensor_names):
         points = series[name]
         times = np.array([t for t, _ in points])
         values = np.array([v for _, v in points], dtype=float)
-        ewma = compute_ewma(values, args.ewma_alpha)
         zscores = compute_zscore(
             values, lag=args.diff_lag, mad_window=args.mad_window, c=args.mad_scale
         )
@@ -140,21 +141,34 @@ def main(args) -> int:
             values, lag=args.diff_lag * 3, mad_window=args.mad_window, c=args.mad_scale
         )
         zscores_map[name] = zscores
-        # print(args.z_pvalue)
-        pvals = 2 * (1 - norm.cdf(np.abs(zscores)))
-        pvals2 = 2 * (1 - norm.cdf(np.abs(zscores2)))
-        trigger_bools_map[name] = pvals < args.z_pvalue
-        values_map[name] = values
-        baseline_map[name] = ewma
         times_map[name] = times
-        triggers, starts = classify_events(values, args.diff_lag, args.mad_window, args.mad_scale, args.z_pvalue)
+        triggers, run_lengths, starts = classify_events(values, args.diff_lag, args.mad_window, args.mad_scale, args.z_pvalue)
         starts_t = times[starts]
 
-        trigger_times[name] = times[np.where(trigger_bools_map[name])[0]]
+        # compute the event time intervals
+        for i in range(len(starts)):
+            si = starts[i]
+            ei = si + run_lengths[i]
+            event_time_intervals.append((times[si], times[ei-1]))
+
+        starts_inds = np.where(starts)[0]
+        for i in range(len(starts_inds) - 1):
+            si = starts_inds[i]
+            ei = si + run_lengths[si]
+            next_si = starts_inds[i + 1]
+            print(si, ei)
+            print(f"[{ei} {next_si}]")
+            val_subset = values[ei:next_si]
+            if len(val_subset) > 50:
+                deltas = np.diff(val_subset)
+                equilibrium_x_values += list(val_subset[:-1])
+                equilibrium_delta_values += list(deltas)
+                equilibrium_sensors += [idx] * len(deltas)
+
         for tt in starts_t:
             raw_axes[idx].axvline(tt, color="orange", alpha=0.5, linewidth=1)
 
-        _plot_raw_subsensor_readings(ax, raw_axes[idx], times, values, ewma, name, args, locator)
+        _plot_raw_subsensor_readings(ax, raw_axes[idx], times, values, name, args, locator)
         # now plot observations on the raw axes as well
 
 
@@ -177,24 +191,10 @@ def main(args) -> int:
         zraw_axes.append(zfig.add_subplot(zgrid[r, c]))
     zax = zfig.add_subplot(zgrid[rows, :])
 
-    # rfig = plt.figure(figsize=(14, 4 + 4 * math.ceil(len(sensor_names) / 2)))
-    # rgrid = rfig.add_gridspec(rows + 1, cols)
-    # rraw_axes = []
-    # for i in range(len(sensor_names)):
-    #     r = i // cols
-    #     c = i % cols
-    #     rraw_axes.append(rfig.add_subplot(rgrid[r, c]))
-
-    # rax = rfig.add_subplot(rgrid[rows, :])
-
     for idx, name in enumerate(sensor_names):
         times = times_map[name]
         zscores = zscores_map[name]
-        # residuals = values_map[name] - baseline_map[name]
-        for tt in trigger_times[name]:
-            zraw_axes[idx].axvline(tt, color="red", alpha=0.1, linewidth=1)
         _plot_z_subsensor_readings(zax, zraw_axes[idx], times, zscores, name, args, locator)    
-        # _plot_residual_subsensor_readings(rax, rraw_axes[idx], times, residuals, name, args, locator)   
 
     zax.set_title("z(t) = d(t) / (c * MAD)")
     zax.set_xlabel("Timestamp")
@@ -228,6 +228,38 @@ def main(args) -> int:
         # print(f"Wrote {r_out}")
     else:
         plt.show()
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 6), constrained_layout=True)
+    ax = axes.flatten()
+
+    markers = ['o', 's', '^', 'D', 'v', '*', 'P', 'X']
+    colors = ["tab:blue", "tab:orange", "tab:green", "tab:red", "tab:purple", "tab:brown", "tab:pink", "tab:gray"]
+    for sensor in set(equilibrium_sensors):
+        sensor_mask = np.array(equilibrium_sensors) == sensor
+        ax[0].scatter(
+            np.array(equilibrium_x_values)[sensor_mask],
+            np.array(equilibrium_delta_values)[sensor_mask],
+            label=sensor_names[sensor],
+            marker=markers[sensor % len(markers)],
+            alpha=0.5
+        )
+        ax[1].hist(np.array(
+            equilibrium_delta_values)[sensor_mask],
+            bins=np.arange(-10.5, 10.5, 1.0), alpha=0.7, histtype='step',
+            label=f"Sensor {sensor}"
+        )
+        ax[1].set_xlabel("$\Delta X_t$")
+        ax[1].legend()
+
+    # plt.scatter(equilibrium_x_values, equilibrium_delta_values, cmap="tab10", c=equilibrium_sensors, marker=sensor_markers, alpha=0.5)
+    ax[0].set_xlabel("$X_t$")
+    ax[0].set_ylabel("$\Delta x_t$")
+    fig.suptitle("Equilibrium noise distribtion")
+    # ax[1].hist(equilibrium_delta_values, bins=np.arange(-10.5, 10.5, 1.0), alpha=0.7)
+    # ax[1].set_xlabel("$\Delta X_t$")
+    fig.savefig("equilibrium_noise.png", dpi=300)
+
+    plt.show()
 
     return 0
 

@@ -60,23 +60,15 @@ Raw sensor data is continuously streamed into the database system. From there, e
 M_{i,s} = \frac{0.6745 \cdot (|\Delta X_{i,s}| - median_{w}{|\Delta X_{\cdot,s}|})}{MAD_w}
 \]
 
-Secondly, since watering events are assumed to cause stable changes in sensor measurements, persistent change was defined by considering change in sensor values without long term trends (e.g. drying) removed using an exponentially weighted moving average \cite{roberts2000control}:
+Given a integer lag $L$ to compute differences, a median window $w$, and a significance threshold $p$, an event was defined at a time point $t_i$ if $p_j > p$ for all $j$ between $i$ and $i+L$. The requirement for a sequence of significant results was used as a simple way to only take stable changes. These were selected manually since obtaining sufficiently good event detection itself was trivial on account of low individual-sensor noise (see results, between-sensor was much larger), although these parameters could be optimised in future work, it is unnecessary for this sensor class. 
 
-\[
-Y_i = X_i - EMWA(X)_i
-\] 
+\subsection{Noise characterisation}
 
-And check if all values within a post-event window $k$ exceed threshold $q$ relative to the pre-event sample.
-
-\[
-\min\limits_{i < j < i+k}{|Y_{j,s} - Y_{i,s}|} > q
-\]
-
-Given an event candidate at $t_{i+1}$ and window size $k$; for the sensors chosen, $X$ is decreasing in water content, so only events with negative change are assumed to be watering. In addition, only events for which all sensors attached to a given microcontroller agree on an event were taken. This resulted in a classification parameterized by two thresholds and two window sizes: $(p, q, k, w)$. These were selected manually since obtaining sufficiently good event detection itself was not challenging (see results), although they can be optimised in future work. 
+Sensors are subject to a range of noise sources. We consider two sources of noise: sensor noise per sample $\epsilon_{t}$, which could vary per sensor, per-sensor bias $\epsilon_s$, and per-placement bias $\epsilon_p$, which accounts for variation such as due to variable packing, soil-moisture spatial heterogeneity, or insertion depth. The first source of noise was characterised by retrieving data corresponding to event-free time intervals (possibly at equilibrium). In order to characterise the second and third, sensors were placed in a common pot and regularly removed and reinserted; inherent sensor bias should be stable between these exchange events, and bias due to variable packing should not be.
 
 \subsection{Automated response curve calibration}
 
-Consumer-grade soil moisture probes generally report coarse, normalized measurements. Here, we define soil water content as $Z$ as total water volume in a given container with fixed soil content (such as in a pot), instead of the usual $\theta$, which is the ratio of water to total soil volume. We assume that $Z$ itself is not directly measurable, although at a given watering, $\Delta Z$ is known, unlike $\Delta \theta$. We fix this for a given pot and soil volume, and refer to it as $W$. This is a simplifying assumption that disregards runoff and user measurement error. \\
+Consumer-grade soil moisture probes generally report coarse, normalized measurements. Here, we define soil water content as $Z$ as total water volume in a given container with fixed soil content (such as in a pot), instead of the usual $\theta$, which is the ratio of water to total soil volume. We assume that $Z$ itself is not directly measurable, although at a given watering, $\Delta Z$ is known, unlike $\Delta \theta$. We fix this for a given pot and soil volume, and refer to it as $W$. This is a simplifying assumption that disregards runoff and user measurement error.\\
 
 Many consumer-grade soil moisture probes report a normalized score (e.g. between 0 and 10). Importantly, with only $\Delta Z$ as a water volume, with $Z_{max}$ a normalized score can be obtained. $Z_{max}$ requires experiment to determine. Alternatively, a practical way to determine $X(Z_{max})$ is to take the minimum database sensor value under the assumption that fully soil has occurred at least once. \\
 
@@ -86,7 +78,7 @@ For convenience, the system relies on automatically detected watering events pre
 X_{i,s} = h(Z_{i,s}) + \epsilon_i + \epsilon_s
 \]
 
-Where $\epsilon_i$ is Gaussian sensor measurement noise and a $\epsilon_s$ Gaussian noise offset per-sensor per-placement (accounting for factors such as sensor-specific offsets and variable depth and packing). In this equation, both the response function $h(\cdot)$ and the water content $Z$ are unknown. For simplicity, we assume $h$ is monotonically decreasing and refer to $g=h^-1$. In terms of the data, we have samples:
+Where $\epsilon_i$ is Gaussian sensor measurement noise and a $\epsilon_s$ Gaussian noise offset per-sensor per-placement (accounting for factors such as sensor-specific offsets and variable depth and packing). In this equation, both the response function $h(\cdot)$ and the water content $Z$ are unknown. For simplicity, we assume $h$ is monotonically decreasing and refer to $g=h^{-1}$. In terms of the data, we have samples:
 
 \[
 \Big(\frac{\Delta Z}{\Delta X}\Big)_{i,s} \approx \Big(\frac{dz}{dx}\Big)_{i,s} + \epsilon_i + \epsilon_s
@@ -95,10 +87,16 @@ Where $\epsilon_i$ is Gaussian sensor measurement noise and a $\epsilon_s$ Gauss
 where:
 
 \[
-\Big(\frac{dz}{dx}\Big)_{i,s} = g'(X_{i,s}) + \epsilon_i + \epsilon_s
+\Big(\frac{dZ}{dX}\Big)_{i,s} = g'(X_{i,s})
 \]
 
-This is a basic regression problem except we estimate a derivative instead of $g$ itself. We use Gaussian process regression \cite{williams2006gaussian} using Scikit-learn \cite{pedregosa2011scikit} to estimate $g'$. Then, we sample from $\hat{g'}$ and integrate to produce estimates and CIs for $\hat{g}$.
+This is a basic regression problem except that it is required to estimate a derivative $g'$ instead of $g$ itself, and invert to get $h$. We used Gaussian process regression \cite{williams2006gaussian} using Scikit-learn \cite{pedregosa2011scikit} to estimate $g'$. Then, we sample from $\hat{g'}$ and integrate to produce estimates and CIs for $\hat{g}$.
+
+\[
+g'(x) \sim \mathcal{GP}(X, k(X, X'))
+\]
+
+For the kernel, a combination of Scikit-learn \cite{pedregosa2011scikit} kernels \texttt{C(1.0) * RBF(length\_scale=10.0, length\_scale\_bounds=(0.1, 20.0)) + WhiteKernel(noise\_level=0.01, noise\_level\_bounds=(1e-5, 20.0))} was utilized. For integration, \texttt{scipy.integrate.cumulative\_trapezoid} \cite{virtanen2020scipy} was used. In practice, $X(Z_{max})$ is easiest endpoint to obtain because it is the value of $X$ at which all added water is lost as runoff. Alternatively, $X(Z_{min} = 0.0)$ could be obtained as the sensor value of fully dry soil, but at low water content, measured permittivity is instead driven by other factors. Neither is exact but $X(Z_{max})$ more practical.\\
 
 \begin{figure}[htb!]
   \centering
@@ -107,11 +105,20 @@ This is a basic regression problem except we estimate a derivative instead of $g
   \label{fig:myfigure}
 \end{figure}
 
+In principle, since users are generally only interested in relative water content, if $W$ is instead a dimensionless ratio, such as water content divided by vessel volume, or the SWC $\theta$, data from across different pots can be aggregated provided that the pot volume for a given sensor is recorded.
+
 \subsection{Validation}
 
 \section{Results}
 
 \subsection{Sensor noise}
+
+\begin{figure}[htb!]
+  \centering
+  \includegraphics[width=1.0\linewidth]{images/equilibrium_noise.png}
+  \caption{TODO}
+  \label{fig:myfigure}
+\end{figure}
 
 \begin{enumerate}
     \item Sensor stationary noise and drying

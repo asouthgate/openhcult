@@ -65,9 +65,10 @@ def classify_events(values: np.ndarray, lag: int, mad_window: int, c: float, pth
     pvalues = zscore_pvalues(zscores)
     triggers = pvalues < pthresh
 
-    start_lengths = run_lengths_at_starts(triggers) * triggers
+    run_lengths = run_lengths_at_starts(triggers)
+    start_lengths = run_lengths * triggers
     starts = start_lengths >= lag
-    return triggers, starts
+    return triggers, run_lengths, starts
 
 def compute_ewma(values: np.ndarray, alpha: float) -> np.ndarray:
     if not (0 < alpha <= 1):
