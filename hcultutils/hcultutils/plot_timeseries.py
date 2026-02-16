@@ -361,16 +361,6 @@ def main(args) -> int:
 
         ax[2].set_ylabel("X, centered per-equilibrium-interval")
         ax[2].set_xlabel("Sensor")
-    # for eiv in equilbrium_intervals_index_values:
-    #     aix = np.array(equilbrium_intervals_index_values) == eiv
-    #     x_vals_in_interval = np.array(equilibrium_x_values)[aix]
-    #     sensor_vals_in_interval = np.array(equilibrium_sensors)[aix]
-    #     # now we need, per interval, a boxplot of the x values, colored by sensor
-    #     ax[2].boxplot(
-    #         x_vals_in_interval, positions=[eiv],
-    #         widths=0.6, c=colors[sensor_vals_in_interval[0] % len(colors)],
-    #         patch_artist=True
-    #     )
 
     # Finally just plot the sensor readings in the whole domain, no equilibrium
     for si in sensor_ids:
@@ -383,8 +373,6 @@ def main(args) -> int:
         ax[3].set_ylabel("X")
 
     fig.suptitle("Equilibrium noise distribtions")
-    # ax[1].hist(equilibrium_delta_values, bins=np.arange(-10.5, 10.5, 1.0), alpha=0.7)
-    # ax[1].set_xlabel("$\Delta X_t$")
     fig.savefig("equilibrium_noise.png", dpi=300)
 
     plt.show()
