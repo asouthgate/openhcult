@@ -12,7 +12,7 @@ import sqlite3
 from urllib.parse import urlparse, unquote, quote
 import sys
 
-from hcultutils import infer_events, plot_timeseries
+from hcultutils import infer_events, plot_timeseries, fetch_data
 
 
 class HcultArgumentParser(argparse.ArgumentParser):
@@ -455,6 +455,18 @@ def main() -> int:
         parser_class=HcultArgumentParser,
     )
     subparsers.required = True
+
+    fetch_data_parsers = subparsers.add_parser(
+        "fetch_data",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  hcultutils fetch_data --sensor sensor1 --device AA:BB:CC:DD:EE:FF --start-utc 2026-01-16T12:00:00Z --end-utc 2026-01-16T13:00:00Z\n"
+        ),
+    )
+    _add_base_args(fetch_data_parsers)
+    _add_plotter_args(fetch_data_parsers)
+
     plot_timeseries_parser = subparsers.add_parser(
         "plot_timeseries",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -578,6 +590,9 @@ def main() -> int:
     args = parser.parse_args()
     if args.command == 'plot_timeseries':
         plot_timeseries.main(args)
+        return 0
+    if args.command == 'fetch_data':
+        fetch_data.main(args)
         return 0
     if args.command == 'infer_events':
         return infer_events.run(args)

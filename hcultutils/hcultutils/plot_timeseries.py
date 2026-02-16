@@ -22,158 +22,7 @@ import numpy as np
 
 
 from hcultinf.inference import compute_ewma, compute_zscore, classify_events
-
-
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
-
-
-def _default_config_path() -> Path:
-    base = os.environ.get("XDG_CONFIG_HOME")
-    if base:
-        return Path(base) / "openhcult" / "openhcult.conf"
-    return Path.home() / ".config" / "openhcult" / "openhcult.conf"
-
-
-def _load_db_url(config_path: Path) -> str:
-    parser = configparser.ConfigParser()
-    parser.read(config_path)
-    if "database" not in parser or "url" not in parser["database"]:
-        raise ValueError(f"Missing database.url in {config_path}")
-    url = parser["database"]["url"].strip()
-    if not url:
-        raise ValueError(f"Empty database.url in {config_path}")
-    return url
-
-
-def _connect_db(db_url: str):
-    parsed = urlparse(db_url)
-    if parsed.scheme in ("", "file", "sqlite"):
-        if parsed.scheme in ("file", "sqlite"):
-            db_path = Path(unquote(parsed.path))
-        else:
-            db_path = Path(db_url)
-        return sqlite3.connect(str(db_path))
-    if parsed.scheme.startswith("postgres"):
-        import psycopg
-
-        return psycopg.connect(db_url)
-    raise ValueError(f"Unsupported database URL: {db_url}")
-
-
-def _fetch_series(db_url: str) -> Dict[str, List[Tuple[np.datetime64, int]]]:
-    series: Dict[str, List[Tuple[np.datetime64, int]]] = {}
-    query = (
-        "SELECT sr.adjusted_time_ms, d.name, d.tag, d.address, sr.sensor, sr.measurement "
-        "FROM sensor_readings sr "
-        "JOIN devices d ON sr.device_id = d.id "
-        "ORDER BY sr.adjusted_time_ms ASC, sr.id ASC"
-    )
-    with _connect_db(db_url) as conn:
-        cursor = conn.cursor()
-        cursor.execute(query)
-        for time_ms, device_name, device_tag, device_addr, sensor_name, value in cursor.fetchall():
-            if time_ms is None:
-                continue
-            timestamp = np.datetime64(int(time_ms), "ms")
-            base = device_name or device_addr or "unknown"
-            if device_tag:
-                base = f"{base} ({device_tag})"
-            series.setdefault(f"{base}:{sensor_name}", []).append(
-                (timestamp, int(value))
-            )
-    return series
-
-
-def _fetch_observations(db_url: str) -> List[Tuple[int, np.datetime64, str]]:
-    observations: List[Tuple[int, np.datetime64, str]] = []
-    query = "SELECT id, observed_at, note FROM observations ORDER BY observed_at ASC, id ASC"
-    with _connect_db(db_url) as conn:
-        cursor = conn.cursor()
-        try:
-            cursor.execute(query)
-            for obs_id, observed_at, note in cursor.fetchall():
-                if observed_at is None:
-                    continue
-                timestamp = np.datetime64(int(observed_at), "ms")
-                observations.append((int(obs_id), timestamp, str(note)))
-        except Exception:
-            return []
-    return observations
-
-
-def _fetch_series_from_ctrl(
-    ctrl_url: str,
-    *,
-    sensor: str | None,
-    device: str | None,
-    plant_name: str | None,
-    start_utc: str | None,
-    end_utc: str | None,
-    limit: int,
-) -> Dict[str, List[Tuple[np.datetime64, int]]]:
-    series: Dict[str, List[Tuple[np.datetime64, int]]] = {}
-    params: Dict[str, str] = {"format": "json", "limit": str(limit)}
-    if sensor:
-        params["sensor"] = sensor
-    if device:
-        params["device"] = device
-    if plant_name:
-        params["plant"] = plant_name
-    if start_utc:
-        params["start_utc"] = start_utc
-    if end_utc:
-        params["end_utc"] = end_utc
-
-    base_url = ctrl_url.rstrip("/")
-    url = f"{base_url}/timeseries?{urllib.parse.urlencode(params)}"
-    with urllib.request.urlopen(url, timeout=10) as resp:
-        payload = json.load(resp)
-
-    if payload.get("count") == limit:
-        print(
-            "Warning: reached the row limit; results may be truncated. "
-            "Try --limit or a narrower time window."
-        )
-
-    for row in payload.get("data", []):
-        time_ms = row.get("adjusted_time_ms")
-        if time_ms is None:
-            continue
-        timestamp = np.datetime64(int(time_ms), "ms")
-        device_name = row.get("device_name") or row.get("device_address") or "unknown"
-        sensor_name = row.get("sensor") or "sensor"
-        key = f"{device_name}:{sensor_name}"
-        series.setdefault(key, []).append((timestamp, int(row.get("measurement", 0))))
-    return series
-
-
-def _fetch_observations_from_ctrl(
-    ctrl_url: str,
-    start_utc: str | None,
-    end_utc: str | None,
-    limit: int,
-) -> List[Tuple[int, np.datetime64, str]]:
-    params: Dict[str, str] = {"limit": str(limit)}
-    if start_utc:
-        params["start_utc"] = start_utc
-    if end_utc:
-        params["end_utc"] = end_utc
-
-    base_url = ctrl_url.rstrip("/")
-    url = f"{base_url}/observations?{urllib.parse.urlencode(params)}"
-    with urllib.request.urlopen(url, timeout=10) as resp:
-        payload = json.load(resp)
-
-    observations: List[Tuple[int, np.datetime64, str]] = []
-    for row in payload.get("data", []):
-        observed_at = row.get("observed_at")
-        if observed_at is None:
-            continue
-        timestamp = np.datetime64(int(observed_at), "ms")
-        observations.append((int(row.get("id", 0)), timestamp, str(row.get("note", ""))))
-    return observations
-
+from hcultutils.fetch_data import fetch_data
 
 def _plot_raw_subsensor_readings(ax, raw_ax, times, values, ewma, name, args, locator):
     ax.plot(times, values, label=name, linewidth=1.2)
@@ -251,48 +100,11 @@ def _plot_observations(observations, sensor_names, ax, raw_axes):
                 color="black",
             )
 
-
-def _fetch_data(args):
-    observations: List[Tuple[int, np.datetime64, str]] = []
-    if args.ctrl_url:
-        series = _fetch_series_from_ctrl(
-            args.ctrl_url,
-            sensor=args.sensor,
-            device=args.device,
-            plant_name=args.plant_name,
-            start_utc=args.start_utc,
-            end_utc=args.end_utc,
-            limit=args.limit,
-        )
-        observations = _fetch_observations_from_ctrl(
-            args.ctrl_url,
-            start_utc=args.start_utc,
-            end_utc=args.end_utc,
-            limit=args.limit,
-        )
-    else:
-        config_path = Path(args.config)
-        if not config_path.exists():
-            raise FileNotFoundError(f"Missing config: {config_path}")
-
-        db_url = args.db if args.db else _load_db_url(config_path)
-        if db_url.startswith("sqlite:////"):
-            db_path = Path(db_url.replace("sqlite:////", "/"))
-            if not db_path.exists():
-                raise FileNotFoundError(f"Missing database: {db_path}")
-        series = _fetch_series(db_url)
-        observations = _fetch_observations(db_url)
-    if not series:
-        print("No sensor readings found.")
-        return None
-    return series, observations
-
-
 def main(args) -> int:
     if args.out:
         matplotlib.use("Agg")
 
-    fetched = _fetch_data(args)
+    fetched = fetch_data(args)
     if not fetched:
         return 1
     series, observations = fetched
@@ -341,7 +153,6 @@ def main(args) -> int:
         trigger_times[name] = times[np.where(trigger_bools_map[name])[0]]
         for tt in starts_t:
             raw_axes[idx].axvline(tt, color="orange", alpha=0.5, linewidth=1)
-
 
         _plot_raw_subsensor_readings(ax, raw_axes[idx], times, values, ewma, name, args, locator)
         # now plot observations on the raw axes as well
