@@ -98,6 +98,42 @@ def _plot_observations(observations, sensor_names, ax, raw_axes):
                 color="black",
             )
 
+def merge_time_intervals(intervals, merge_tol=np.timedelta64(1, 'm')):
+    """
+    Greedily merge datetime64 intervals.
+
+    Parameters
+    ----------
+    intervals : list of (np.datetime64, np.datetime64)
+        List of (start, end) tuples.
+    merge_tol : np.timedelta64
+        Maximum allowed gap between intervals to merge them.
+
+    Returns
+    -------
+    list of (np.datetime64, np.datetime64)
+    """
+    if not intervals:
+        return []
+    # Sort by start time
+    for i in intervals: print(i)
+    intervals = sorted(intervals, key=lambda x: x[0])
+
+    merged = []
+    cur_start, cur_end = intervals[0]
+
+    for start, end in intervals[1:]:
+        gap = start - cur_end  # this is np.timedelta64
+
+        if gap <= merge_tol:
+            cur_end = max(cur_end, end)
+        else:
+            merged.append((cur_start, cur_end))
+            cur_start, cur_end = start, end
+
+    merged.append((cur_start, cur_end))
+    return merged
+
 def main(args) -> int:
     if args.out:
         matplotlib.use("Agg")
@@ -128,7 +164,9 @@ def main(args) -> int:
     equilibrium_x_values = []
     equilibrium_delta_values = []
     equilibrium_sensors = []
-    event_time_intervals = []
+    equilibrium_t_values = []
+    no_event_time_intervals = []
+    equilbrium_intervals_index_values = []
 
     for idx, name in enumerate(sensor_names):
         points = series[name]
@@ -149,7 +187,7 @@ def main(args) -> int:
         for i in range(len(starts)):
             si = starts[i]
             ei = si + run_lengths[i]
-            event_time_intervals.append((times[si], times[ei-1]))
+            # event_time_intervals.append((times[si], times[ei-1]))
 
         starts_inds = np.where(starts)[0]
         for i in range(len(starts_inds) - 1):
@@ -159,11 +197,13 @@ def main(args) -> int:
             print(si, ei)
             print(f"[{ei} {next_si}]")
             val_subset = values[ei:next_si]
+            no_event_time_intervals.append((times[ei], times[next_si-1]))
             if len(val_subset) > 50:
                 deltas = np.diff(val_subset)
                 equilibrium_x_values += list(val_subset[:-1])
                 equilibrium_delta_values += list(deltas)
                 equilibrium_sensors += [idx] * len(deltas)
+                equilibrium_t_values += list(times[ei:next_si-1])
 
         for tt in starts_t:
             raw_axes[idx].axvline(tt, color="orange", alpha=0.5, linewidth=1)
@@ -171,6 +211,19 @@ def main(args) -> int:
         _plot_raw_subsensor_readings(ax, raw_axes[idx], times, values, name, args, locator)
         # now plot observations on the raw axes as well
 
+    merged_no_event_intervals = merge_time_intervals(no_event_time_intervals)
+    for idx in range(len(sensor_names)):
+        for tt, tte in merged_no_event_intervals:
+            raw_axes[idx].axvline(tt, color="green", alpha=0.5, linewidth=1)
+    equilbrium_intervals_index_values = []
+    for t in equilibrium_t_values:
+        for i, (tt, tte) in enumerate(merged_no_event_intervals):
+            if tt <= t <= tte:
+                equilbrium_intervals_index_values.append(i)
+                break
+
+    assert len(equilbrium_intervals_index_values) == len(equilibrium_t_values)
+    assert len(equilbrium_intervals_index_values) == len(equilibrium_x_values)
 
     ax.set_title("Sensor Readings")
     ax.set_xlabel("Timestamp")
@@ -229,7 +282,7 @@ def main(args) -> int:
     else:
         plt.show()
 
-    fig, axes = plt.subplots(1, 2, figsize=(12, 6), constrained_layout=True)
+    fig, axes = plt.subplots(2, 2, figsize=(12, 12), constrained_layout=True)
     ax = axes.flatten()
 
     markers = ['o', 's', '^', 'D', 'v', '*', 'P', 'X']
@@ -254,7 +307,82 @@ def main(args) -> int:
     # plt.scatter(equilibrium_x_values, equilibrium_delta_values, cmap="tab10", c=equilibrium_sensors, marker=sensor_markers, alpha=0.5)
     ax[0].set_xlabel("$X_t$")
     ax[0].set_ylabel("$\Delta x_t$")
-    fig.suptitle("Equilibrium noise distribtion")
+
+    # equilibrium_x_values = []
+    # equilibrium_delta_values = []
+    # equilibrium_sensors = []
+    # equilibrium_t_values = []
+    # no_event_time_intervals = []
+    # equilbrium_intervals_index_values = []
+
+    equilbrium_intervals_index_values = np.array(equilbrium_intervals_index_values)
+    equilibrium_x_values = np.array(equilibrium_x_values)
+    equilibrium_sensors = np.array(equilibrium_sensors)
+
+    unique_intervals = np.unique(equilbrium_intervals_index_values)
+
+    sensor_ids = np.unique(equilibrium_sensors)
+    n_sensors = len(sensor_ids)
+
+    width = 0.15
+    offsets = np.linspace(-0.3, 0.3, n_sensors)
+
+    eiv_means = []
+    eiv_standards = []
+    eiv2eidx = {}
+    for eidx, eiv in enumerate(unique_intervals):
+        interval_mask = equilbrium_intervals_index_values == eiv
+        x_vals_eiv = equilibrium_x_values[interval_mask]
+        x_vals_eiv_std = np.std(x_vals_eiv)
+        x_vals_eiv_mean = np.mean(x_vals_eiv)
+        eiv_means.append(x_vals_eiv_mean)
+        eiv_standards.append(x_vals_eiv_std)
+        eiv2eidx[eiv] = eidx
+    for i, sensor in enumerate(sensor_ids):
+        sensor_mask = equilibrium_sensors == sensor
+        x_vals = equilibrium_x_values[sensor_mask]
+        x_means = np.array([eiv_means[eiv2eidx[idx]] for idx in equilbrium_intervals_index_values[sensor_mask]])
+        x_stds = np.array([eiv_standards[eiv2eidx[idx]] for idx in equilbrium_intervals_index_values[sensor_mask]])
+        x_vals_centered = (x_vals - x_means) / x_stds
+            
+
+        # x_vals_centered = [(xv - x_vals_eiv_mean) / x_vals_eiv_std ]
+        if len(x_vals_centered) == 0:
+            continue
+
+        pos = i
+
+        ax[2].boxplot(
+            x_vals_centered,
+            positions=[pos],
+            widths=width,
+            patch_artist=True
+        )
+
+        ax[2].set_ylabel("X, centered per-equilibrium-interval")
+        ax[2].set_xlabel("Sensor")
+    # for eiv in equilbrium_intervals_index_values:
+    #     aix = np.array(equilbrium_intervals_index_values) == eiv
+    #     x_vals_in_interval = np.array(equilibrium_x_values)[aix]
+    #     sensor_vals_in_interval = np.array(equilibrium_sensors)[aix]
+    #     # now we need, per interval, a boxplot of the x values, colored by sensor
+    #     ax[2].boxplot(
+    #         x_vals_in_interval, positions=[eiv],
+    #         widths=0.6, c=colors[sensor_vals_in_interval[0] % len(colors)],
+    #         patch_artist=True
+    #     )
+
+    # Finally just plot the sensor readings in the whole domain, no equilibrium
+    for si in sensor_ids:
+        sensor_mask = equilibrium_sensors == si
+        x_vals = equilibrium_x_values[sensor_mask]
+        t_vals = np.array(equilibrium_t_values)[sensor_mask]
+        ax[3].scatter(t_vals, x_vals, label=sensor_names[si], alpha=0.5)
+        ax[3].plot(t_vals, x_vals, label=sensor_names[si], alpha=0.5)
+        ax[3].set_xlabel("t")
+        ax[3].set_ylabel("X")
+
+    fig.suptitle("Equilibrium noise distribtions")
     # ax[1].hist(equilibrium_delta_values, bins=np.arange(-10.5, 10.5, 1.0), alpha=0.7)
     # ax[1].set_xlabel("$\Delta X_t$")
     fig.savefig("equilibrium_noise.png", dpi=300)
