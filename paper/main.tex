@@ -86,48 +86,41 @@ For convenience, the system relies on automatically detected watering events pre
 X_{i,s} = h(Z_{i,s}) + \epsilon_i + \epsilon_s
 \]
 
-Where $\epsilon_i$ is Gaussian sensor measurement noise and a $\epsilon_s$ Gaussian noise offset per-sensor per-placement (accounting for factors such as sensor-specific offsets and variable depth and packing). In this equation, both the response function $h(\cdot)$ and the water content $Z$ are unknown. Given a known starting point, such as $Z_0 = 0$, and a sequence of waterings, $Z_{i,s}$ could be reconstructed as $Z_0 + \sum_{i} \Delta Z_{i,s}$ and $h(\cdot)$ determined by regression. However, we assume in general that the range $[Z_0, Z_{max}]$ of completely dry to completely saturated is not tolerable for any plant, so such watering sequences will not be obtainable outside from specific calibration experiments which we wish to avoid. We require that sequence events are close in time in order to assume the effect of drying in between waterings is close to zero. Then we have:
+Where $\epsilon_i$ is Gaussian sensor measurement noise and a $\epsilon_s$ Gaussian noise offset per-sensor per-placement (accounting for factors such as sensor-specific offsets and variable depth and packing). In this equation, both the response function $h(\cdot)$ and the water content $Z$ are unknown. For simplicity, we assume $h$ is monotonically decreasing and refer to $g=h^-1$. In terms of the data, we have samples:
 
 \[
-X_{i, s}^{(k)} = h(c + \sum_{j<i}\Delta Z_{j,s}^{(k)}) + \epsilon_i + \epsilon_s = h(c + S_{i, s}^{(k)}) + \epsilon_i + \epsilon_s
+\Big(\frac{\Delta Z}{\Delta X}\Big)_{i,s} \approx \Big(\frac{dz}{dx}\Big)_{i,s} + \epsilon_i + \epsilon_s
 \]
 
-Where $(k)$ is an index for a given sample trajectory samples from the collection of sensors. In this case, $h$ could be determined by regression except for the unknown constants $c$, which also must be determined. These unknown values $c$ determine horizontal shifts or coordinate change in the curve $X(Z)$. This model is a translation-only special case of the shape invariant model, which has an iterative solution described in \cite{lawton1972self, kneip1988convergence}. Similar models include the single-index model (usually $y_i = g(x_i^T \beta) + \epsilon_i$) \cite{ichimura-1993-index}. \\
-
-Although we do not have ideal watering sequences for calibration, it is more reasonable to assume it is possible to obtain some ad-hoc noisy sampled pairs $(Q, X)$ (where $Q = Z/Z_{max}$) from a moisture meter, such as at in fully dry or fully wet conditions, which can be used to constrain the estimation problem. Then, we want to solve:
+where:
 
 \[
-\min\limits_{h, \vec{c}}{\sum_{s=1}^S \sum_{i=1}^{n_s} \Big[ X_{s,i} - h(c_s + S_{s,i})\Big]^2 + \sum_{j=1}^m w_{j} \Big[X_j - h(Z_{max} Q_j)]^2 \Big]}
+\Big(\frac{dz}{dx}\Big)_{i,s} = g'(X_{i,s}) + \epsilon_i + \epsilon_s
 \]
 
-where the RHS term is the anchor samples, with weights $w_j$ (taken by default to be a single $w$). Optionally, we assessed additional regularisation:
-
-\[
-\lambda \sum_s (c_s - c_0)^2
-\]
-
-In order to solve this optimisation problem, an iterative approach was used where 1) given a candidate $h$, $c$ can be identified by one-dimensional optimisation and 2) given $c$, $h$ can be estimated with isotonic regression. \\
+This is a basic regression problem except we estimate a derivative instead of $g$ itself. We use Gaussian process regression \cite{williams2006gaussian} using Scikit-learn \cite{pedregosa2011scikit} to estimate $g'$. Then, we sample from $\hat{g'}$ and integrate to produce estimates and CIs for $\hat{g}$.
 
 \begin{figure}[htb!]
   \centering
   \includegraphics[width=1.0\linewidth]{images/simulation_example.png}
-  \caption{Example simulation and inference. Simulated data was unaligned at initialization to the response curve (bottom left) with randomly initialized values for $c$ (top middle). Anchor points were randomly sampled with Gaussian noise (top left). After inference, sampled data was aligned through iterative estimation of the response curve and offsets $c$ (bottom left). Bootstrap resampling was used to obtain confidence intervals (bottom middle). Finally, inference error over iteration is shown (bottom right) }
+  \caption{TODO}
   \label{fig:myfigure}
 \end{figure}
-
-\subsection{Identifiability}
-
-TODO: Does not seem to work with $(dZ, X)$ pairs, i.e. watering sequences of length 1. Papers cited in the methods have sections on identifiability.
 
 \subsection{Validation}
 
 \section{Results}
 
+\subsection{Sensor noise}
+
+\begin{enumerate}
+    \item Sensor stationary noise and drying
+    \item Per-sensor noise and per-insertion noise
+\end{enumerate}
+
 \subsection{Event detection}
 
 \subsection{Calibration simulation}
-
-\subsection{Sensor data}
 
 \subsubsection{Sensor variability}
 
