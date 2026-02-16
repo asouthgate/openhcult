@@ -337,16 +337,10 @@ def main(args) -> int:
         times_map[name] = times
         triggers, starts = classify_events(values, args.diff_lag, args.mad_window, args.mad_scale, args.z_pvalue)
         starts_t = times[starts]
-        triggers_t = times[triggers]
 
         trigger_times[name] = times[np.where(trigger_bools_map[name])[0]]
-        # for tt in trigger_times[name]:
-        #     raw_axes[idx].axvline(tt, color="red", alpha=1.0, linewidth=1)
-        deltas = np.timedelta64(int(60), 's')
-        for tt in triggers_t:
-            raw_axes[idx].axvline(tt + deltas, color="red", alpha=0.5, linestyle="--", linewidth=2)
         for tt in starts_t:
-            raw_axes[idx].axvline(tt - deltas, color="purple", alpha=0.5, linewidth=1)
+            raw_axes[idx].axvline(tt, color="orange", alpha=0.5, linewidth=1)
 
 
         _plot_raw_subsensor_readings(ax, raw_axes[idx], times, values, ewma, name, args, locator)
