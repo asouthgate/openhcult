@@ -107,7 +107,8 @@ if __name__ == "__main__":
     # 5. Plot (single plot only)
     # -----------------------------
     
-    fig, axes = plt.subplots(nrows=2, ncols=3)
+    # fig, axes = plt.subplots(nrows=2, ncols=3)
+    fig, axes = plt.subplots(2, 3, figsize=(12, 6), constrained_layout=True)
     ax = axes.flatten()
 
     ax[0].plot(sorted_xs_,sorted_zmids)
@@ -146,7 +147,7 @@ if __name__ == "__main__":
     ax[4].set_ylabel("f'(X)")
     ax[4].legend()
 
-    ax[5].scatter(sorted_xs_, sorted_zmids,)
+    ax[5].scatter(sorted_xs_, sorted_zmids)
     ax[5].plot(sorted_xs_, sorted_zmids, label="True response curve")
     ax[5].plot(X_test.flatten(), f_mean, color = 'orange', label="Integrated GP mean")
     ax[5].fill_between(
@@ -159,6 +160,8 @@ if __name__ == "__main__":
     ax[5].set_ylabel("f(X)")
     ax[5].legend()
     plt.suptitle("GP regression on derivatives with integration to reconstruct response curve")
+    plt.savefig("simulation_example.png", dpi=300)
+    # plt.tight_layout(pad=2.0)
     plt.show()
 
 
