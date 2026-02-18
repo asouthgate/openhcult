@@ -43,6 +43,7 @@ if __name__ == "__main__":
 
     agg_times = []
     agg_values = []
+    agg_deltas = []
     agg_sensors = []
     agg_reseating = []
     agg_pot_number = []
@@ -70,13 +71,15 @@ if __name__ == "__main__":
                 agg_sensors += [name] * len(points)
                 agg_reseating += [reseating] * len(points)
                 agg_pot_number += [pot_number] * len(points)
+                agg_deltas += [0] + list(np.diff([v for _, v in points]))
 
     df = pd.DataFrame({
         "time": agg_times,
         "value": agg_values,
         "sensor": agg_sensors,
         "reseating": agg_reseating,
-        "pot_number": agg_pot_number
+        "pot_number": agg_pot_number,
+        "deltas": agg_deltas,
     })
 
     # Create a date range regular grid with 1 minute time period
@@ -93,19 +96,30 @@ if __name__ == "__main__":
     colors = ["tab:blue", "tab:orange", "tab:green", "tab:red", "tab:purple", "tab:brown", "tab:pink", "tab:gray", "tab:olive", "tab:cyan"]
     sensor_colors = {name: colors[i] for i, name in enumerate(sensor_names)}
 
+    fig, axes = plt.subplots(2, 2, figsize=(12, 6), constrained_layout=True)
+    ax = axes.flatten()
+
     for reseating, subsubdf in df.groupby("reseating"):
-        plt.axvline(subsubdf["time"].min(), color="gray", linestyle="--", linewidth=1)
-        plt.axvline(subsubdf["time"].max(), color="gray", linestyle="--", linewidth=1)
+        ax[0].axvline(subsubdf["time"].min(), color="gray", linestyle="--", linewidth=1)
+        ax[0].axvline(subsubdf["time"].max(), color="gray", linestyle="--", linewidth=1)
         for sensor, subdf in subsubdf.groupby("sensor"):
-            plt.plot(subdf["time"], subdf["value"], label=name, color=sensor_colors.get(sensor, "black"))
-            plt.scatter(subdf["time"], subdf["value"], color=sensor_colors.get(sensor, "black"), s=10)
+            ax[0].plot(subdf["time"], subdf["value"], label=name, color=sensor_colors.get(sensor, "black"))
+            ax[0].scatter(subdf["time"], subdf["value"], color=sensor_colors.get(sensor, "black"), s=10)
             # plot a vertical line
 
-    plt.plot(date_values, average_values, label="Average", color="black", linewidth=2)
+
+    ax[0].plot(date_values, average_values, label="Average", color="black", linewidth=2)
 
     handles = [matplotlib.lines.Line2D([0], [0], color=color, label=sensor) for sensor, color in sensor_colors.items()]
-    plt.legend(handles=handles, title="Sensor")
-    plt.ylim(0, 3000)
+    ax[0].legend(handles=handles, title="Sensor")
+    ax[0].set_ylim(0, 3000)
+
+    for sensor, subdf in df.groupby("sensor"):
+        ax[1].hist(subdf["deltas"], bins=50, color=sensor_colors[sensor], histtype='step')
+
+    for sensor, subdf in df.groupby("sensor"):
+        ax[2].hist(subdf["value"], bins=50, color=sensor_colors[sensor], histtype='step')
+
     plt.show()
 
     # We are going to characterise 4 plots:
@@ -113,6 +127,3 @@ if __name__ == "__main__":
     # Secondly, the value distribution for a given Z/pot aggregated across reseatings, colored by sensor
     # Thirdly, boxplots showing the variation as a function of Z
     # Lastly, a plot showing one raw time series of all sensors, for illustrative purposes, across reseatings, with time point vertical lines
-
-    plt.figure(figsize=(10, 6))
-
