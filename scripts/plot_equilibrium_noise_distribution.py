@@ -7,6 +7,7 @@ import argparse
 import configparser
 import json
 import math
+import pickle
 import pandas as pd
 import os
 import sqlite3
@@ -47,6 +48,7 @@ if __name__ == "__main__":
     agg_sensors = []
     agg_reseating = []
     agg_pot_number = []
+    agg_water_volumes = []
 
     # Loop over rows of the csv, getting data
     with open(args.intervals_csv, "r") as f:
@@ -63,6 +65,11 @@ if __name__ == "__main__":
                 plant_name=None,
                 limit=100000
             )
+
+            # dump the sensor data with a date name
+            with open(f"sensor_data_{start_utc}_{end_utc}.pkl", "wb") as f:
+                pickle.dump(series, f)
+
             sensor_names = sorted(series.keys())
             for name, points in series.items():
 
@@ -72,6 +79,7 @@ if __name__ == "__main__":
                 agg_reseating += [reseating] * len(points)
                 agg_pot_number += [pot_number] * len(points)
                 agg_deltas += [0] + list(np.diff([v for _, v in points]))
+                agg_water_volumes += [pot_water_volume] * len(points)
 
     df = pd.DataFrame({
         "time": agg_times,
@@ -80,7 +88,16 @@ if __name__ == "__main__":
         "reseating": agg_reseating,
         "pot_number": agg_pot_number,
         "deltas": agg_deltas,
+        "pot_water_volume": agg_water_volumes,
     })
+
+    water_vol_means = {
+        pot_water_volume: subdf["value"].mean() for pot_water_volume, subdf in df.groupby("pot_water_volume")
+    }
+
+    # add normalized X values by subtracting the mean for each pot water volume
+    df["value_normalized"] = df.apply(lambda row: row["value"] - water_vol_means[row["pot_water_volume"]], axis=1)
+
 
     # Create a date range regular grid with 1 minute time period
     date_values = pd.date_range(start=df["time"].min(), end=df["time"].max(), freq="1min") 
@@ -93,9 +110,9 @@ if __name__ == "__main__":
         average_values.append(average)
 
 
-    colors = ["tab:blue", "tab:orange", "tab:green", "tab:red", "tab:purple", "tab:brown", "tab:pink", "tab:gray", "tab:olive", "tab:cyan"]
+    colors = ["#6565eb", "#7eded0", "#f2d091", "#d66d4d"]
     sensor_colors = {name: colors[i] for i, name in enumerate(sensor_names)}
-
+    sensor_indexes = {name: i for i, name in enumerate(sensor_names)}
     fig, axes = plt.subplots(2, 2, figsize=(12, 6), constrained_layout=True)
     ax = axes.flatten()
 
@@ -103,23 +120,58 @@ if __name__ == "__main__":
         ax[0].axvline(subsubdf["time"].min(), color="gray", linestyle="--", linewidth=1)
         ax[0].axvline(subsubdf["time"].max(), color="gray", linestyle="--", linewidth=1)
         for sensor, subdf in subsubdf.groupby("sensor"):
-            ax[0].plot(subdf["time"], subdf["value"], label=name, color=sensor_colors.get(sensor, "black"))
+            ax[0].plot(subdf["time"], subdf["value"], label=sensor_indexes[name], color=sensor_colors.get(sensor, "black"))
             ax[0].scatter(subdf["time"], subdf["value"], color=sensor_colors.get(sensor, "black"), s=10)
             # plot a vertical line
 
 
-    ax[0].plot(date_values, average_values, label="Average", color="black", linewidth=2)
+    ax[0].plot(date_values, average_values, label="Average", color="grey", linewidth=2)
 
-    handles = [matplotlib.lines.Line2D([0], [0], color=color, label=sensor) for sensor, color in sensor_colors.items()]
+    handles = [matplotlib.lines.Line2D([0], [0], color=color, label=sensor_indexes[sensor]) for sensor, color in sensor_colors.items()]
     ax[0].legend(handles=handles, title="Sensor")
     ax[0].set_ylim(0, 3000)
+    # rotate the x axis labels a small angle so the dates are visible
+    ax[0].tick_params(axis='x', rotation=45)
+    ax[0].xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d %H:%M"))
+    ax[0].set_xlabel("Time")
+    ax[0].set_ylabel("X")
 
     for sensor, subdf in df.groupby("sensor"):
-        ax[1].hist(subdf["deltas"], bins=50, color=sensor_colors[sensor], histtype='step')
+        print(sensor_colors)
+        # boxplots instead of hist
+        ax[1].boxplot(subdf["deltas"], positions=[sensor_indexes[sensor]], 
+            widths=0.6, patch_artist=True, boxprops=dict(facecolor=sensor_colors[sensor], 
+            color=sensor_colors[sensor]), medianprops=dict(color="black"))
+        ax[1].set_ylabel("$X_t - X_{t-1}$")
+
 
     for sensor, subdf in df.groupby("sensor"):
-        ax[2].hist(subdf["value"], bins=50, color=sensor_colors[sensor], histtype='step')
+        # ax[2].hist(subdf["value"], bins=10, color=sensor_colors[sensor], histtype='step')
+        # instead a hist, show boxplots
+        ax[2].boxplot(subdf["value_normalized"], positions=[sensor_indexes[sensor]], 
+            widths=0.6, patch_artist=True, boxprops=dict(facecolor=sensor_colors[sensor], 
+            color=sensor_colors[sensor]), medianprops=dict(color="black"))
+        ax[2].set_ylabel("$X - \overline{X}(Z=z)$")
 
+    # Add box plots for aggregated value data across sensors
+    water_vol_boxplots = []
+    water_vol_positions = []
+    for pot_water_volume, subdf in df.groupby("pot_water_volume"):
+        # plot a a box plot for the values in the subdf
+        print(len(subdf["pot_water_volume"]))
+        print(len(subdf["value"]))
+        water_vol_boxplots.append(subdf["value"])
+        water_vol_positions.append(float(pot_water_volume))
+    ax[3].boxplot(water_vol_boxplots, positions=water_vol_positions, 
+        widths=0.6, patch_artist=True, boxprops=dict(facecolor="grey", 
+        color="grey"), medianprops=dict(color="black"))
+
+    # ax[3].hist(df["value"], bins=10, color="grey", edgecolor="black", histtype='bar', alpha=0.8, rwidth=0.7)
+    # ax[3].hist(df["value"], bins=10, color="#4287f5")
+    ax[3].set_xlabel("Z")
+    ax[3].set_ylabel("X")
+
+    plt.savefig("equilibrium_noise_distribution.png", dpi=300)
     plt.show()
 
     # We are going to characterise 4 plots:
