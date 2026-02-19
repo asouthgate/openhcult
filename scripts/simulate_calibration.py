@@ -31,13 +31,14 @@ def derivative_gp_simulation(x, dy_noisy, y_xmax, inv_response_prior):
     # 3. GP regression on derivatives only
     # -----------------------------
     X_train = x.reshape(-1, 1)
-    prior = np.median(dy_noisy)
-    y_train = dy_noisy
+    # y_train = dy_noisy
 
+    prior = np.median(dy_noisy)    # will be < 0
+    y_train = dy_noisy - prior       # residuals around 0
     print(X_train.shape, len(y_train))
 
     kernel =  C(1.0) * RBF(length_scale=1.0, length_scale_bounds=(0.1, 100.0))
-    kernel  += WhiteKernel(noise_level=1.0, noise_level_bounds=(1e-5, 10.0))
+    kernel += WhiteKernel(noise_level=1.0, noise_level_bounds=(1e-5, 10.0))
     gp = GaussianProcessRegressor(kernel=kernel, alpha=0.0)
     gp.fit(X_train, y_train)
 
@@ -46,7 +47,7 @@ def derivative_gp_simulation(x, dy_noisy, y_xmax, inv_response_prior):
 
     # Sample derivative functions from GP posterior
     n_samples = 100
-    dy_samples = gp.sample_y(X_test, n_samples=n_samples)
+    dy_samples = gp.sample_y(X_test, n_samples=n_samples) + prior
 
     # -----------------------------
     # 4. Integrate samples
@@ -85,7 +86,7 @@ if __name__ == "__main__":
     Z_at_Xmax = 0.0
     alpha_W = 0.0
     n_samps_per_sensor = 50
-    n_sensors = 1
+    n_sensors = 10
     # X_at_Zmax = 300
     # X_unscaled = np.random.uniform(X_at_Zmax, X_at_Zmin, size=100)
     # response_func_z = lambda z: X_at_Zmax + decreasing_logistic(z, mid= 0.5 * Zmax, L=X_at_Zmin, k=0.05)
