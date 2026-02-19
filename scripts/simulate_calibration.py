@@ -11,28 +11,33 @@ from scipy.interpolate import interp1d
 from scipy.ndimage import gaussian_filter1d
 from scipy.integrate import cumulative_trapezoid
 from scipy.interpolate import PchipInterpolator, UnivariateSpline
+from scipy.integrate import cumulative_trapezoid
 
 def decreasing_logistic(x: np.ndarray, *, mid: float, L: float, k) -> np.ndarray:
     x = np.asarray(x, dtype=float)
     return L / (1.0 + np.exp(k * (x - mid)))
 
-def derivative_gp_simulation(x, dy_noisy, y_xmax):
+def derivative_gp_simulation(x, dy_noisy, y_xmax, inv_response_prior):
     import numpy as np
     import matplotlib.pyplot as plt
     from sklearn.gaussian_process import GaussianProcessRegressor
     from sklearn.gaussian_process.kernels import RBF, ConstantKernel as C, WhiteKernel
 
+    idx = np.argsort(sorted_xs_)
+    X_train = sorted_xs_[idx].reshape(-1, 1)
+    y_train = sorted_dzdx_[idx]
 
     # -----------------------------
     # 3. GP regression on derivatives only
     # -----------------------------
     X_train = x.reshape(-1, 1)
+    prior = np.median(dy_noisy)
     y_train = dy_noisy
 
     print(X_train.shape, len(y_train))
 
-    kernel = C(1.0) * RBF(length_scale=10.0, length_scale_bounds=(0.1, 20.0))
-    kernel  += WhiteKernel(noise_level=0.01, noise_level_bounds=(1e-5, 20.0))
+    kernel =  C(1.0) * RBF(length_scale=1.0, length_scale_bounds=(0.1, 100.0))
+    kernel  += WhiteKernel(noise_level=1.0, noise_level_bounds=(1e-5, 10.0))
     gp = GaussianProcessRegressor(kernel=kernel, alpha=0.0)
     gp.fit(X_train, y_train)
 
@@ -46,8 +51,15 @@ def derivative_gp_simulation(x, dy_noisy, y_xmax):
     # -----------------------------
     # 4. Integrate samples
     # -----------------------------
-    dx_test = X_test[1] - X_test[0]
-    f_samples = np.cumsum(dy_samples, axis=0) * dx_test
+    # dx_test = X_test[1] - X_test[0]
+    # f_samples = np.cumsum(dy_samples, axis=0) * dx_test
+
+    f_samples = cumulative_trapezoid(
+        dy_samples,
+        X_test,
+        axis=0,
+        initial=0
+    )
 
     # # Anchor each sample at first true value
     print(y_xmax)
@@ -63,44 +75,70 @@ def derivative_gp_simulation(x, dy_noisy, y_xmax):
 
 if __name__ == "__main__":
     import sys
-    W = 20.0
+    W = 10.0
     Zmax = 160.0
     Q_at_Xmin = 1.0
-    sigma2 = 0.1
-    sigma2_z = 0.01
-    sigma2_w = 1.0
+    sigma2 = 0.0
+    sigma2_w = 0.0
+    sigma2_x = 0.0
     X_at_Zmin = 2000
     Z_at_Xmax = 0.0
+    alpha_W = 0.0
+    n_samps_per_sensor = 50
+    n_sensors = 1
     # X_at_Zmax = 300
     # X_unscaled = np.random.uniform(X_at_Zmax, X_at_Zmin, size=100)
     # response_func_z = lambda z: X_at_Zmax + decreasing_logistic(z, mid= 0.5 * Zmax, L=X_at_Zmin, k=0.05)
 
     response_func_z = lambda z: X_at_Zmin  - (5.2/Zmax) * z - (10.2/Zmax) * z**2 + (0.01/Zmax) * z**3
     print(response_func_z(0), response_func_z(Zmax))
+
     # # now known dZ, choose dX to get derivatives; take dZ = 1, we compute response X
-    zs_ = np.random.uniform(0, Zmax-W+W/2, 200)  # /2 because of the midpointing later
-    plt.hist(zs_)
-    plt.show()
+    zs_ = np.random.uniform(0, Zmax-W-W/2, n_samps_per_sensor)  # /2 because of the midpointing later
+    zs_ = sorted(zs_)
+
     dzdx_ = []
     xs_ = []
     zmids_ = []
-    for z in zs_:
-        w = W + np.random.normal(0, np.sqrt(sigma2_w))
-        rfz = response_func_z(z) 
-        rfz_w = response_func_z(z + w)
-        zmids_.append(z + 0.5 * w)
-        dx = rfz_w - rfz
-        xs_.append(rfz + 0.5 * dx)
-        wdx = ( w / dx )  
-        dzdx_.append(wdx + np.random.normal(0, np.sqrt(sigma2_z)))
+    sensors = []
 
-    print(max(zs_))
+    for z in zs_:
+        dxs = []
+        dzdxs = []
+        zmids_.append(z + 0.5 * W)
+        for sensor in range(n_sensors):
+            if alpha_W:
+                M = np.random.gamma(alpha_W, 1.0 / alpha_W)
+            else:
+                M = 1.0
+            assert M > 0
+            W_scaled = W * M
+            assert W_scaled > 0
+            rfz = response_func_z(z) + np.random.normal(0, np.sqrt(sigma2_x))
+            rfz_w = response_func_z(z + W_scaled) + np.random.normal(0, np.sqrt(sigma2_x))
+            dx_ = (rfz_w - rfz) 
+            wdx_ = ( W / dx_ )
+            assert wdx_ < 0.0
+            dxs.append(dx_)
+            dzdxs.append(wdx_)
+        dzdx = sum(dzdxs) / len(dzdxs)
+        dx = sum(dxs) / len(dxs)
+        xs_.append(rfz + 0.5 * dx)
+        dzdx_.append(dzdx)
+
+
+    sensors = np.array(sensors)
+    xs_ = np.array(xs_)
+    zmids_ = np.array(zmids_)
+    colors = ["#A9E5BB", "#F7B32B", "#8D2D3B", "#2D1E2F", "#FEFAD8"]
+    sensor_colors = {i:colors[i] for i in sensors}
+
     sorted_zs_inds = np.argsort(zs_)
     sorted_zmids = np.array(zmids_)[sorted_zs_inds]
     sorted_dzdx_ = np.array(dzdx_)[sorted_zs_inds]
     sorted_xs_ = np.array(xs_)[sorted_zs_inds]
-
-    X_test, dy_samples, f_mean, f_std = derivative_gp_simulation(sorted_xs_, sorted_dzdx_, Zmax)
+    
+    X_test, dy_samples, f_mean, f_std = derivative_gp_simulation(sorted_xs_, sorted_dzdx_, Zmax, None)
 
 
     # -----------------------------
@@ -112,26 +150,26 @@ if __name__ == "__main__":
     ax = axes.flatten()
 
     ax[0].plot(sorted_xs_,sorted_zmids)
-    ax[0].scatter(sorted_xs_,sorted_zmids)
-    ax[0].set_xlabel("X")
+    ax[0].scatter(sorted_xs_,sorted_zmids, s=5.0)
+    ax[0].set_xlabel("$X$ ")
     ax[0].set_ylabel("Z")
 
     ax[1].plot(sorted_zmids, sorted_xs_)
-    ax[1].scatter(sorted_zmids, sorted_xs_)
+    ax[1].scatter(sorted_zmids, sorted_xs_, s=5.0)
     ax[1].set_xlabel("Z")
-    ax[1].set_ylabel("X")
+    ax[1].set_ylabel("$X$")
 
-    ax[2].plot(sorted_zmids, sorted_dzdx_)
+#    ax[2].plot(sorted_zmids, sorted_dzdx_)
     ax[2].scatter(sorted_zmids, sorted_dzdx_)
     ax[2].set_xlabel("Z")
-    ax[2].set_ylabel("$dZ/dX + \epsilon$")
+    ax[2].set_ylabel("$dZ/dX$")
 
-    ax[3].plot(sorted_xs_,  sorted_dzdx_)
+#    ax[3].plot(sorted_xs_,  sorted_dzdx_)
     ax[3].scatter(sorted_xs_, sorted_dzdx_)
     ax[3].set_xlabel("X")
-    ax[3].set_ylabel("$dZ/dX + \epsilon$")
+    ax[3].set_ylabel("$dZ/dX$")
 
-    ax[4].plot(sorted_xs_, sorted_dzdx_)
+#    ax[4].plot(sorted_xs_, sorted_dzdx_)
     ax[4].scatter(sorted_xs_, sorted_dzdx_, label="Sampled derivative data")
     dmean = np.mean(dy_samples, axis=1)
     dstd = np.std(dy_samples, axis=1)
@@ -147,7 +185,7 @@ if __name__ == "__main__":
     ax[4].set_ylabel("f'(X)")
     ax[4].legend()
 
-    ax[5].scatter(sorted_xs_, sorted_zmids)
+    ax[5].scatter(sorted_xs_, sorted_zmids, s=5.0, alpha=0.5)
     ax[5].plot(sorted_xs_, sorted_zmids, label="True response curve")
     ax[5].plot(X_test.flatten(), f_mean, color = 'orange', label="Integrated GP mean")
     ax[5].fill_between(
