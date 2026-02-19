@@ -7,6 +7,7 @@ import argparse
 import configparser
 import json
 import math
+from brokenaxes import brokenaxes
 import pickle
 import pandas as pd
 import os
@@ -79,10 +80,11 @@ if __name__ == "__main__":
                 agg_reseating += [reseating] * len(points)
                 agg_pot_number += [pot_number] * len(points)
                 agg_deltas += [0] + list(np.diff([v for _, v in points]))
-                agg_water_volumes += [pot_water_volume] * len(points)
+                agg_water_volumes += [float(pot_water_volume)] * len(points)
 
     df = pd.DataFrame({
         "time": agg_times,
+        "time_index": range(len(agg_times)),
         "value": agg_values,
         "sensor": agg_sensors,
         "reseating": agg_reseating,
@@ -110,30 +112,37 @@ if __name__ == "__main__":
         average_values.append(average)
 
 
-    colors = ["#6565eb", "#7eded0", "#f2d091", "#d66d4d"]
+    colors = ["#A9E5BB", "#F7B32B", "#8D2D3B", "#2D1E2F", "#FEFAD8"]
     sensor_colors = {name: colors[i] for i, name in enumerate(sensor_names)}
     sensor_indexes = {name: i for i, name in enumerate(sensor_names)}
     fig, axes = plt.subplots(2, 2, figsize=(12, 6), constrained_layout=True)
     ax = axes.flatten()
 
-    for reseating, subsubdf in df.groupby("reseating"):
-        ax[0].axvline(subsubdf["time"].min(), color="gray", linestyle="--", linewidth=1)
-        ax[0].axvline(subsubdf["time"].max(), color="gray", linestyle="--", linewidth=1)
+    tend =0
+    for water_volume, subsubdf in df.groupby("pot_water_volume"):
+        # ax[0].axvline(subsubdf["time"].min(), color="gray", linestyle="--", linewidth=1)
+        tend_new = 0
+        ax[0].axvline(tend, color="gray", linestyle="--", linewidth=1)
         for sensor, subdf in subsubdf.groupby("sensor"):
-            ax[0].plot(subdf["time"], subdf["value"], label=sensor_indexes[name], color=sensor_colors.get(sensor, "black"))
-            ax[0].scatter(subdf["time"], subdf["value"], color=sensor_colors.get(sensor, "black"), s=10)
+            t0 = min(time for time in subdf["time"])
+            time_arr = tend + (subdf["time"] - t0).dt.total_seconds()
+            ax[0].plot(time_arr, subdf["value"], label=sensor_indexes[name], color=sensor_colors.get(sensor, "black"))
+            ax[0].scatter(time_arr, subdf["value"], color=sensor_colors.get(sensor, "black"), s=10)
+            tend_new = max(tend_new, max(time_arr))
             # plot a vertical line
+        tend = tend_new
+        ax[0].axvline(tend, color="gray", linestyle="--", linewidth=1)
 
 
-    ax[0].plot(date_values, average_values, label="Average", color="grey", linewidth=2)
+    # ax[0].plot(date_values, average_values, label="Average", color="grey", linewidth=2)
 
     handles = [matplotlib.lines.Line2D([0], [0], color=color, label=sensor_indexes[sensor]) for sensor, color in sensor_colors.items()]
     ax[0].legend(handles=handles, title="Sensor")
     ax[0].set_ylim(0, 3000)
     # rotate the x axis labels a small angle so the dates are visible
     ax[0].tick_params(axis='x', rotation=45)
-    ax[0].xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d %H:%M"))
-    ax[0].set_xlabel("Time")
+    # ax[0].xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d %H:%M"))
+    ax[0].set_xlabel("Time index")
     ax[0].set_ylabel("X")
 
     for sensor, subdf in df.groupby("sensor"):
@@ -141,7 +150,7 @@ if __name__ == "__main__":
         # boxplots instead of hist
         ax[1].boxplot(subdf["deltas"], positions=[sensor_indexes[sensor]], 
             widths=0.6, patch_artist=True, boxprops=dict(facecolor=sensor_colors[sensor], 
-            color=sensor_colors[sensor]), medianprops=dict(color="black"))
+            color="grey"), medianprops=dict(color="black"))
         ax[1].set_ylabel("$X_t - X_{t-1}$")
 
 
@@ -150,7 +159,7 @@ if __name__ == "__main__":
         # instead a hist, show boxplots
         ax[2].boxplot(subdf["value_normalized"], positions=[sensor_indexes[sensor]], 
             widths=0.6, patch_artist=True, boxprops=dict(facecolor=sensor_colors[sensor], 
-            color=sensor_colors[sensor]), medianprops=dict(color="black"))
+            color="grey"), medianprops=dict(color="black"))
         ax[2].set_ylabel("$X - \overline{X}(Z=z)$")
 
     # Add box plots for aggregated value data across sensors
@@ -158,12 +167,10 @@ if __name__ == "__main__":
     water_vol_positions = []
     for pot_water_volume, subdf in df.groupby("pot_water_volume"):
         # plot a a box plot for the values in the subdf
-        print(len(subdf["pot_water_volume"]))
-        print(len(subdf["value"]))
         water_vol_boxplots.append(subdf["value"])
         water_vol_positions.append(float(pot_water_volume))
     ax[3].boxplot(water_vol_boxplots, positions=water_vol_positions, 
-        widths=0.6, patch_artist=True, boxprops=dict(facecolor="grey", 
+        widths=5.0,patch_artist=True, boxprops=dict(facecolor=colors[-1], 
         color="grey"), medianprops=dict(color="black"))
 
     # ax[3].hist(df["value"], bins=10, color="grey", edgecolor="black", histtype='bar', alpha=0.8, rwidth=0.7)
