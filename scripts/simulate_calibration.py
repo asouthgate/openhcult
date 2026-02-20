@@ -84,9 +84,9 @@ if __name__ == "__main__":
     sigma2_x = 0.0
     X_at_Zmin = 2000
     Z_at_Xmax = 0.0
-    alpha_W = 0.0
-    n_samps_per_sensor = 50
-    n_sensors = 10
+    alpha_W = 3.0
+    n_samps_per_sensor = 500
+    n_sensors = 4   
     # X_at_Zmax = 300
     # X_unscaled = np.random.uniform(X_at_Zmax, X_at_Zmin, size=100)
     # response_func_z = lambda z: X_at_Zmax + decreasing_logistic(z, mid= 0.5 * Zmax, L=X_at_Zmin, k=0.05)
@@ -105,7 +105,7 @@ if __name__ == "__main__":
 
     for z in zs_:
         dxs = []
-        dzdxs = []
+        # dzdxs = []
         zmids_.append(z + 0.5 * W)
         for sensor in range(n_sensors):
             if alpha_W:
@@ -118,11 +118,11 @@ if __name__ == "__main__":
             rfz = response_func_z(z) + np.random.normal(0, np.sqrt(sigma2_x))
             rfz_w = response_func_z(z + W_scaled) + np.random.normal(0, np.sqrt(sigma2_x))
             dx_ = (rfz_w - rfz) 
-            wdx_ = ( W / dx_ )
+            wdx_ = ( W_scaled / dx_ )
             assert wdx_ < 0.0
             dxs.append(dx_)
-            dzdxs.append(wdx_)
-        dzdx = sum(dzdxs) / len(dzdxs)
+            # dzdxs.append(wdx_)
+        dzdx = W / (sum(dxs) / len(dxs))
         dx = sum(dxs) / len(dxs)
         xs_.append(rfz + 0.5 * dx)
         dzdx_.append(dzdx)
