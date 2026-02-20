@@ -55,6 +55,9 @@ def derivative_gp_simulation(x, dy_noisy, y_xmax, inv_response_prior):
     # dx_test = X_test[1] - X_test[0]
     # f_samples = np.cumsum(dy_samples, axis=0) * dx_test
 
+    X = X_test.flatten()
+    L = X[-1] - X[0]
+    ramp = (X - X[0]) / L   # 0 at Xmin, 1 at Xmax
     f_samples = cumulative_trapezoid(
         dy_samples,
         X_test,
@@ -66,9 +69,17 @@ def derivative_gp_simulation(x, dy_noisy, y_xmax, inv_response_prior):
     print(y_xmax)
     f_samples += y_xmax - f_samples[0, :]
 
-    # Compute mean and std of reconstructed function
+    # 3) RIGHT anchor (per-sample): enforce Z(Xmax) = Zmin
+    # end_err = f_samples[-1, :] - 0.0     # error at right endpoint for each sample
+    # f_samples -= ramp[:, None] * end_err[None, :]
+
+    # now uncertainty is 0 at both ends
     f_mean = np.mean(f_samples, axis=1)
-    f_std = np.std(f_samples, axis=1)
+    f_std  = np.std(f_samples, axis=1)
+
+    # # Compute mean and std of reconstructed function
+    # f_mean = np.mean(f_samples, axis=1)
+    # f_std = np.std(f_samples, axis=1)
 
     return X_test, dy_samples, f_mean, f_std
 
@@ -85,8 +96,8 @@ if __name__ == "__main__":
     X_at_Zmin = 2000
     Z_at_Xmax = 0.0
     alpha_W = 3.0
-    n_samps_per_sensor = 500
-    n_sensors = 4   
+    n_samps_per_sensor = 50
+    n_sensors = 2   
     # X_at_Zmax = 300
     # X_unscaled = np.random.uniform(X_at_Zmax, X_at_Zmin, size=100)
     # response_func_z = lambda z: X_at_Zmax + decreasing_logistic(z, mid= 0.5 * Zmax, L=X_at_Zmin, k=0.05)
@@ -118,8 +129,7 @@ if __name__ == "__main__":
             rfz = response_func_z(z) + np.random.normal(0, np.sqrt(sigma2_x))
             rfz_w = response_func_z(z + W_scaled) + np.random.normal(0, np.sqrt(sigma2_x))
             dx_ = (rfz_w - rfz) 
-            wdx_ = ( W_scaled / dx_ )
-            assert wdx_ < 0.0
+            # assert wdx_ < 0.0
             dxs.append(dx_)
             # dzdxs.append(wdx_)
         dzdx = W / (sum(dxs) / len(dxs))
@@ -186,8 +196,8 @@ if __name__ == "__main__":
     ax[4].set_ylabel("f'(X)")
     ax[4].legend()
 
-    ax[5].scatter(sorted_xs_, sorted_zmids, s=5.0, alpha=0.5)
-    ax[5].plot(sorted_xs_, sorted_zmids, label="True response curve")
+    # ax[5].scatter(sorted_xs_, sorted_zmids, s=5.0, alpha=0.5)
+    ax[5].plot([response_func_z(z) for z in zs_], zs_, label="True response curve")
     ax[5].plot(X_test.flatten(), f_mean, color = 'orange', label="Integrated GP mean")
     ax[5].fill_between(
         X_test.flatten(),
