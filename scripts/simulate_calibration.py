@@ -83,6 +83,29 @@ def derivative_gp_simulation(x, dy_noisy, y_xmax, inv_response_prior):
 
     return X_test, dy_samples, f_mean, f_std
 
+prop = dict(arrowstyle="-|>,head_width=0.4,head_length=0.8",
+            shrinkA=0,shrinkB=0)
+
+def _plot_arrows(zmids, xss, dzdxs, ax, step, reverse_arrow):
+    for zi, zmid in enumerate(zmids): 
+        dzdx = dzdxs[zi]
+        xmid = xss[zi]
+        # compute little line segment forward and back using xmid, zmid, and dzdx
+        # step = W * 10
+        x1 = xmid + 0.5 * step
+        x2 = xmid - 0.5 * step
+        z1 = zmid + 0.5 * step * dzdx
+        z2 = zmid - 0.5 * step * dzdx
+        # ax[0].plot([x1, x2], [z1, z2], color='red', alpha=0.5)
+        # add an arrowhead
+        if reverse_arrow:
+            # ax.arrow(x1, z1, x2-x1, z2-z1, head_width=5, head_length=10, fc='black', ec='black', alpha=0.5)
+            ax.annotate("", xy=(x2, z2), xytext=(x1, z1), arrowprops=prop, alpha=0.5)
+        else:
+            # ax.arrow(x2, z2, x1-x2, z1-z2, head_width=5, head_length=10, fc='black', ec='black', alpha=0.5) 
+            ax.annotate("", xy=(x1, z1), xytext=(x2, z2), arrowprops=prop, alpha=0.5)
+        ax.scatter(xmid, zmid, color='black', s=10)
+
 
 
 if __name__ == "__main__":
@@ -160,15 +183,30 @@ if __name__ == "__main__":
     fig, axes = plt.subplots(2, 3, figsize=(12, 6), constrained_layout=True)
     ax = axes.flatten()
 
-    ax[0].plot(sorted_xs_,sorted_zmids)
-    ax[0].scatter(sorted_xs_,sorted_zmids, s=5.0)
+    ax[0].plot([response_func_z(z) for z in zs_], zs_, color='blue', alpha=0.5)
+    _plot_arrows(zmids_, xs_, dzdx_, ax[0], W * 5, True)
+    # for zi, zmid in enumerate(zmids_): 
+    #     dzdx = dzdx_[zi]
+    #     xmid = xs_[zi]
+    #     # compute little line segment forward and back using xmid, zmid, and dzdx
+    #     step = W * 10
+    #     x1 = xmid + 0.5 * step
+    #     x2 = xmid - 0.5 * step
+    #     z1 = zmid + 0.5 * step * dzdx
+    #     z2 = zmid - 0.5 * step * dzdx
+    #     # ax[0].plot([x1, x2], [z1, z2], color='red', alpha=0.5)
+    #     # add an arrowhead
+    #     ax[0].arrow(x1, z1, x2-x1, z2-z1, head_width=5, head_length=10, fc='red', ec='red', alpha=0.5)
+    #     ax[0].scatter(xmid, zmid, color='red', s=10)
+    # ax[0].scatter(sorted_xs_,sorted_zmids, s=5.0)
     ax[0].set_xlabel("$X$ ")
     ax[0].set_ylabel("Z")
 
-    ax[1].plot(sorted_zmids, sorted_xs_)
-    ax[1].scatter(sorted_zmids, sorted_xs_, s=5.0)
+    ax[1].plot(zs_, [response_func_z(z) for z in zs_])
+    # ax[1].scatter(sorted_zmids, sorted_xs_, s=5.0)
     ax[1].set_xlabel("Z")
     ax[1].set_ylabel("$X$")
+    _plot_arrows(xs_, zmids_, 1.0/np.array(dzdx_), ax[1], 5.0, False)
 
 #    ax[2].plot(sorted_zmids, sorted_dzdx_)
     ax[2].scatter(sorted_zmids, sorted_dzdx_)
@@ -212,81 +250,3 @@ if __name__ == "__main__":
     plt.savefig("simulation_example.png", dpi=300)
     # plt.tight_layout(pad=2.0)
     plt.show()
-
-
-    # ax0.scatter(anchor_q, anchor_x, c="black", s=30)
-    # ax0.set_title(f"Anchor points ($\sigma^2 = {anchor_sigma2}$)")
-    # ax0.set_ylabel("X")
-    # ax0.set_xlabel("Q")
-
-    # for s in range(nS):
-    #     S, X, hit_zmax = samps[s]
-    #     Zrs = Z_real[s]
-
-    #     Zest0 = S + c0[s] * Zmax_true
-    #     ax2.plot(
-    #         Zest0,
-    #         X,
-    #         c="#6b6b6b",
-    #         linestyle="--",
-    #         label="Unaligned sequences" if s == 0 else None,
-    #     )
-    #     ax2.plot(
-    #         Zrs,
-    #         X,
-    #         c="#424161",
-    #         label="Samples" if s == 0 else None,
-    #     )
-
-    #     Zest = S + cest[s] * zest
-    #     ax3.plot(
-    #         Zest,
-    #         X,
-    #         c="#6b6b6b",
-    #         linestyle="--",
-    #         label="Aligned sequences" if s == 0 else None,
-    #     )
-    #     ax3.plot(
-    #         Zrs,
-    #         X,
-    #         c="#313045",
-    #         label="Samples" if s == 0 else None,
-    #     )
-
-    # ax1.hist(c0, bins=20, color="#424161", alpha=1.0)
-    # ax1.set_title("$c_0$ histogram (uniform distribution)")
-    # ax1.set_xlabel("c0")
-    # ax1.set_ylabel("Count")
-    # ax2.set_title("Data alignment with randomly initialized $c_0$")
-    # ax2.set_ylabel("X")
-    # ax2.set_xlabel("Z")
-    # ax2.legend(frameon=False)
-
-    # ax3.set_title("Data alignment with estimated $\hat{c}$")
-    # ax3.set_ylabel("X")
-    # ax3.set_xlabel("Z")
-    # ax3.legend(frameon=False)
-
-    # q_grid = np.linspace(0.0, 1.0, num=200)
-    # ax4.plot(q_grid, response_func_q(q_grid), c="#4136a3", label="True $h$")
-    # ax4.plot(q_grid, hest(q_grid), c="#e6a532", label="Estimated $\hat{h}$")
-    # ax4.plot(q_grid, hest_anchor_only(q_grid), c="red", label="Estimated $\hat{h}$ (anchors only)")
-    # if len(hests) > 0:
-    #     boot_preds = np.vstack([h(q_grid) for h in hests])
-    #     lo = np.percentile(boot_preds, 2.5, axis=0)
-    #     hi = np.percentile(boot_preds, 97.5, axis=0)
-    #     ax4.fill_between(q_grid, lo, hi, color="#e6a532", alpha=0.2, label="Bootstrap 95% CI")
-    # ax4.set_title("Response curve")
-    # ax4.set_xlabel("Z")
-    # ax4.set_ylabel("X")
-    # ax4.legend(frameon=False)
-
-    # ax5.plot(range(1, len(errors) + 1), np.log(errors), c="#313045", alpha=0.8)
-    # ax5.set_title("Inference error (weighted SSE)")
-    # ax5.set_xlabel("Iteration")
-    # ax5.set_ylabel("Log Error")
-
-    # fig.suptitle(f"Example result with {n_boot} bootstraps ($W={W},\sigma^2={sigma2},h=1/(1 - exp(-x))$)", fontsize=16)
-    # plt.tight_layout()
-    # plt.savefig("simulation_example.png")
-    # plt.show()
