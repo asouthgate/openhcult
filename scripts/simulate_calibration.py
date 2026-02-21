@@ -38,9 +38,9 @@ def derivative_gp_simulation(x, dy_noisy, y_xmax, inv_response_prior):
     y_train = dy_noisy - prior       # residuals around 0
     print(X_train.shape, len(y_train))
 
-    kernel =  C(1.0) * RBF(length_scale=1.0, length_scale_bounds=(0.1, 100.0))
-    kernel += WhiteKernel(noise_level=1.0, noise_level_bounds=(1e-5, 10.0))
-    gp = GaussianProcessRegressor(kernel=kernel, alpha=0.0)
+    kernel =  C(1.0) * RBF(length_scale=50.0, length_scale_bounds=(0.1, 200.0))
+    # kernel += WhiteKernel(noise_level=1.0, noise_level_bounds=(1e-5, 10.0))
+    gp = GaussianProcessRegressor(kernel=kernel, alpha=0.01)
     gp.fit(X_train, y_train)
 
     # Dense grid for prediction
@@ -162,7 +162,7 @@ if __name__ == "__main__":
     n_samps_per_sensor = 50
     n_sensors = 2   
 
-    gamma_var_zmin = 0.3
+    gamma_var_zmin = 0.4
     gamma_var_zmax = 0.001
     # X_at_Zmax = 300
     # X_unscaled = np.random.uniform(X_at_Zmax, X_at_Zmin, size=100)
@@ -178,6 +178,9 @@ if __name__ == "__main__":
     zs_ = sorted(zs_)
 
     dzdx_ = []
+    dxs_all = []
+    dzs_ = []
+    dxs_ = []
     xs_ = []
     zmids_ = []
     sensors = []
@@ -201,16 +204,18 @@ if __name__ == "__main__":
             # assert wdx_ < 0.0
             dxs.append(dx_)
             # dzdxs.append(wdx_)
+        dxs_all.append(dxs)
         dzdx = W / (sum(dxs) / len(dxs))
         dx = sum(dxs) / len(dxs)
         xs_.append(rfz + 0.5 * dx)
         dzdx_.append(dzdx)
+        dxs_.append(dx)
 
 
     sensors = np.array(sensors)
     xs_ = np.array(xs_)
     zmids_ = np.array(zmids_)
-    colors = ["#A9E5BB", "#F7B32B", "#8D2D3B", "#2D1E2F", "#FEFAD8"]
+    colors = ["brown", "green", "purple", "red"]
     sensor_colors = {i:colors[i] for i in sensors}
 
     sorted_zs_inds = np.argsort(zs_)
@@ -235,6 +240,33 @@ if __name__ == "__main__":
     gamma_ci_z_lower = [get_gamma_05_percent_ci(z, Zmax, gamma_var_zmin, gamma_var_zmax) for z in zs_]
     ax[0].plot(zs_, gamma_mean_z, label="Gamma noise mean")
     ax[0].fill_between(zs_, gamma_ci_z_lower, gamma_ci_z_upper, alpha=0.3, label="Gamma noise 90% CI")
+    ax[0].set_xlabel("Z")
+    ax[0].set_ylabel("Gamma noise")
+
+    for sdi, sensor_dxs in enumerate(dxs_all):
+        z = zs_[sdi] 
+        for si, sdx in enumerate(sensor_dxs):
+            # print(si)    
+            # plot vertical line of length sdx at position z, centered on response(z)
+            response = response_func_z(z)
+            ax[1].plot([z, z], [response, response+sdx], color=colors[si], alpha=1.0, label=f"Sensor {si}" if sdi == 0 else None)
+            ax[1].plot([z, z+W], [response+sdx, response+sdx], color=colors[si], alpha=1.0)
+    ax[1].set_xlabel("Z")
+    ax[1].set_ylabel("X")
+    ax[1].legend()
+
+    for sdi, sensor_dxs in enumerate(dxs_all):
+        z = zs_[sdi] 
+        for si, sdx in enumerate(sensor_dxs):
+            # print(si)    
+            # plot vertical line of length sdx at position z, centered on response(z)
+            response = response_func_z(z)
+            ax[2].plot([response+sdx, response+sdx], [z, z+W], color=colors[si], alpha=1.0, label=f"Sensor {si}" if sdi == 0 else None)
+            ax[2].plot([response, response+sdx], [z, z], color=colors[si], alpha=1.0)
+    ax[2].set_xlabel("X")
+    ax[2].set_ylabel("Z")
+    ax[2].legend()
+
 
     ax[3].plot([response_func_z(z) for z in zs_], zs_, color='blue', alpha=0.5)
     _plot_arrows(zmids_, xs_, dzdx_, ax[3], W * 5, True)
