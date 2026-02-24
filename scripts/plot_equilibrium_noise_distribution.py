@@ -57,6 +57,7 @@ if __name__ == "__main__":
         for line in f:
             line = line.strip()
             start_utc, end_utc, reseating, pot_number, pot_water_volume = line.split(",")
+            print(f"Fetching data for interval {start_utc} to {end_utc}, reseating {reseating}, pot number {pot_number}, pot water volume {pot_water_volume}")
             series = fetch_series_from_ctrl(
                 args.ctrl_url,
                 start_utc=start_utc,

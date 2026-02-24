@@ -32,7 +32,7 @@ def _plot_raw_subsensor_readings(ax, raw_ax, times, values, name, args, locator)
     raw_ax.set_title(name)
     raw_ax.set_xlabel("Timestamp")
     raw_ax.set_ylabel("Value")
-    raw_ax.set_ylim(1, 2500)
+    raw_ax.set_ylim(1, 3300)
     raw_ax.xaxis.set_major_locator(locator)
     raw_ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
     raw_ax.tick_params(axis="x", rotation=30)
@@ -215,6 +215,7 @@ def main(args) -> int:
     for idx in range(len(sensor_names)):
         for tt, tte in merged_no_event_intervals:
             raw_axes[idx].axvline(tt, color="green", alpha=0.5, linewidth=1)
+            
     equilbrium_intervals_index_values = []
     for t in equilibrium_t_values:
         for i, (tt, tte) in enumerate(merged_no_event_intervals):
@@ -228,7 +229,7 @@ def main(args) -> int:
     ax.set_title("Sensor Readings")
     ax.set_xlabel("Timestamp")
     ax.set_ylabel("Value")
-    ax.set_ylim(1, 2500)
+    ax.set_ylim(1, 3300)
     ax.xaxis.set_major_locator(locator)
     ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
     ax.legend()
