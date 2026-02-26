@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 from configparser import ConfigParser
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import json
 import os
 from pathlib import Path
@@ -37,6 +37,13 @@ def _add_base_args(parser):
         default=None,
         help="Query data from hcultctrl instead of SQLite (e.g. http://127.0.0.1:8000)",
     )
+    parser.add_argument(
+        "--hours",
+        default=None,
+        type=int,
+        help="Last number of hours to process",
+    )
+
 
 def _add_plotter_args(parser):
     parser.add_argument(
@@ -185,12 +192,6 @@ def _add_infer_args(parser):
         default=300,
         help="Merge nearby inferred events within this distance (in seconds)",
     )
-    # parser.add_argument(
-    #     "--ewma-alpha",
-    #     type=float,
-    #     default=0.1,
-    #     help="EWMA alpha for baseline (0 < alpha <= 1)",
-    # )
 
 
 
@@ -530,6 +531,10 @@ def main() -> int:
     devices_name.add_argument("name", type=str)
 
     args = parser.parse_args()
+    if args.hours is not None:
+        now = datetime.now(timezone.utc)
+        hours_ago = now - timedelta(hours=args.hours)
+        args.start_utc = hours_ago.isoformat()
     if args.command == 'plot_timeseries':
         plot_timeseries.main(args)
         return 0
