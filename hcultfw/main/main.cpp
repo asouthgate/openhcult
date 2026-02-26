@@ -8,6 +8,7 @@
 #include "esp_sleep.h"
 #include "esp_timer.h"
 #include "esp_adc/adc_oneshot.h" // For ADC readings
+#include "esp_system.h"
 #include "nvs_flash.h"
 #include "esp_bt.h"
 #include "esp_pm.h"
@@ -163,12 +164,12 @@ static void take_sensor_readings(FirmwareState &state) {
   for (size_t i = 0; i < kSensorCount; ++i) {
     state.last_sensor_values[i] = sensor_values[i];
   }
-  state.last_timestamp_s =
-      g_uptime_s + static_cast<uint32_t>(esp_timer_get_time() / 1000000LL);
+  // Use a random nonce instead of a timestamp for deduplication.
+  state.last_timestamp_s = esp_random();
 
   ESP_LOGI(TAG, "Sensor value 1: %.2f", sensor_values[0]);
   ESP_LOGI(TAG, "Sensor value 2: %.2f", sensor_values[1]);
-  ESP_LOGI(TAG, "Sensor timestamp: %u", state.last_timestamp_s);
+  ESP_LOGI(TAG, "Sensor nonce: %u", state.last_timestamp_s);
 }
 
 // Turn off LEDs and sensor power pins, then enter deep sleep.
