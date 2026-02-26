@@ -13,14 +13,14 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 
-from hcultinf.inference import (
-    compute_ewma,
-    compute_zscore,
-    detect_hysteresis,
-    detect_z_triggers,
-    merge_events,
-)
+# from hcultinf.inference import (
+#     compute_zscore,
+#     detect_hysteresis,
+#     detect_z_triggers,
+#     merge_events,
+# )
 
+from hcultinf.inference import classify_events
 
 def _iso_utc(ms: int) -> str:
     return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).isoformat().replace("+00:00", "Z")
@@ -140,22 +140,10 @@ def run(args: argparse.Namespace) -> int:
     for key, points in series.items():
         times_ms = np.array([t for t, _ in points], dtype=np.int64)
         values = np.array([v for _, v in points], dtype=float)
-        baseline = compute_ewma(values, args.ewma_alpha)
-        zscores = compute_zscore(
-            values, lag=args.diff_lag, window=args.mad_window, c=args.mad_scale
-        )
-        triggers = detect_z_triggers(zscores, args.z_pvalue)
-        confirmed, flags = detect_hysteresis(
-            values,
-            baseline,
-            triggers,
-            window=args.hyst_window,
-            threshold=args.resid_threshold,
-            k=args.hyst_k,
-        )
-        confirmed = confirmed[flags]
-        merged = merge_events(times_ms, confirmed, args.merge_distance_sec * 1000)
-        for trigger_idx in merged:
+        triggers, run_lengths, starts = classify_events(values, args.diff_lag, args.mad_window, args.mad_scale, args.z_pvalue)
+
+        start_indexes = np.where(starts)[0]
+        for trigger_idx in start_indexes:
             if trigger_idx < 0 or trigger_idx >= times_ms.size:
                 continue
             observed_at = _iso_utc(int(times_ms[trigger_idx]))
@@ -173,13 +161,9 @@ def run(args: argparse.Namespace) -> int:
                 "AUTO: "
                 f"{key} "
                 f"z_p={args.z_pvalue} "
-                f"ewma={args.ewma_alpha} "
                 f"lag={args.diff_lag} "
                 f"madw={args.mad_window} "
                 f"mads={args.mad_scale} "
-                f"rthr={args.resid_threshold} "
-                f"hwin={args.hyst_window} "
-                f"hk={args.hyst_k}"
             )
             _post_observation(ctrl_url, note, observed_at)
             inserted += 1

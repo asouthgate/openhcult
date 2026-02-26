@@ -55,42 +55,6 @@ def _add_plotter_args(parser):
         help="Filter to a plant name (requires hcultctrl)",
     )
     parser.add_argument(
-        "--z-pvalue",
-        type=float,
-        default=0.00001,
-        help="Two-sided p-value threshold for z(t) triggers",
-    )
-    parser.add_argument(
-        "--limit",
-        type=int,
-        default=100000,
-        help="Limit number of rows when querying hcultctrl",
-    )
-    parser.add_argument(
-        "--diff-lag",
-        type=int,
-        default=3,
-        help="Lag (in samples) for d(t) = s(t) - s(t-h)",
-    )
-    parser.add_argument(
-        "--mad-window",
-        type=int,
-        default=500,
-        help="Window size (in samples) for rolling MAD",
-    )
-    parser.add_argument(
-        "--mad-scale",
-        type=float,
-        default=1.4826,
-        help="Scale factor for MAD -> sigma",
-    )
-    parser.add_argument(
-        "--ewma-alpha",
-        type=float,
-        default=0.1,
-        help="EWMA alpha for baseline (0 < alpha <= 1)",
-    )
-    parser.add_argument(
         "--out",
         default=None,
         help="Write PNG to this path instead of showing a window",
@@ -186,10 +150,10 @@ def _pretty_print(value, indent=0):
 
 def _add_infer_args(parser):
     parser.add_argument(
-        "--hours",
+        "--z-pvalue",
         type=float,
-        default=1.0,
-        help="Lookback window in hours",
+        default=0.000001,
+        help="Two-sided p-value threshold for z(t) triggers",
     )
     parser.add_argument(
         "--limit",
@@ -200,13 +164,13 @@ def _add_infer_args(parser):
     parser.add_argument(
         "--diff-lag",
         type=int,
-        default=1,
+        default=7,
         help="Lag (in samples) for d(t) = s(t) - s(t-h)",
     )
     parser.add_argument(
         "--mad-window",
         type=int,
-        default=50,
+        default=100,
         help="Window size (in samples) for rolling MAD",
     )
     parser.add_argument(
@@ -216,41 +180,18 @@ def _add_infer_args(parser):
         help="Scale factor for MAD -> sigma",
     )
     parser.add_argument(
-        "--ewma-alpha",
-        type=float,
-        default=0.1,
-        help="EWMA alpha for baseline (0 < alpha <= 1)",
-    )
-    parser.add_argument(
-        "--z-pvalue",
-        type=float,
-        default=0.000001,
-        help="Two-sided p-value threshold for z(t) triggers",
-    )
-    parser.add_argument(
-        "--resid-threshold",
-        type=float,
-        default=15.0,
-        help="Absolute residual threshold for hysteresis test",
-    )
-    parser.add_argument(
-        "--hyst-window",
+        "--merge_distance_sec",
         type=int,
-        default=20,
-        help="Window size (in samples) around trigger for hysteresis",
+        default=300,
+        help="Merge nearby inferred events within this distance (in seconds)",
     )
-    parser.add_argument(
-        "--hyst-k",
-        type=int,
-        default=3,
-        help="Required count of |r(t)| > threshold within window",
-    )
-    parser.add_argument(
-        "--merge-distance-sec",
-        type=int,
-        default=240,
-        help="Minimum seconds between stored observations",
-    )
+    # parser.add_argument(
+    #     "--ewma-alpha",
+    #     type=float,
+    #     default=0.1,
+    #     help="EWMA alpha for baseline (0 < alpha <= 1)",
+    # )
+
 
 
 def _add_metadata_arg(parser):
@@ -479,7 +420,8 @@ def main() -> int:
     )
     _add_base_args(plot_timeseries_parser)
     _add_plotter_args(plot_timeseries_parser)
-
+    _add_infer_args(plot_timeseries_parser)
+    print(plot_timeseries_parser)
     infer_events_parser = subparsers.add_parser(
         "infer_events",
         formatter_class=argparse.RawDescriptionHelpFormatter,
