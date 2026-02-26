@@ -134,8 +134,8 @@ if __name__ == "__main__":
     n_samps_per_sensor = 50
     n_sensors = 3
 
-    gamma_var_zmin = 0.8
-    gamma_var_zmax = 0.001
+    gamma_var_zmin = 0.3
+    gamma_var_zmax = 0.3  # set the same
 
     # response_func_z = lambda z: X_at_Zmin  - (5.2/Zmax) * z - (10.2/Zmax) * z**2 + (0.01/Zmax) * z**3
     # set response func to an exponential intersecting at X_at_Zmin
