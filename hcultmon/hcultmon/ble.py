@@ -13,9 +13,11 @@ ADV_COMPANY_ID = 0xFFFF
 ADV_MAGIC = b"HC"
 ADV_VERSION = 1
 ADV_PAYLOAD_LEN = 12
+
 _last_adv_payload = {}
+
 def _parse_adv_payload(data):
-    """Parse advertise-only payload: magic(2), version, count, values, timestamp_s."""
+    """Parse advertise-only payload: magic(2), version, count, values, nonce."""
     if len(data) < ADV_PAYLOAD_LEN:
         return None
     if data[0:2] != ADV_MAGIC:
@@ -36,17 +38,17 @@ def _parse_adv_payload(data):
         value = int.from_bytes(data[offset : offset + 2], byteorder="little")
         values.append(value)
         offset += 2
-    timestamp_s = int.from_bytes(data[offset : offset + 4], byteorder="little")
-    return {"sensor_count": sensor_count, "values": values, "timestamp_s": timestamp_s}
+    nonce = int.from_bytes(data[offset : offset + 4], byteorder="little")
+    return {"sensor_count": sensor_count, "values": values, "nonce": nonce}
 
 def _handle_adv_payload(payload, dbcon, device):
     """Persist advertise-only payload readings."""
     collection_time_ms = int(time.time() * 1000)
     logging.info(
-        "Adv payload from %s: values=%s timestamp_s=%d",
+        "Adv payload from %s: values=%s nonce=%d",
         device.address,
         payload["values"],
-        payload["timestamp_s"],
+        payload["nonce"],
     )
     rows = []
     for i, value in enumerate(payload["values"], start=1):
@@ -54,7 +56,7 @@ def _handle_adv_payload(payload, dbcon, device):
             (
                 f"sensor{i}",
                 value,
-                payload["timestamp_s"] * 1_000_000,
+                payload["nonce"] * 1_000_000,
                 collection_time_ms,
                 collection_time_ms,
             )
@@ -110,7 +112,7 @@ async def run_monitor(db_con):
             device.name or DEVICE_NAME_HINT,
             device.address,
         )
-        fingerprint = (payload["timestamp_s"], tuple(payload["values"]))
+        fingerprint = (payload["nonce"], tuple(payload["values"]))
         last = _last_adv_payload.get(device.address)
         if last == fingerprint:
             logging.info("Skipping duplicate payload from %s", device.address)
