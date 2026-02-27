@@ -106,7 +106,7 @@ def main(args) -> int:
         times = np.array([t for t, _ in points])
         values = np.array([v for _, v in points], dtype=float)
         times_map[name] = times
-        _, run_lengths, starts = classify_events(values, args.diff_lag, args.mad_window, args.mad_scale, args.z_pvalue)
+        _, run_lengths, starts = classify_events(times, values, args.diff_lag_ms, args.mad_window_ms, args.mad_scale, args.z_pvalue)
         starts_t = times[starts]
 
         # compute the event time intervals

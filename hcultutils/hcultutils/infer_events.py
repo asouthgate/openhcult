@@ -40,36 +40,32 @@ def _post_observation(ctrl_url: str, note: str, observed_at: str) -> None:
         resp.read()
 
 
-def _get_non_duplicate_events(series, prev_event_times, diff_lag, mad_window, mad_scale, z_pvalue, merge_distance_sec): 
+def _get_non_duplicate_events(series, prev_event_times, diff_lag_ms, mad_window_ms, mad_scale, z_pvalue, merge_distance_sec): 
     events = [] # (note, observed_at)
     for sensor, points in series.items():
         times_ms = np.array([t.astype(np.int64) for t, _ in points], dtype=np.int64)
         values = np.array([v for _, v in points], dtype=float)
-        _, _, starts = classify_events(values, diff_lag, mad_window, mad_scale, z_pvalue)
+        _, _, starts = classify_events(times_ms, values, diff_lag_ms, mad_window_ms, mad_scale, z_pvalue)
         starts_t = sorted(times_ms[starts])
 
         for tt in starts_t:
-            candidate_neighbors = np.array(list(prev_event_times) + [tk for tk in starts_t if tt != tk])
+            candidate_nbrs = np.array(list(prev_event_times) + [tk for tk in starts_t if tt != tk])
             observed_at = _iso_utc(int(tt))
-            if candidate_neighbors.size:
-                candidate = int(tt)
-                pos = int(np.searchsorted(candidate_neighbors, candidate))
-                nearby = []
-                if pos > 0:
-                    nearby.append(candidate_neighbors[pos - 1])
-                if pos < prev_event_times.size:
-                    nearby.append(candidate_neighbors[pos])
-                if any(abs(candidate - t) <= merge_distance_sec * 1000 for t in nearby):
-                    continue
-            note = (
-                "AUTO: "
-                f"{sensor} "
-                f"z_p={z_pvalue} "
-                f"lag={diff_lag} "
-                f"madw={mad_window} "
-                f"mads={mad_scale} "
-            )
-            events.append((note, observed_at))
+            nbrs = []
+            for cnbr in candidate_nbrs:
+                delta_sec = abs((cnbr - tt) / 1000)
+                if delta_sec <= merge_distance_sec:
+                    nbrs.append(cnbr)
+            if not len(nbrs):
+                note = (
+                    "AUTO: "
+                    f"{sensor} "
+                    f"z_p={z_pvalue} "
+                    f"lag={diff_lag_ms} "
+                    f"madw={mad_window_ms} "
+                    f"mads={mad_scale} "
+                )
+                events.append((note, observed_at))
     return events
 
 
@@ -101,8 +97,8 @@ def run(args: argparse.Namespace) -> int:
     events = _get_non_duplicate_events(
         series,
         auto_times_np,
-        args.diff_lag,
-        args.mad_window,
+        args.diff_lag_ms,
+        args.mad_window_ms,
         args.mad_scale,
         args.z_pvalue,
         args.merge_distance_sec,

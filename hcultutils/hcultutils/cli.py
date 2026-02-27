@@ -169,15 +169,15 @@ def _add_infer_args(parser):
         help="Limit number of rows when querying hcultctrl",
     )
     parser.add_argument(
-        "--diff-lag",
+        "--diff-lag-ms",
         type=int,
-        default=5,
+        default=5000 * 60 * 4,
         help="Lag (in samples) for d(t) = s(t) - s(t-h)",
     )
     parser.add_argument(
-        "--mad-window",
+        "--mad-window-ms",
         type=int,
-        default=80,
+        default=5000 * 60 * 20,
         help="Window size (in samples) for rolling MAD",
     )
     parser.add_argument(
@@ -189,7 +189,7 @@ def _add_infer_args(parser):
     parser.add_argument(
         "--merge_distance_sec",
         type=int,
-        default=60 * 10,
+        default=600,
         help="Merge nearby inferred events within this distance (in seconds)",
     )
 
