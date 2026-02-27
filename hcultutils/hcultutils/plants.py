@@ -42,9 +42,8 @@ def _render_health_payload(payload):
             payload["statuses"] = deduped
 
 
-def _list_plants(ctrl_url: str, args) -> int:
-    base = ctrl_url.rstrip("/")
-    payload = request_ctrl("GET", f"{base}/plants")
+def _list_plants(base_url: str) -> int:
+    payload = request_ctrl("GET", f"{base_url}/plants")
     for row in payload.get("data", []):
         print(
             f"{row.get('id')}\t{row.get('plant_name')}\t{row.get('species_id') or ''}\t{row.get('species_name') or ''}\t{row.get('tag') or ''}\t{row.get('metadata') or ''}"
@@ -52,130 +51,122 @@ def _list_plants(ctrl_url: str, args) -> int:
     return 1
 
 
-def _add_plant(ctrl_url: str, args) -> int:
-    base = ctrl_url.rstrip("/")
+def _add_plant(base_url: str, plant_name, species_name, tag, metadata) -> int:
     payload = {
-        "plant_name": args.plant_name,
-        "species_name": args.species_name,
-        "tag": args.tag,
-        "metadata": json.loads(args.metadata) if args.metadata else None,
+        "plant_name": plant_name,
+        "species_name": species_name,
+        "tag": tag,
+        "metadata": json.loads(metadata) if metadata else None,
     }
-    created = request_ctrl("POST", f"{base}/plants", payload)
+    created = request_ctrl("POST", f"{base_url}/plants", payload)
     print(f"Created plant {created.get('id')}")
     return 0
 
 
-def _update_plant(ctrl_url: str, args) -> int:
-    base = ctrl_url.rstrip("/")
+def _update_plant(base_url: str, species_id, tag, metadata, plant_id) -> int:
     payload = {}
-    if args.species_id is not None:
-        payload["species_id"] = args.species_id
-    if args.tag is not None:
-        payload["tag"] = args.tag
-    if args.metadata is not None:
-        payload["metadata"] = json.loads(args.metadata)
-    updated = request_ctrl("PATCH", f"{base}/plants/{args.id}", payload)
+    if species_id is not None:
+        payload["species_id"] = species_id
+    if tag is not None:
+        payload["tag"] = tag
+    if metadata is not None:
+        payload["metadata"] = json.loads(metadata)
+    updated = request_ctrl("PATCH", f"{base_url}/plants/{plant_id}", payload)
     print(f"Updated plant {updated.get('id')}")
     return 0
 
 
-def _delete_plant(ctrl_url: str, args) -> int:
-    base = ctrl_url.rstrip("/")
-    deleted = request_ctrl("DELETE", f"{base}/plants/{args.plant_name}")
+def _delete_plant(base_url: str, plant_name) -> int:
+    deleted = request_ctrl("DELETE", f"{base_url}/plants/{plant_name}")
     print(f"Deleted plant {deleted.get('plant_name')}")
     return 0
 
 
-def _get_health(ctrl_url: str, args) -> int:
-    base = ctrl_url.rstrip("/")
-    if args.plant_name is None:
-        payload = request_ctrl("GET", f"{base}/plants/health")
+def _get_health(base_url: str, plant_name) -> int:
+    if plant_name is None:
+        payload = request_ctrl("GET", f"{base_url}/plants/health")
         if isinstance(payload, dict) and "data" in payload:
             for row in payload.get("data", []):
                 _render_health_payload(row)
         pretty_print(payload)
         print()
         return 0
-    plant_name = quote(args.plant_name, safe="")
-    payload = request_ctrl("GET", f"{base}/plants/{plant_name}/health")
+    plant_name = quote(plant_name, safe="")
+    payload = request_ctrl("GET", f"{base_url}/plants/{plant_name}/health")
     _render_health_payload(payload)
     pretty_print(payload)
     print()
     return 0
 
 
-def _assign_plant(ctrl_url: str, args) -> int:
-    base = ctrl_url.rstrip("/")
-    plant_name = quote(args.plant_name, safe="")
-    payload = {"device": args.device, "sensor": args.sensor}
-    assigned = request_ctrl("POST", f"{base}/plants/{plant_name}/assign", payload)
+def _assign_plant(base_url: str, plant_name, device, sensor) -> int:
+    plant_name = quote(plant_name, safe="")
+    payload = {"device": device, "sensor": sensor}
+    assigned = request_ctrl("POST", f"{base_url}/plants/{plant_name}/assign", payload)
     print(
         "Assigned plant {plant_name} to {device} sensor {sensor}".format(
-            plant_name=assigned.get("plant_name") or args.plant_name,
+            plant_name=assigned.get("plant_name") or plant_name,
             device=assigned.get("device_name")
             or assigned.get("device_address")
-            or args.device,
-            sensor=assigned.get("sensor") or args.sensor,
+            or device,
+            sensor=assigned.get("sensor") or sensor,
         )
     )
     return 0
 
 
-def _set_status(ctrl_url: str, args) -> int:
-    base = ctrl_url.rstrip("/")
-    plant_name = quote(args.plant_name, safe="")
-    payload = {"status_code": args.status_code}
-    if args.note:
-        payload["note"] = args.note
-    created = request_ctrl("POST", f"{base}/plants/{plant_name}/status", payload)
+def _set_status(base_url, plant_name, status_code, note) -> int:
+    plant_name = quote(plant_name, safe="")
+    payload = {"status_code": status_code}
+    if note:
+        payload["note"] = note
+    created = request_ctrl("POST", f"{base_url}/plants/{plant_name}/status", payload)
     print(
         "Added status {status} to {plant_name}".format(
-            status=created.get("status_code") or args.status_code,
-            plant_name=created.get("plant_name") or args.plant_name,
+            status=created.get("status_code") or status_code,
+            plant_name=created.get("plant_name") or plant_name,
         )
     )
     return 0
 
 
-def _get_status(ctrl_url: str, args) -> int:
-    base = ctrl_url.rstrip("/")
-    if args.status_action == "ls":
-        plant_name = quote(args.plant_name, safe="")
-        payload = request_ctrl("GET", f"{base}/plants/{plant_name}/status")
+def _get_status(base_url, status_action, status_code, note) -> int:
+    if status_action == "ls":
+        plant_name = quote(plant_name, safe="")
+        payload = request_ctrl("GET", f"{base_url}/plants/{plant_name}/status")
         print(json.dumps(payload, indent=2))
         return 0
-    if args.status_action == "set":
-        plant_name = quote(args.plant_name, safe="")
-        payload = {"status_code": args.status_code}
-        if args.note:
-            payload["note"] = args.note
-        created = request_ctrl("POST", f"{base}/plants/{plant_name}/status", payload)
+    if status_action == "set":
+        plant_name = quote(plant_name, safe="")
+        payload = {"status_code": status_code}
+        if note:
+            payload["note"] = note
+        created = request_ctrl("POST", f"{base_url}/plants/{plant_name}/status", payload)
         print(
             "Added status {status} to {plant_name}".format(
-                status=created.get("status_code") or args.status_code,
-                plant_name=created.get("plant_name") or args.plant_name,
+                status=created.get("status_code") or status_code,
+                plant_name=created.get("plant_name") or plant_name,
             )
         )
         return 0
     
 
-
 def plants_via_ctrl(ctrl_url: str, action: str, args) -> int:
     base = ctrl_url.rstrip("/")
     if action == "ls":
-        return _list_plants(ctrl_url, args)
+        return _list_plants(base)
     if action == "add":
-        return _add_plant(ctrl_url, args)
+        return _add_plant(base, args.plant_name, args.species_name, args.tag, args.metadata)
     if action == "update":
-        return _update_plant(ctrl_url, args)
+        return _update_plant(base, args.species_id, args.tag, args.metadata, args.plant_id)
     if action == "rm":
-        return _delete_plant(ctrl_url, args)
+        return _delete_plant(base, args.plant_name)
     if action == "health":
-        return _get_health(ctrl_url, args)
+        return _get_health(base, args.plant_name)
     if action == "assign":
-        return _assign_plant(ctrl_url, args)
+        return _assign_plant(base, args.plant_name, args.device, args.sensor)
     if action == "set-status":
-        return _set_status(ctrl_url, args)
+        return _set_status(base, args.plant_name, args.status_code, args.note)
     if action == "status":
-        return _get_status(ctrl_url, args)
+        return _get_status(base, args.status_action, args.status_code, args.note)
     return 1

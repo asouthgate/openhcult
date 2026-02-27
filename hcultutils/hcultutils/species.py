@@ -3,36 +3,51 @@ import json
 
 from hcultutils.query import request_ctrl
 
+def _list_species(base_url) -> int:
+    payload = request_ctrl("GET", f"{base_url}/species")
+    for row in payload.get("data", []):
+        print(row)
+    return 0
+
+
+def _add_species(base_url: str, name, common_name, metadata) -> int:
+    payload = {
+        "name": name,
+        "common_name": common_name,
+        "metadata": json.loads(metadata) if metadata else None,
+    }
+    created = request_ctrl("POST", f"{base_url}/species", payload)
+    print(f"Created species {created.get('id')}")
+    return 0
+
+
+def _update_species(base_url: str, name, common_name, metadata) -> int:
+    payload = {}
+    if name is not None:
+        payload["name"] = name
+    if common_name is not None:
+        payload["common_name"] = common_name
+    if metadata is not None:
+        payload["metadata"] = json.loads(metadata)
+    updated = request_ctrl("PATCH", f"{base_url}/species/{name}", payload)
+    print(f"Updated species {updated.get('name')}")
+    return 0
+
+
+def _delete_species(base_url: str, species_name) -> int:
+    deleted = request_ctrl("DELETE", f"{base_url}/species/{species_name}")
+    print(f"Deleted species {deleted.get('name')}")
+    return 0
+
 
 def species_via_ctrl(ctrl_url: str, action: str, args) -> int:
     base = ctrl_url.rstrip("/")
     if action == "ls":
-        payload = request_ctrl("GET", f"{base}/species")
-        for row in payload.get("data", []):
-            print(row)
-        return 0
+        _list_species(base)
     if action == "add":
-        payload = {
-            "name": args.name,
-            "common_name": args.common_name,
-            "metadata": json.loads(args.metadata) if args.metadata else None,
-        }
-        created = request_ctrl("POST", f"{base}/species", payload)
-        print(f"Created species {created.get('id')}")
-        return 0
+        _add_species(base, args.name, args.common_name, args.metadata)
     if action == "update":
-        payload = {}
-        if args.name is not None:
-            payload["name"] = args.name
-        if args.common_name is not None:
-            payload["common_name"] = args.common_name
-        if args.metadata is not None:
-            payload["metadata"] = json.loads(args.metadata)
-        updated = request_ctrl("PATCH", f"{base}/species/{args.name}", payload)
-        print(f"Updated species {updated.get('name')}")
-        return 0
+        _update_species(base, args.name, args.common_name, args.metadata)
     if action == "rm":
-        deleted = request_ctrl("DELETE", f"{base}/species/{args.species_name}")
-        print(f"Deleted species {deleted.get('id')}")
-        return 0
+        _delete_species(base, args.name)
     return 1
