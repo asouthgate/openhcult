@@ -1,0 +1,18 @@
+[ble]
+service_uuid={{ openhcult_ble_service_uuid }}
+characteristic_uuid={{ openhcult_ble_characteristic_uuid }}
+
+[database]
+url={{ openhcult_database_url }}
+
+[logging]
+stdout={{ openhcult_log_stdout | ternary("true", "false") }}
+{% if openhcult_log_file %}
+file={{ openhcult_log_file }}
+{% elif openhcult_log_path %}
+path={{ openhcult_log_path }}
+{% endif %}
+
+[ctrl]
+host={{ openhcult_ctrl_host }}
+port={{ openhcult_ctrl_port }}

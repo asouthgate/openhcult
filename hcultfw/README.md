@@ -1,8 +1,8 @@
 # hcultfw (ESP-IDF)
 
 This project is the ESP-IDF port of the original Arduino-style `monitor.ino`.
-It reads two ADC channels once at boot, advertises over BLE with a custom
-service/characteristic, and goes to deep sleep after the advertising window.
+It reads two ADC channels once at boot, advertises over BLE using a small
+manufacturer payload, and goes to deep sleep after the advertising window.
 
 ## Requirements
 
@@ -10,6 +10,8 @@ service/characteristic, and goes to deep sleep after the advertising window.
 - An ESP32 connected over USB
 
 ## Build and Flash
+
+source ~/esp/esp-idf/export.sh
 
 1) Set up the ESP-IDF environment:
 
@@ -65,15 +67,12 @@ idf.py -p /dev/ttyUSB0 flash
 - Power pins:
   - Sensor power: GPIO5 and GPIO18
 - Status LED: GPIO4
-- BLE service UUID: set in `openhcult.conf` as `service_uuid`
-- BLE characteristic UUID: set in `openhcult.conf` as `characteristic_uuid`
-- Advertising window: 45s, then deep sleep for 60s.
+- Advertising window and sleep interval are set in `openhcult.conf`.
 
 ## Glossary
 
 - RTOS (FreeRTOS): A real-time operating system; provides tasks, scheduling, and timers.
 - GAP: BLE layer for advertising, discovery, and connection management.
-- GATT: BLE data model defining services and characteristics for read/write/notify.
 - HCI: Host Controller Interface; command/event link between BLE host and controller.
 - NimBLE: Lightweight BLE host stack used by ESP-IDF.
 - NVS: Non-Volatile Storage; flash-backed key-value storage used by NimBLE.

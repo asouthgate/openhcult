@@ -1,0 +1,75 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: hcult
+      POSTGRES_PASSWORD: hcult
+      POSTGRES_DB: hcult
+    ports:
+      - "5432:5432"
+    volumes:
+      - hcult_postgres:/var/lib/postgresql/data
+
+  grafana:
+    image: grafana/grafana:10.4.3
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/provisioning/dashboards/openhcult-dashboard.json
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - postgres
+
+  hcultctrl:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dev
+    command:
+      [
+        "python",
+        "-m",
+        "hcultctrl",
+        "-c",
+        "/config/openhcult.conf",
+        "--host",
+        "0.0.0.0"
+      ]
+    environment:
+      PYTHONPATH: /app/hcultctrl:/app/hcultmon:/app/hcultdb/src
+    volumes:
+      - .:/app
+      - ./docker/openhcult.conf:/config/openhcult.conf:ro
+      - hcult_data:/data
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+
+  hcultmon:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dev
+    command:
+      ["python", "-m", "hcultmon", "-c", "/config/openhcult.conf"]
+    environment:
+      PYTHONPATH: /app/hcultctrl:/app/hcultmon:/app/hcultdb/src
+      DBUS_SYSTEM_BUS_ADDRESS: unix:path=/var/run/dbus/system_bus_socket
+    volumes:
+      - .:/app
+      - ./docker/openhcult.conf:/config/openhcult.conf:ro
+      - /var/run/dbus:/var/run/dbus
+      - hcult_data:/data
+    devices:
+      - /dev/bus/usb:/dev/bus/usb
+    privileged: true
+    depends_on:
+      - postgres
+
+volumes:
+  hcult_postgres:
+  hcult_data:
+  grafana_data:

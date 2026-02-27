@@ -1,0 +1,3 @@
+openhcult_postgres_user: hcult
+openhcult_postgres_password: ""
+openhcult_postgres_db: hcult

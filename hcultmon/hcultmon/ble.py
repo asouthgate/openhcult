@@ -2,97 +2,120 @@
 
 import asyncio
 import logging
-from configparser import ConfigParser
-from pathlib import Path
+import time
 
-from bleak import BleakScanner, BleakClient
-from bleak.exc import BleakDeviceNotFoundError, BleakDBusError
+from bleak import BleakScanner
+from bleak.exc import BleakDBusError
+from hcultdb import queries
 
-from . import database
-
-DEFAULT_CONFIG_NAME = "openhcult.conf"
 DEVICE_NAME_HINT = "ESP32_Sensor"
+ADV_COMPANY_ID = 0xFFFF
+ADV_MAGIC = b"HC"
+ADV_VERSION = 1
+ADV_PAYLOAD_LEN = 12
+
+_last_adv_payload = {}
+
+def _parse_adv_payload(data):
+    """Parse advertise-only payload: magic(2), version, count, values, nonce."""
+    if len(data) < ADV_PAYLOAD_LEN:
+        return None
+    if data[0:2] != ADV_MAGIC:
+        return None
+    version = data[2]
+    if version != ADV_VERSION:
+        logging.warning("Unsupported adv payload version %d", version)
+        return None
+    sensor_count = data[3]
+    if sensor_count == 0:
+        return None
+    expected_len = 4 + (sensor_count * 2) + 4
+    if len(data) < expected_len:
+        return None
+    values = []
+    offset = 4
+    for _ in range(sensor_count):
+        value = int.from_bytes(data[offset : offset + 2], byteorder="little")
+        values.append(value)
+        offset += 2
+    nonce = int.from_bytes(data[offset : offset + 4], byteorder="little")
+    return {"sensor_count": sensor_count, "values": values, "nonce": nonce}
+
+def _handle_adv_payload(payload, dbcon, device):
+    """Persist advertise-only payload readings."""
+    collection_time_ms = int(time.time() * 1000)
+    logging.info(
+        "Adv payload from %s: values=%s nonce=%d",
+        device.address,
+        payload["values"],
+        payload["nonce"],
+    )
+    rows = []
+    for i, value in enumerate(payload["values"], start=1):
+        rows.append(
+            (
+                f"sensor{i}",
+                value,
+                payload["nonce"] * 1_000_000,
+                collection_time_ms,
+                collection_time_ms,
+            )
+        )
+    device_id = queries.register_device(
+        dbcon,
+        device.name or DEVICE_NAME_HINT,
+        device.address,
+    )
+    queries.write_sensor_readings(dbcon, device_id, rows)
 
 
-def _load_characteristic_uuid():
-    """Load the characteristic UUID from the repo-level config file."""
-    repo_root = Path(__file__).resolve().parents[2]
-    config_path = repo_root / DEFAULT_CONFIG_NAME
-    parser = ConfigParser()
-    if not config_path.exists():
-        raise FileNotFoundError(f"Missing BLE config: {config_path}")
-    parser.read(config_path)
-    if "ble" not in parser or "characteristic_uuid" not in parser["ble"]:
-        raise ValueError(f"Missing ble.characteristic_uuid in {config_path}")
-    return parser["ble"]["characteristic_uuid"].strip()
-
-
-def _notification_handler(sender, data, dbcon, device_id):
-    """Decode the payload and persist readings for a device."""
-    sensor1 = int.from_bytes(data[0:2], byteorder="little")
-    sensor2 = int.from_bytes(data[2:4], byteorder="little")
-    logging.info(f"Received data from {sender}: Sensor 1: {sensor1}, Sensor 2: {sensor2}")
-    readings = {"sensor1": sensor1, "sensor2": sensor2}
-    database.write_sensor_readings(dbcon, device_id, readings)
-
-
-async def run_monitor(db_con, characteristic_uuid=None):
-    """Continuously scan, connect, request data, and store notifications."""
-    if characteristic_uuid is None:
-        characteristic_uuid = _load_characteristic_uuid()
+async def run_monitor(db_con):
+    """Continuously scan advertisements and store readings."""
     while True:
-        logging.info("Starting BLE scan")
-        devices = await BleakScanner.discover(timeout=10.0)
-        esp32_device = None
-        for d in devices:
-            if d.name and DEVICE_NAME_HINT in d.name:
-                esp32_device = d
-                break
+        logging.info("Starting BLE advertisement scan")
+        found_payload = {}
+        found_event = asyncio.Event()
 
-        if esp32_device is None:
+        def _on_adv(device, advertisement_data):
+            if found_event.is_set():
+                return
+            mfg_data = advertisement_data.manufacturer_data or {}
+            data = mfg_data.get(ADV_COMPANY_ID)
+            if not data:
+                return
+            payload = _parse_adv_payload(data)
+            if payload is None:
+                return
+            found_payload["payload"] = payload
+            found_payload["device"] = device
+            found_event.set()
+
+        try:
+            async with BleakScanner(detection_callback=_on_adv):
+                await asyncio.wait_for(found_event.wait(), timeout=10.0)
+        except asyncio.TimeoutError:
+            logging.info("No awake sensors could be found.")
+            continue
+        except BleakDBusError as e:
+            logging.error(f"BLE scan failed: {e}")
+            await asyncio.sleep(10.0)
+            continue
+
+        payload = found_payload.get("payload")
+        device = found_payload.get("device")
+        if payload is None or device is None:
             logging.info("No awake sensors could be found.")
             continue
 
-        logging.info(f"Found sensor device: {esp32_device.name}, {esp32_device.address}")
-
-        try:
-            async with BleakClient(esp32_device.address) as client:
-                if not client.is_connected:
-                    logging.info("Failed to connect to the sensor device.")
-                    continue
-                logging.info("Connected to ESP32 device.")
-
-                # await client.start_notify(...) only waits for the subscription to be set up
-                # (i.e., CCCD written / notifications enabled).
-                # It does not wait for any notification data. The _handler runs
-                # later, asynchronously, whenever a notification arrives.
-                device_id = database.register_device(
-                    db_con,
-                    esp32_device.name or DEVICE_NAME_HINT,
-                    esp32_device.address,
-                )
-                notify_event = asyncio.Event()
-
-                def _handler(sender, data):
-                    _notification_handler(sender, data, db_con, device_id)
-                    notify_event.set()
-
-                await client.start_notify(characteristic_uuid, _handler)
-                try:
-                    await client.write_gatt_char(
-                        characteristic_uuid,
-                        "a_message_here".encode("utf-8"),
-                        response=False,
-                    )
-                except BleakDBusError as e:
-                    logging.error(f"Failed to write to characteristic: {e}")
-                try:
-                    await asyncio.wait_for(notify_event.wait(), timeout=5.0)
-                except asyncio.TimeoutError:
-                    logging.warning("Timed out waiting for sensor notification.")
-                if client.is_connected:
-                    await client.stop_notify(characteristic_uuid)
-        except BleakDeviceNotFoundError as e:
-            logging.error(f"Device not found error: {e} (device probably went to sleep)")
-        except EOFError as e:
-            logging.error(f"Connection closed unexpectedly: {e}")
+        logging.info(
+            "Found sensor device: %s, %s",
+            device.name or DEVICE_NAME_HINT,
+            device.address,
+        )
+        fingerprint = (payload["nonce"], tuple(payload["values"]))
+        last = _last_adv_payload.get(device.address)
+        if last == fingerprint:
+            logging.info("Skipping duplicate payload from %s", device.address)
+            continue
+        _last_adv_payload[device.address] = fingerprint
+        _handle_adv_payload(payload, db_con, device)
