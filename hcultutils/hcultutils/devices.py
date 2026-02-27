@@ -18,7 +18,7 @@ def _name_device(base_url, name, address) -> int:
     print(f"Updated device {updated.get('address')} name={updated.get('name')}")
     return True
 
-def _devices_via_ctrl(ctrl_url: str, action: str, args) -> int:
+def devices_via_ctrl(ctrl_url: str, action: str, args) -> int:
     base = ctrl_url.rstrip("/")
     if action == "ls":
         return _list_devices(base)

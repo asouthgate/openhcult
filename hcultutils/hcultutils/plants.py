@@ -48,7 +48,7 @@ def _list_plants(base_url: str) -> int:
         print(
             f"{row.get('id')}\t{row.get('plant_name')}\t{row.get('species_id') or ''}\t{row.get('species_name') or ''}\t{row.get('tag') or ''}\t{row.get('metadata') or ''}"
         )
-    return 1
+    return 0
 
 
 def _add_plant(base_url: str, plant_name, species_name, tag, metadata) -> int:
@@ -169,4 +169,4 @@ def plants_via_ctrl(ctrl_url: str, action: str, args) -> int:
         return _set_status(base, args.plant_name, args.status_code, args.note)
     if action == "status":
         return _get_status(base, args.status_action, args.status_code, args.note)
-    return 1
+    return 0

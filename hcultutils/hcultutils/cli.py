@@ -139,7 +139,6 @@ def _add_plot_timeseries_command(subparsers):
     _add_base_args(plot_timeseries_parser)
     _add_plotter_args(plot_timeseries_parser)
     _add_infer_args(plot_timeseries_parser)
-    print(plot_timeseries_parser)
 
 
 def _add_infer_events_command(subparsers):
