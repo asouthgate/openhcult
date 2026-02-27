@@ -43,7 +43,7 @@ def _post_observation(ctrl_url: str, note: str, observed_at: str) -> None:
 def _get_non_duplicate_events(series, prev_event_times, diff_lag, mad_window, mad_scale, z_pvalue, merge_distance_sec): 
     events = [] # (note, observed_at)
     for sensor, points in series.items():
-        times_ms = np.array([t for t, _ in points], dtype=np.int64)
+        times_ms = np.array([t.astype(np.int64) for t, _ in points], dtype=np.int64)
         values = np.array([v for _, v in points], dtype=float)
         _, _, starts = classify_events(values, diff_lag, mad_window, mad_scale, z_pvalue)
         starts_t = sorted(times_ms[starts])
@@ -93,8 +93,9 @@ def run(args: argparse.Namespace) -> int:
         return 0
 
     auto_times = sorted(
-        obs_time for obs_time, note in observations if note.startswith("AUTO:")
+        obs_time.astype(np.int64) for _, obs_time, note in observations if note.startswith("AUTO:")
     )
+
     auto_times_np = np.array(auto_times, dtype=np.int64)
 
     events = _get_non_duplicate_events(
@@ -106,7 +107,7 @@ def run(args: argparse.Namespace) -> int:
         args.z_pvalue,
         args.merge_distance_sec,
     )
-
+    
     for note, observed_at in events:
         _post_observation(ctrl_url, note, observed_at)
 

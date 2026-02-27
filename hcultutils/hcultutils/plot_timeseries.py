@@ -67,7 +67,15 @@ def main(args) -> int:
     print(args)
     if args.out:
         matplotlib.use("Agg")
-    fetched = fetch_data(args)
+    fetched = fetch_data(
+        args.ctrl_url,
+        args.start_utc,
+        args.end_utc,
+        sensor=args.sensor,
+        device=args.device,
+        plant_name=args.plant_name,
+        limit=args.limit,
+    )
     if not fetched:
         return 1
     series, _ = fetched
