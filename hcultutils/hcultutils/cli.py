@@ -159,7 +159,7 @@ def _add_infer_args(parser):
     parser.add_argument(
         "--z-pvalue",
         type=float,
-        default=0.000001,
+        default=0.000000001,
         help="Two-sided p-value threshold for z(t) triggers",
     )
     parser.add_argument(
@@ -171,13 +171,13 @@ def _add_infer_args(parser):
     parser.add_argument(
         "--diff-lag",
         type=int,
-        default=7,
+        default=5,
         help="Lag (in samples) for d(t) = s(t) - s(t-h)",
     )
     parser.add_argument(
         "--mad-window",
         type=int,
-        default=100,
+        default=80,
         help="Window size (in samples) for rolling MAD",
     )
     parser.add_argument(
@@ -189,7 +189,7 @@ def _add_infer_args(parser):
     parser.add_argument(
         "--merge_distance_sec",
         type=int,
-        default=300,
+        default=60 * 10,
         help="Merge nearby inferred events within this distance (in seconds)",
     )
 

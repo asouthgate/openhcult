@@ -13,12 +13,6 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 
-# from hcultinf.inference import (
-#     compute_zscore,
-#     detect_hysteresis,
-#     detect_z_triggers,
-#     merge_events,
-# )
 
 from hcultinf.inference import classify_events
 
@@ -106,6 +100,7 @@ def _parse_utc(value: str) -> datetime:
 
 def run(args: argparse.Namespace) -> int:
     ctrl_url = args.ctrl_url or "http://127.0.0.1:8000"
+    print(args)
     if args.start_utc or args.end_utc:
         end = _parse_utc(args.end_utc) if args.end_utc else datetime.now(timezone.utc)
         start = _parse_utc(args.start_utc) if args.start_utc else end - timedelta(hours=args.hours)
@@ -141,14 +136,12 @@ def run(args: argparse.Namespace) -> int:
         times_ms = np.array([t for t, _ in points], dtype=np.int64)
         values = np.array([v for _, v in points], dtype=float)
         triggers, run_lengths, starts = classify_events(values, args.diff_lag, args.mad_window, args.mad_scale, args.z_pvalue)
+        starts_t = sorted(times_ms[starts])
 
-        start_indexes = np.where(starts)[0]
-        for trigger_idx in start_indexes:
-            if trigger_idx < 0 or trigger_idx >= times_ms.size:
-                continue
-            observed_at = _iso_utc(int(times_ms[trigger_idx]))
+        for tt in starts_t:
+            observed_at = _iso_utc(int(tt))
             if auto_times_np.size:
-                candidate = int(times_ms[trigger_idx])
+                candidate = int(tt)
                 pos = int(np.searchsorted(auto_times_np, candidate))
                 nearby = []
                 if pos > 0:

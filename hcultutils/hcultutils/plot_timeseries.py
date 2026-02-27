@@ -135,6 +135,7 @@ def merge_time_intervals(intervals, merge_tol=np.timedelta64(1, 'm')):
     return merged
 
 def main(args) -> int:
+    print(args)
     if args.out:
         matplotlib.use("Agg")
     fetched = fetch_data(args)
@@ -164,37 +165,24 @@ def main(args) -> int:
     no_event_time_intervals = []
     equilbrium_intervals_index_values = []
 
-    all_events = []
-
     for idx, name in enumerate(sensor_names):
         points = series[name]
         times = np.array([t for t, _ in points])
         values = np.array([v for _, v in points], dtype=float)
-        # zscores = compute_zscore(
-        #     values, lag=args.diff_lag, mad_window=args.mad_window, c=args.mad_scale
-        # )
-        # zscores2 = compute_zscore(
-        #     values, lag=args.diff_lag * 3, mad_window=args.mad_window, c=args.mad_scale
-        # )
-        # zscores_map[name] = zscores
         times_map[name] = times
         triggers, run_lengths, starts = classify_events(values, args.diff_lag, args.mad_window, args.mad_scale, args.z_pvalue)
         starts_t = times[starts]
-        all_events += starts_t.tolist()
 
         # compute the event time intervals
         for i in range(len(starts)):
             si = starts[i]
             ei = si + run_lengths[i]
-            # event_time_intervals.append((times[si], times[ei-1]))
 
         starts_inds = np.where(starts)[0]
         for i in range(len(starts_inds) - 1):
             si = starts_inds[i]
             ei = si + run_lengths[si]
             next_si = starts_inds[i + 1]
-            # print(si, ei)
-            # print(f"[{ei} {next_si}]")
             val_subset = values[ei:next_si]
             no_event_time_intervals.append((times[ei], times[next_si-1]))
             if len(val_subset) > 50:
@@ -204,7 +192,7 @@ def main(args) -> int:
                 equilibrium_sensors += [idx] * len(deltas)
                 equilibrium_t_values += list(times[ei:next_si-1])
 
-        for tt in starts_t:
+        for tt in sorted(starts_t):
             raw_axes[idx].axvline(tt, color="orange", alpha=0.5, linewidth=1)
             ax.axvline(tt, color="orange", alpha=0.5, linewidth=1)
         _plot_raw_subsensor_readings(ax, raw_axes[idx], times, values, name, args, locator)
@@ -234,30 +222,6 @@ def main(args) -> int:
     ax.legend()
     fig.autofmt_xdate()
     fig.tight_layout()
-
-    # zfig = plt.figure(figsize=(14, 4 + 4 * math.ceil(len(sensor_names) / 2)))
-    # zgrid = zfig.add_gridspec(rows + 1, cols)
-    # zraw_axes = []
-    # for i in range(len(sensor_names)):
-    #     r = i // cols
-    #     c = i % cols
-    #     zraw_axes.append(zfig.add_subplot(zgrid[r, c]))
-    # zax = zfig.add_subplot(zgrid[rows, :])
-
-    # for idx, name in enumerate(sensor_names):
-    #     times = times_map[name]
-    #     zscores = zscores_map[name]
-    #     _plot_z_subsensor_readings(zax, zraw_axes[idx], times, zscores, name, args, locator)
-
-    # zax.set_title("z(t) = d(t) / (c * MAD)")
-    # zax.set_xlabel("Timestamp")
-    # zax.set_ylabel("z(t)")
-    # zax.set_yscale("symlog", linthresh=1.0)
-    # zax.xaxis.set_major_locator(locator)
-    # zax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
-    # zax.legend()
-    # zfig.autofmt_xdate()
-    # zfig.tight_layout()
 
     if args.out:
         out_path = Path(args.out)
