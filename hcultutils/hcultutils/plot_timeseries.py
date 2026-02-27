@@ -3,28 +3,17 @@
 
 from __future__ import annotations
 
-import argparse
-import configparser
-import json
 import math
-import os
-import sqlite3
-import urllib.parse
-import urllib.request
 from pathlib import Path
-from urllib.parse import urlparse, unquote
-from typing import Dict, List, Tuple
-from scipy.stats import norm
 import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import numpy as np
 
-
 from hcultinf.inference import compute_zscore, classify_events
 from hcultutils.fetch_data import fetch_data
 
-def _plot_raw_subsensor_readings(ax, raw_ax, times, values, name, args, locator):
+def _plot_raw_subsensor_readings(ax, raw_ax, times, values, name, locator):
     ax.plot(times, values, label=name, linewidth=1.2)
     raw_ax.plot(times, values, label=name, linewidth=1.2)
     raw_ax.scatter(times, values, label=name, linewidth=1.2, s=0.5)
@@ -37,66 +26,6 @@ def _plot_raw_subsensor_readings(ax, raw_ax, times, values, name, args, locator)
     raw_ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
     raw_ax.tick_params(axis="x", rotation=30)
 
-def _plot_z_subsensor_readings(ax, raw_ax, times, zscores, name, args, locator):
-    ax.plot(times, zscores, label=name, linewidth=1.2)
-    raw_ax.plot(times, zscores, label=name, linewidth=1.2)
-    raw_ax.legend()
-    raw_ax.set_title(f"{name} z(t)")
-    raw_ax.set_xlabel("Timestamp")
-    raw_ax.set_ylabel("z(t)")
-    raw_ax.set_yscale("symlog", linthresh=1.0)
-    raw_ax.xaxis.set_major_locator(locator)
-    raw_ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
-    raw_ax.tick_params(axis="x", rotation=30)
-
-def _plot_residual_subsensor_readings(ax, r_raw_ax, times, residuals, name, args, locator):
-    ax.plot(times, residuals, label=name, linewidth=1.2)
-    r_raw_ax.plot(times, residuals, label=name, linewidth=1.2)
-    r_raw_ax.legend()
-    r_raw_ax.set_title(f"{name} residuals")
-    r_raw_ax.set_xlabel("Timestamp")
-    r_raw_ax.set_ylabel("x(t) - B(t)")
-    r_raw_ax.xaxis.set_major_locator(locator)
-    r_raw_ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
-    r_raw_ax.tick_params(axis="x", rotation=30)
-
-def _plot_observations(observations, sensor_names, ax, raw_axes):
-    for _, obs_time, _ in observations:
-        ax.axvline(obs_time, color="tab:orange", alpha=0.4, linewidth=1)
-    for obs_id, obs_time, note in observations:
-        if not note:
-            continue
-        short_note = note[:10]
-        label = f"{obs_id}:{short_note}"
-        ax.annotate(
-            label,
-            xy=(obs_time, 0.99),
-            xycoords=("data", "axes fraction"),
-            rotation=90,
-            va="top",
-            ha="right",
-            fontsize=8,
-            color="black",
-        )
-    for idx, name in enumerate(sensor_names):
-        raw_ax = raw_axes[idx]
-        key_tag = f"{name} "
-        for obs_id, obs_time, note in observations:
-            if not note or key_tag not in note:
-                continue
-            raw_ax.axvline(obs_time, color="tab:orange", alpha=0.4, linewidth=1)
-            short_note = note[:10]
-            label = f"{obs_id}:{short_note}"
-            raw_ax.annotate(
-                label,
-                xy=(obs_time, 0.99),
-                xycoords=("data", "axes fraction"),
-                rotation=90,
-                va="top",
-                ha="right",
-                fontsize=8,
-                color="black",
-            )
 
 def merge_time_intervals(intervals, merge_tol=np.timedelta64(1, 'm')):
     """
@@ -141,7 +70,7 @@ def main(args) -> int:
     fetched = fetch_data(args)
     if not fetched:
         return 1
-    series, observations = fetched
+    series, _ = fetched
     sensor_names = sorted(series.keys())
 
     locator = mdates.AutoDateLocator()
@@ -155,8 +84,7 @@ def main(args) -> int:
         c = i % cols
         raw_axes.append(fig.add_subplot(grid[r, c]))
     ax = fig.add_subplot(grid[rows, :])
-    times_map: Dict[str, np.ndarray] = {}
-    # zscores_map = {}
+    times_map = {}
 
     equilibrium_x_values = []
     equilibrium_delta_values = []
@@ -170,12 +98,11 @@ def main(args) -> int:
         times = np.array([t for t, _ in points])
         values = np.array([v for _, v in points], dtype=float)
         times_map[name] = times
-        triggers, run_lengths, starts = classify_events(values, args.diff_lag, args.mad_window, args.mad_scale, args.z_pvalue)
+        _, run_lengths, starts = classify_events(values, args.diff_lag, args.mad_window, args.mad_scale, args.z_pvalue)
         starts_t = times[starts]
 
         # compute the event time intervals
-        for i in range(len(starts)):
-            si = starts[i]
+        for i, si in enumerate(starts):
             ei = si + run_lengths[i]
 
         starts_inds = np.where(starts)[0]
@@ -195,7 +122,7 @@ def main(args) -> int:
         for tt in sorted(starts_t):
             raw_axes[idx].axvline(tt, color="orange", alpha=0.5, linewidth=1)
             ax.axvline(tt, color="orange", alpha=0.5, linewidth=1)
-        _plot_raw_subsensor_readings(ax, raw_axes[idx], times, values, name, args, locator)
+        _plot_raw_subsensor_readings(ax, raw_axes[idx], times, values, name, locator)
         # now plot observations on the raw axes as well
 
     merged_no_event_intervals = merge_time_intervals(no_event_time_intervals)
@@ -229,13 +156,9 @@ def main(args) -> int:
         fig.savefig(out_path, dpi=150)
         print(f"Wrote {out_path}")
         z_out = out_path.with_name(f"{out_path.stem}_z{out_path.suffix}")
-        zfig.savefig(z_out, dpi=150)
+        fig.savefig(z_out, dpi=150)
         print(f"Wrote {z_out}")
     else:
         plt.show()
 
     return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

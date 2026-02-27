@@ -3,27 +3,16 @@
 
 from __future__ import annotations
 
-import argparse
 import configparser
 import json
-import math
+import pickle
 import os
-import sqlite3
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from urllib.parse import urlparse, unquote
 from typing import Dict, List, Tuple
-from scipy.stats import norm
 import matplotlib
-import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
 import numpy as np
-import pickle
-
-
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
 
 
 def _default_config_path() -> Path:
@@ -116,39 +105,26 @@ def _fetch_observations_from_ctrl(
         observations.append((int(row.get("id", 0)), timestamp, str(row.get("note", ""))))
     return observations
 
-def fetch_data(args):
-    observations: List[Tuple[int, np.datetime64, str]] = []
-    if args.ctrl_url:
-        series = fetch_series_from_ctrl(
-            args.ctrl_url,
-            sensor=args.sensor,
-            device=args.device,
-            plant_name=args.plant_name,
-            start_utc=args.start_utc,
-            end_utc=args.end_utc,
-            limit=args.limit,
-        )
-        observations = _fetch_observations_from_ctrl(
-            args.ctrl_url,
-            start_utc=args.start_utc,
-            end_utc=args.end_utc,
-            limit=args.limit,
-        )
-    else:
-        config_path = Path(args.config)
-        if not config_path.exists():
-            raise FileNotFoundError(f"Missing config: {config_path}")
 
-        db_url = args.db if args.db else _load_db_url(config_path)
-        if db_url.startswith("sqlite:////"):
-            db_path = Path(db_url.replace("sqlite:////", "/"))
-            if not db_path.exists():
-                raise FileNotFoundError(f"Missing database: {db_path}")
-        series = _fetch_series(db_url)
-        observations = _fetch_observations(db_url)
+def fetch_data(ctrl_url, start_utc, end_utc, *, sensor=None, device=None, plant_name=None, limit=1000):
+    series = fetch_series_from_ctrl(
+        ctrl_url,
+        sensor=sensor,
+        device=device,
+        plant_name=plant_name,
+        start_utc=start_utc,
+        end_utc=end_utc,
+        limit=limit,
+    )
+    observations = _fetch_observations_from_ctrl(
+        ctrl_url,
+        start_utc=start_utc,
+        end_utc=end_utc,
+        limit=limit,
+    )
     if not series:
-        print("No sensor readings found.")
-        return None
+        print("No data found.")
+        return None, None
     return series, observations
 
 
@@ -156,11 +132,14 @@ def main(args) -> int:
     if args.out:
         matplotlib.use("Agg")
 
-    fetched = fetch_data(args)
-    print(fetched)
+    fetched = fetch_data(
+        ctrl_url=args.ctrl_url,
+        sensor=args.sensor,
+        device=args.device,
+        plant_name=args.plant_name,
+        start_utc=args.start_utc,
+        end_utc=args.end_utc,
+        limit=args.limit,
+    )
     with open(f"sensor-data-{args.start_utc}_{args.end_utc}.pkl", "wb") as f:
         pickle.dump(fetched, f)
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
