@@ -10,7 +10,68 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from hcultutils.fetch_data import fetch_data, fetch_series_from_ctrl
-from hcultinf.inference import fit_monotonic_spline
+from hcultinf.inference import fit_monotonic_spline, fit_derivative_spline, \
+    fit_parametric_monotonic_spline, bootstrap_parametric_spline
+
+
+def get_spline_derivative_midpoints(df):
+    x_der_midpoint = []
+    x_dswcdv_midpoint = []
+    swc_der_midpoint = []
+
+    # now compute derivative of water with respect to value
+    for trial, subdf in df.groupby("trial"):
+        # Now calculate mean delta value/delta volume across sensors for this trial
+        # You do this by groupby then .mean()
+        for sensor, subsubdf in subdf.groupby("sensor"):
+            sorted_subdf = subsubdf.sort_values("SWC")
+            # assert that the swc value is unique
+            assert len(sorted_subdf["SWC"].unique()) == len(sorted_subdf)
+            x = sorted_subdf["value"].values
+            swc = sorted_subdf["SWC"].values
+
+            # 1. Forward Difference for the very first point (x[0])
+            dx_start = x[1] - x[0]
+            dswc_start = swc[1] - swc[0]
+            d_start = dswc_start / dx_start if dswc_start != 0 else 0
+            # 3. Backward Difference for the very last point (x[-1])
+            dx_end = x[-1] - x[-2]
+            dswc_end = swc[-1] - swc[-2]
+            d_end = dswc_end / dx_end if dx_end != 0 else 0
+            # Calculate deltas (length N-1)
+            # 1. Forward Difference for the very first point (x[0])
+            dx = np.diff(x)
+            dswc = np.diff(swc)
+
+            # Calculate midpoints (length N-1)
+            x_mid = (x[:-1] + x[1:]) / 2.0
+            swc_mid = (swc[:-1] + swc[1:]) / 2.0
+            # x_mid = x[:-1]
+            # swc_mid = swc[:-1]
+            # Calculate derivatives (length N-1)
+            # You wanted dswc/dv (which is 1 / (dv/ds))
+            dswc_dx_mid = dswc / dx
+
+            x_dswcdv_midpoint.append(d_start)
+            x_der_midpoint.append(x[0])
+            swc_der_midpoint.append(swc[0])
+
+            for i in range(len(x_mid)):
+                if np.isfinite(dswc_dx_mid[i]):
+                    x_dswcdv_midpoint.append(dswc_dx_mid[i])
+                    x_der_midpoint.append(x_mid[i])
+                    swc_der_midpoint.append(swc_mid[i])   
+
+            x_dswcdv_midpoint.append(d_end)
+            x_der_midpoint.append(x[-1])
+            swc_der_midpoint.append(swc[-1]) 
+
+    x_der_midpoint = np.array(x_der_midpoint).flatten()
+    x_dswcdv_midpoint = np.array(x_dswcdv_midpoint).flatten()
+    return x_der_midpoint, x_dswcdv_midpoint, swc_der_midpoint
+
+
+
 
 if __name__ == "__main__":
 
@@ -52,7 +113,7 @@ if __name__ == "__main__":
             try:
                 with open(f"sensor_data_{start_utc}_{end_utc}.pkl", "rb") as f:
                     series = pickle.load(f)
-            except:
+            except FileNotFoundError:
                 print("Could not load cached data, fetching from ctrl...")
                 series = fetch_series_from_ctrl(
                     args.ctrl_url,
@@ -81,7 +142,6 @@ if __name__ == "__main__":
                 agg_water_volumes.append(float(pot_water_volume))
                 agg_equil_time_deltas.append((last_time - water_utc_dt).total_seconds())
                 agg_total_change.append(last_val - points[0][1])
-
     SOIL_MASS = 40
     df = pd.DataFrame({
         "time": agg_times,
@@ -94,6 +154,61 @@ if __name__ == "__main__":
         "equil_time_hours": np.array(agg_equil_time_deltas) / 3600.0,
         "total_change": agg_total_change,
     })
+
+    x_der_midpoint, x_dswcdv, swc_der_midpoint = get_spline_derivative_midpoints(df)
+
+    # let's take x_anchors to be only the values at dryest and the values at wettest
+    min_swc = df['SWC'].min()
+    max_swc = df['SWC'].max()
+    inds_min = np.where(df['SWC'] == min_swc)[0]
+    inds_max = np.where(df['SWC'] == max_swc)[0]
+    # print(inds_min)
+    # print(inds_max)
+    inds_anchor = np.concatenate([np.random.choice(inds_min, 4), inds_max[:4]])
+    swc_anchor = df['SWC'].values[inds_anchor]
+    value_anchor = df['value'].values[inds_anchor]
+    n_inner_knots = 12
+    w_der = 2.0
+    spline_x, spline_z = fit_parametric_monotonic_spline(value_anchor, swc_anchor, x_der_midpoint, x_dswcdv, n_inner_knots, k=2, w_der=w_der)
+    
+    n_boots = 50
+    boot_results = bootstrap_parametric_spline(
+        value_anchor, swc_anchor, x_der_midpoint, x_dswcdv, knots=n_inner_knots, k=2, w_der=w_der, n_boots=n_boots)
+    
+    x_rang = np.linspace(df['value'].min(), df['value'].max() , 100)
+
+    s_fine = np.linspace(0, 1, 500)
+
+    x_plot = spline_x(s_fine)
+    z_plot = spline_z(s_fine)
+
+    # 3. Plot z (SWC) vs x (Volume/Potential)
+    plt.plot(z_plot, x_plot, color='green', label='Parametric Derivative Fit')
+
+    # plot the bootstrap results
+    for sx, sz in boot_results:
+        x_boot = sx(s_fine)
+        z_boot = sz(s_fine)
+        plt.plot(z_boot, x_boot, color='green', alpha=5.0/n_boots)
+
+    plt.scatter(df['SWC'], df['value'], color='blue', label='Data Points')
+    plt.scatter(swc_anchor, value_anchor, color='red', marker='x', s=100, zorder=5, label='Anchor Points')  
+
+    knots_s = np.unique(spline_x.t)
+
+    # 2. Evaluate both splines at these knot locations to get (x, z) coordinates
+    knots_x = spline_x(knots_s)
+    knots_z = spline_z(knots_s)
+
+    # 3. Add them to your existing plot
+    plt.scatter(knots_z, knots_x, 
+                color='black', 
+                marker='D', 
+                s=50, 
+                zorder=6, 
+                label='Spline Knots')
+
+    plt.show()
 
     colors = ["#A9E5BB", "#F7B32B", "#8D2D3B", "#2D1E2F", "#FEFAD8"]
     sensor_colors = {name: colors[i] for i, name in enumerate(sensor_names)}
@@ -114,7 +229,6 @@ if __name__ == "__main__":
         lower_95_percentile.append(np.percentile(subdf["value"], 2.5))
         vol_at_mean.append(pot_water_volume)
 
-    # --- Usage ---
     spline_k = 2
     n_inner_knots = 8
     inner_knots = ( np.linspace(0, 1, n_inner_knots)**2 * (df['SWC'].max() - df['SWC'].min()) + df['SWC'].min() ) [1:]
@@ -125,11 +239,10 @@ if __name__ == "__main__":
     plin_swc = np.linspace(df['SWC'].min(), df['SWC'].max(), 100)
     polyvals = spline_model(plin_swc)
 
-    ax[0].plot(plin_swc, polyvals, color='pink', label='Polynomial Fit')
-
-    print(inner_knots)
+    ax[0].plot(plin_swc, polyvals, color='pink', label='Monotonic Spline Fit')
     ax[0].scatter(inner_knots, spline_model(inner_knots), 
                 color='red', marker='x', s=100, zorder=5, label='Spline Knots')
+
     ax[0].plot(vol_at_mean, means, color="grey", label="Mean", linewidth=2)
     ax[0].fill_between(vol_at_mean, lower_95_percentile, upper_95_percentile, color="grey", alpha=0.3, label="95% Percentile")
     ax[0].set_xlabel("SWC")
