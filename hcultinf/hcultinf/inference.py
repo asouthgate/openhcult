@@ -138,55 +138,6 @@ def fit_monotonic_spline(x, y, inner_knots, k=3):
     return BSpline(t, res.x, k)
 
 
-def fit_derivative_spline(x_anchors, y_anchors, x_der, dydx_der, inner_knots, k=3, w_der=1.0):
-    """
-    Fits a BSpline to both point data (anchors) and derivative data.
-    
-    Parameters:
-    x_anchors, y_anchors: The few 'absolute' points you have.
-    x_der, dydx_der: The 'many' derivative samples.
-    inner_knots: Array of internal knot locations.
-    w_der: Weighting for the derivative term (increase if derivative is higher quality).
-    """
-    x_all = np.concatenate([x_anchors, x_der])
-    x_min, x_max = x_all.min(), x_all.max()
-    
-    # Standard clamped B-spline padding: k+1 knots at each end
-    t = np.concatenate(([x_min] * (k + 1), inner_knots, [x_max] * (k + 1)))
-    print(t)
-    # 2. Initial Guess
-    # We use a dummy LSQ fit on the anchors just to get a starting coefficient count/scale
-    n_coeffs = len(t) - k - 1
-    c0 = np.zeros(n_coeffs) + np.mean(y_anchors)
-
-    # 3. The Dual-Objective Function
-    def objective(coeffs):
-        spl = BSpline(t, coeffs, k)
-        
-        # Error from absolute anchors (the 'position' error)
-        err_pos = np.sum((spl(x_anchors) - y_anchors)**2)
-        
-        # Error from derivative samples (the 'shape' error)
-        # spl(x, nu=1) evaluates the first derivative
-        err_der = np.sum((spl(x_der, nu=1) - dydx_der)**2)
-        
-        return err_pos + (w_der * err_der)
-
-    # 4. Monotonicity Constraint
-    # Ensures the physics remains consistent even if derivative data is noisy
-    x_check = np.linspace(x_min, x_max, 100)
-    def monotonic_constraint(coeffs):
-        spl = BSpline(t, coeffs, k)
-        # For decreasing relationship (SWC): -f'(x) >= 0
-        return -spl(x_check, nu=1)
-
-    # 5. Optimize
-    res = minimize(objective, c0, constraints={'type': 'ineq', 'fun': monotonic_constraint})
-    
-    if not res.success:
-        print(f"Warning: Optimization failed: {res.message}")
-
-    return BSpline(t, res.x, k)
 
 def fit_parametric_monotonic_spline(x_anchors, z_anchors, x_der, dz_dx, knots=10, k=3, w_der=1.0):
     
@@ -235,6 +186,7 @@ def fit_parametric_monotonic_spline(x_anchors, z_anchors, x_der, dz_dx, knots=10
         cz = coeffs[n_c:]
         # dz/ds <= 0 for decreasing SWC
         return -BSpline(t, cz, k)(np.linspace(0, 1, 50), nu=1)
+
 
     res = minimize(objective, c0, constraints={'type': 'ineq', 'fun': monotonic_con})
     return BSpline(t, res.x[:n_c], k), BSpline(t, res.x[n_c:], k)
