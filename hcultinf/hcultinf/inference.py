@@ -7,6 +7,7 @@ import numpy as np
 from scipy.stats import norm
 from scipy.integrate import cumulative_trapezoid
 from scipy.interpolate import LSQUnivariateSpline, BSpline
+from scipy.interpolate import interp1d
 from scipy.optimize import minimize
 
 from sklearn.gaussian_process import GaussianProcessRegressor
@@ -137,81 +138,137 @@ def fit_monotonic_spline(x, y, inner_knots, k=3):
     return BSpline(t, res.x, k)
 
 
-def fit_gp(x_raw, dy_noisy_raw, y_xmax_raw, inv_response_prior):
+def fit_derivative_spline(x_anchors, y_anchors, x_der, dydx_der, inner_knots, k=3, w_der=1.0):
+    """
+    Fits a BSpline to both point data (anchors) and derivative data.
+    
+    Parameters:
+    x_anchors, y_anchors: The few 'absolute' points you have.
+    x_der, dydx_der: The 'many' derivative samples.
+    inner_knots: Array of internal knot locations.
+    w_der: Weighting for the derivative term (increase if derivative is higher quality).
+    """
+    x_all = np.concatenate([x_anchors, x_der])
+    x_min, x_max = x_all.min(), x_all.max()
+    
+    # Standard clamped B-spline padding: k+1 knots at each end
+    t = np.concatenate(([x_min] * (k + 1), inner_knots, [x_max] * (k + 1)))
+    print(t)
+    # 2. Initial Guess
+    # We use a dummy LSQ fit on the anchors just to get a starting coefficient count/scale
+    n_coeffs = len(t) - k - 1
+    c0 = np.zeros(n_coeffs) + np.mean(y_anchors)
 
-    x_raw_range = np.max(x_raw) - np.min(x_raw)
-    x_raw_min = np.min(x_raw)
-    # normalize x and y first for better GP performance
-    x = np.array(x_raw, dtype=float)
-    # linearly squash x into [0, 1]
-    x -= x_raw_min
-    x /= x_raw_range + 1e-5
+    # 3. The Dual-Objective Function
+    def objective(coeffs):
+        spl = BSpline(t, coeffs, k)
+        
+        # Error from absolute anchors (the 'position' error)
+        err_pos = np.sum((spl(x_anchors) - y_anchors)**2)
+        
+        # Error from derivative samples (the 'shape' error)
+        # spl(x, nu=1) evaluates the first derivative
+        err_der = np.sum((spl(x_der, nu=1) - dydx_der)**2)
+        
+        return err_pos + (w_der * err_der)
 
-    dy_noisy_median = np.median(dy_noisy_raw)
-    dy_noisy_std = np.std(dy_noisy_raw)
+    # 4. Monotonicity Constraint
+    # Ensures the physics remains consistent even if derivative data is noisy
+    x_check = np.linspace(x_min, x_max, 100)
+    def monotonic_constraint(coeffs):
+        spl = BSpline(t, coeffs, k)
+        # For decreasing relationship (SWC): -f'(x) >= 0
+        return -spl(x_check, nu=1)
 
-    dy_noisy = np.array(dy_noisy_raw, dtype=float)
-    dy_noisy -= dy_noisy_median
-    dy_noisy /= dy_noisy_std + 1e-5
-    y_xmax = float(y_xmax_raw) / dy_noisy_std + 1e-5
+    # 5. Optimize
+    res = minimize(objective, c0, constraints={'type': 'ineq', 'fun': monotonic_constraint})
+    
+    if not res.success:
+        print(f"Warning: Optimization failed: {res.message}")
 
-    X_train = x.reshape(-1, 1)
+    return BSpline(t, res.x, k)
 
-    # prior = np.median(dy_noisy)
-    prior = 0
-    y_train = dy_noisy - prior
+def fit_parametric_monotonic_spline(x_anchors, z_anchors, x_der, dz_dx, knots=10, k=3, w_der=1.0):
+    
+    x_min, x_max = min(x_anchors.min(), x_der.min()), max(x_anchors.max(), x_der.max())
+    
+    # Map s to the data points
+    s_der = (x_der - x_min) / (x_max - x_min)
+    s_anc = (x_anchors - x_min) / (x_max - x_min)
+    
+    if type(knots) is int:
+        n_int = knots
+        inner = np.linspace(0, 1, n_int + 2)[1:-1]
+        t = np.concatenate(([0.0]*(k+1), inner, [1.0]*(k+1)))
+    else:
+        # Assume n_int is already the inner knots
+        inner = np.asarray(knots)
+        t = np.concatenate(([0.0]*(k+1), inner, [1.0]*(k+1)))  
+    n_c = len(t) - k - 1
+    
+    # Initial guess
+    c0_x = np.linspace(x_min, x_max, n_c)
+    c0_z = np.linspace(z_anchors.max(), z_anchors.min(), n_c)
+    c0 = np.concatenate([c0_x, c0_z])
 
-    kernel =  ConstantKernel(
-        0.2,
-        constant_value_bounds=(1e-5, 1.0)
-    ) * RBF(
-        length_scale=0.2,
-        length_scale_bounds=(0.01, 10000.0)
-    )
-    gp = GaussianProcessRegressor(kernel=kernel, alpha=0.1)
-    gp.fit(X_train, y_train)
+    def objective(coeffs):
+        cx, cz = coeffs[:n_c], coeffs[n_c:]
+        sx, sz = BSpline(t, cx, k), BSpline(t, cz, k)
+        
+        # 1. Anchor Errors (Position)
+        err_anc = np.sum((sx(s_anc) - x_anchors)**2) + np.sum((sz(s_anc) - z_anchors)**2)
+        
+        # 2. X-Alignment (Ensures s_der actually corresponds to x_der)
+        # This prevents the 'shift' by forcing sx(s) approx x
+        err_x_align = np.sum((sx(s_der) - x_der)**2)
+        
+        # 3. Shape Error (Chain Rule: dz/ds = dz/dx * dx/ds)
+        # dz_dx MUST be d(SWC)/d(Value)
+        z_prime = sz(s_der, nu=1)
+        x_prime = sx(s_der, nu=1)
+        err_der = np.sum((z_prime - (dz_dx * x_prime))**2)
+        
+        # We give high priority to staying aligned with the X coordinates
+        return (err_anc + 10.0 * err_x_align) + (w_der * err_der)
 
-    X_test = np.linspace(min(x), max(x), 400).reshape(-1, 1)
+    def monotonic_con(coeffs):
+        cz = coeffs[n_c:]
+        # dz/ds <= 0 for decreasing SWC
+        return -BSpline(t, cz, k)(np.linspace(0, 1, 50), nu=1)
 
-    # import matplotlib.pyplot as plt
-    # plot std as shaded area
-    y_pred, y_std = gp.predict(X_test, return_std=True)
-    # plt.plot(X_test, y_pred + prior, color='red', label='GP Mean')
-    # plt.fill_between(X_test.flatten(), y_pred + y_std + prior, y_pred - y_std + prior, color='red', alpha=0.3, label='GP Std Dev')
-    # plt.scatter(x, dy_noisy, color='blue', alpha=0.5, label='Noisy Data')
-    # plt.show()
-
-    n_samples = 100
-    dy_samples = gp.sample_y(X_test, n_samples=n_samples) + prior
-
-    X = X_test.flatten()
-    L = X[-1] - X[0]
-    f_samples = cumulative_trapezoid(
-        dy_samples,
-        X_test,
-        axis=0,
-        initial=0
-    )
-
-    f_samples += y_xmax - f_samples[0, :]
-
-    f_mean = np.mean(f_samples, axis=1)
-    f_std  = np.std(f_samples, axis=1)
-
-    # now scale predictions
-    X_test_rescaled = X_test.flatten() * x_raw_range + x_raw_min
-    y_pred_rescaled = y_pred * (dy_noisy_std + 1e-5) + dy_noisy_median
-    y_std_rescaled = y_std * (dy_noisy_std + 1e-5)
-
-    # plt.scatter(x_raw, dy_noisy_raw, color='blue', alpha=0.5, label='Rescaled GP Samples')
-    # plt.fill_between(X_test_rescaled, y_pred_rescaled + y_std_rescaled, y_pred_rescaled - y_std_rescaled, color='red', alpha=0.3, label='Rescaled GP Std Dev')
-    # plt.plot(X_test_rescaled, y_pred_rescaled, color='red', label='Rescaled GP Mean')
-    # plt.show()
+    res = minimize(objective, c0, constraints={'type': 'ineq', 'fun': monotonic_con})
+    return BSpline(t, res.x[:n_c], k), BSpline(t, res.x[n_c:], k)
 
 
-    f_mean = f_mean * (dy_noisy_std + 1e-5)
-    f_std = f_std * (dy_noisy_std + 1e-5)
 
-    dy_samples = dy_samples * (dy_noisy_std + 1e-5) + dy_noisy_median
+def bootstrap_parametric_spline(x_anchors, z_anchors, x_der, dz_dx, knots=10, k=2, w_der=0.5, n_boots=50):
+    """
+    Performs bootstrapping on the derivative data to produce a distribution of splines.
+    """
+    boot_results = []
+    n_der = len(x_der)
+    
+    print(f"Starting bootstrap ({n_boots} iterations)...")
+    
+    for i in range(n_boots):
+        print(f"Bootstrap iteration {i+1}/{n_boots}")
+        # 1. Resample derivative indices with replacement
+        indices = np.random.choice(n_der, size=n_der, replace=True)
+        
+        x_resampled = x_der[indices]
+        dz_dx_resampled = dz_dx[indices]
+        
+        # 2. Fit the model using the resampled derivatives
+        try:
+            sx, sz = fit_parametric_monotonic_spline(
+                x_anchors, z_anchors, 
+                x_resampled, dz_dx_resampled, 
+                knots=knots, k=k, w_der=w_der
+            )
+            boot_results.append((sx, sz))
+        except Exception as e:
+            print(f"Iteration {i} failed: {e}")
+            continue
+            
+    return boot_results
 
-    return X_test_rescaled, dy_samples, f_mean, f_std
