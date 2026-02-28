@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from hcultutils.fetch_data import fetch_data, fetch_series_from_ctrl
-from hcultinf.inference import fit_monotonic_spline, fit_derivative_spline, \
+from hcultinf.inference import fit_monotonic_spline, \
     fit_parametric_monotonic_spline, bootstrap_parametric_spline
 
 
@@ -71,25 +71,7 @@ def get_spline_derivative_midpoints(df):
     return x_der_midpoint, x_dswcdv_midpoint, swc_der_midpoint
 
 
-
-
-if __name__ == "__main__":
-
-    # Get argparse arguments: csv of time intervals. start_utc, end_utc, reseating, pot number, pot water volume
-    ap = argparse.ArgumentParser(description="Plot sensor time series from the configured database.")
-    ap.add_argument(
-        "intervals_csv",
-        type=str,
-        help="Path to CSV file containing time intervals and metadata.",
-    )
-    ap.add_argument(
-        "--ctrl-url",
-        type=str,
-        default=None,
-        help="URL of the ctrl server to fetch data from. Overrides config file.",
-    )
-    args = ap.parse_args()
-
+def _get_data(args):
     agg_times = []
     agg_equil_time_deltas = []
     agg_values = []
@@ -154,6 +136,30 @@ if __name__ == "__main__":
         "equil_time_hours": np.array(agg_equil_time_deltas) / 3600.0,
         "total_change": agg_total_change,
     })
+    return df
+
+
+
+
+if __name__ == "__main__":
+
+    # Get argparse arguments: csv of time intervals. start_utc, end_utc, reseating, pot number, pot water volume
+    ap = argparse.ArgumentParser(description="Plot sensor time series from the configured database.")
+    ap.add_argument(
+        "intervals_csv",
+        type=str,
+        help="Path to CSV file containing time intervals and metadata.",
+    )
+    ap.add_argument(
+        "--ctrl-url",
+        type=str,
+        default=None,
+        help="URL of the ctrl server to fetch data from. Overrides config file.",
+    )
+    args = ap.parse_args()
+
+    df = _get_data(args)
+    sensor_names = sorted(df['sensor'].unique())
 
     x_der_midpoint, x_dswcdv, swc_der_midpoint = get_spline_derivative_midpoints(df)
 
@@ -167,13 +173,14 @@ if __name__ == "__main__":
     inds_anchor = np.concatenate([np.random.choice(inds_min, 4), inds_max[:4]])
     swc_anchor = df['SWC'].values[inds_anchor]
     value_anchor = df['value'].values[inds_anchor]
-    n_inner_knots = 12
-    w_der = 2.0
-    spline_x, spline_z = fit_parametric_monotonic_spline(value_anchor, swc_anchor, x_der_midpoint, x_dswcdv, n_inner_knots, k=2, w_der=w_der)
+    n_inner_knots = 8
+    w_der = 10.0
+    k_spline = 3
+    spline_x, spline_z = fit_parametric_monotonic_spline(value_anchor, swc_anchor, x_der_midpoint, x_dswcdv, n_inner_knots, k=k_spline, w_der=w_der)
     
-    n_boots = 50
+    n_boots = 5
     boot_results = bootstrap_parametric_spline(
-        value_anchor, swc_anchor, x_der_midpoint, x_dswcdv, knots=n_inner_knots, k=2, w_der=w_der, n_boots=n_boots)
+        value_anchor, swc_anchor, x_der_midpoint, x_dswcdv, knots=n_inner_knots, k=k_spline, w_der=w_der, n_boots=n_boots)
     
     x_rang = np.linspace(df['value'].min(), df['value'].max() , 100)
 
@@ -181,39 +188,14 @@ if __name__ == "__main__":
 
     x_plot = spline_x(s_fine)
     z_plot = spline_z(s_fine)
-
-    # 3. Plot z (SWC) vs x (Volume/Potential)
-    plt.plot(z_plot, x_plot, color='green', label='Parametric Derivative Fit')
-
-    # plot the bootstrap results
-    for sx, sz in boot_results:
-        x_boot = sx(s_fine)
-        z_boot = sz(s_fine)
-        plt.plot(z_boot, x_boot, color='green', alpha=5.0/n_boots)
-
-    plt.scatter(df['SWC'], df['value'], color='blue', label='Data Points')
-    plt.scatter(swc_anchor, value_anchor, color='red', marker='x', s=100, zorder=5, label='Anchor Points')  
-
     knots_s = np.unique(spline_x.t)
-
-    # 2. Evaluate both splines at these knot locations to get (x, z) coordinates
     knots_x = spline_x(knots_s)
     knots_z = spline_z(knots_s)
-
-    # 3. Add them to your existing plot
-    plt.scatter(knots_z, knots_x, 
-                color='black', 
-                marker='D', 
-                s=50, 
-                zorder=6, 
-                label='Spline Knots')
-
-    plt.show()
 
     colors = ["#A9E5BB", "#F7B32B", "#8D2D3B", "#2D1E2F", "#FEFAD8"]
     sensor_colors = {name: colors[i] for i, name in enumerate(sensor_names)}
     sensor_indexes = {name: i for i, name in enumerate(sensor_names)}
-    fig, axes = plt.subplots(3, 3, figsize=(12, 12), constrained_layout=True)
+    fig, axes = plt.subplots(2, 2, figsize=(12, 12), constrained_layout=True)
     ax = axes.flatten()
 
     for sensor, subdf in df.groupby("sensor"):
@@ -239,27 +221,39 @@ if __name__ == "__main__":
     plin_swc = np.linspace(df['SWC'].min(), df['SWC'].max(), 100)
     polyvals = spline_model(plin_swc)
 
-    ax[0].plot(plin_swc, polyvals, color='pink', label='Monotonic Spline Fit')
-    ax[0].scatter(inner_knots, spline_model(inner_knots), 
-                color='red', marker='x', s=100, zorder=5, label='Spline Knots')
-
-    ax[0].plot(vol_at_mean, means, color="grey", label="Mean", linewidth=2)
-    ax[0].fill_between(vol_at_mean, lower_95_percentile, upper_95_percentile, color="grey", alpha=0.3, label="95% Percentile")
+    ax[0].plot(plin_swc, polyvals, color='red', label='Monotonic Spline Fit')
+    ax[0].plot(z_plot, x_plot, color='green', label='Parametric Derivative Fit')
     ax[0].set_xlabel("SWC")
     ax[0].set_ylabel("Sensor Reading")
     ax[0].legend()
 
-    for sensor, subdf in df.groupby("sensor"):
-        for _, subsubdf in subdf.groupby("trial"):
-            ax[1].plot(subsubdf["SWC"], subsubdf["value"], c=sensor_colors[sensor], label=f"sensor {sensor_indexes[sensor]}")
-    ax[1].set_xlabel("SWC")
-    ax[1].set_ylabel("Sensor Reading")
+
+    ax[1].plot(z_plot, x_plot, color='green', label='Parametric Derivative Fit')
+
+    # plot the bootstrap results
+    i = 0
+    for sx, sz in boot_results:
+        x_boot = sx(s_fine)
+        z_boot = sz(s_fine)
+        ax[1].plot(z_boot, x_boot, color='green', alpha=5.0/n_boots, label=f"Bootstrap Samples" if i == 0 else None)
+        i += 1
+
+    # ax[7].scatter(df['SWC'], df['value'], color='grey', label='Data Points')
+    ax[1].scatter(swc_anchor, value_anchor, color='red', marker='x', s=100, zorder=5, label='Anchor Points')  
+    ax[1].scatter(knots_z, knots_x, 
+                color='black', 
+                marker='D', 
+                s=50, 
+                zorder=6, 
+                label='Spline Knots')
+    ax[1].legend()
+    # cut the swc axis to 0
+
 
     # Now plot equilibriation time as a function of water content
     ax[2].scatter(df["SWC"], df["equil_time_hours"] , c=df["sensor"].map(sensor_colors), label="Equilibration Time Delta")
     ax[2].set_xlabel("SWC")
     ax[2].set_ylabel("Equilibration Time Delta (hours)")
-    # plt.show()
 
     # Now, for each trial, plot delta value/delta volume vs volume
     # FOR EACH SENSOR
@@ -272,47 +266,6 @@ if __name__ == "__main__":
             ax[3].scatter(sorted_subdf["SWC"], delta_value / delta_volume, c=sensor_colors[sensor], label=f"Sensor {sensor}")
     ax[3].set_xlabel("SWC")
     ax[3].set_ylabel("$\Delta X / \Delta Z$")
-    # ax[3].legend()
-
-    for trial, subdf in df.groupby("trial"):
-        # Now calculate mean delta value/delta volume across sensors for this trial
-        # You do this by groupby then .mean()
-        dxdv_arrays = []
-        for sensor, subsubdf in subdf.groupby("sensor"):
-            sorted_subdf = subsubdf.sort_values("SWC")
-            delta_value = sorted_subdf["value"].diff()
-            delta_volume = sorted_subdf["SWC"].diff()
-            dxdv = delta_value / delta_volume
-            dxdv_arrays.append(dxdv.values)
-        mean_dxdv = np.nanmean(dxdv_arrays, axis=0)
-        ax[4].scatter(sorted_subdf["SWC"], mean_dxdv, label=f"Trial {trial}")
-
-    ax[4].set_xlabel("SWC")
-    ax[4].set_ylabel("mean $\Delta X / \Delta Z$")
-    ax[4].legend()
-
-    # Final plot, between sensor variation vs SWC
-    for trial, subdf in df.groupby("trial"):
-        for swc, subsubdf in subdf.groupby("SWC"):
-            sensor_values = subsubdf["value"].values
-            if len(sensor_values) > 1:
-                sensor_variation = np.std(sensor_values)
-                ax[5].scatter(swc, sensor_variation, label=f"Trial {trial}")
-    ax[5].set_xlabel("SWC")
-    ax[5].set_ylabel("Between Sensor Variation (std dev)")
-
-    for trial, subdf in df.groupby("trial"):
-        for sensor, subsubdf in subdf.groupby("sensor"):    
-            sorted_subdf = subsubdf.sort_values("SWC")
-            delta_value = sorted_subdf["value"].diff()
-            delta_volume = sorted_subdf["SWC"].diff()
-            dzdx = delta_volume / delta_value
-            # remove outliers
-            dzdx[dzdx > 0] = np.nan
-            ax[6].scatter(sorted_subdf["value"], dzdx, c=sensor_colors[sensor], label=f"Sensor {sensor}")
-    
-    ax[6].set_xlabel("X")
-    ax[6].set_ylabel("$\Delta Z / \Delta X$")
 
 
     plt.savefig("titration_plots.png")
