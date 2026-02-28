@@ -1,78 +1,13 @@
 from __future__ import annotations
-from typing import List, Tuple, Callable, Dict
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy.optimize import minimize_scalar
-from numpy.polynomial import Chebyshev
-from scipy.interpolate import BSpline
-from scipy.linalg import solve
-import numpy as np
-from scipy.interpolate import interp1d
-from scipy.ndimage import gaussian_filter1d
-from scipy.integrate import cumulative_trapezoid
-from scipy.interpolate import PchipInterpolator, UnivariateSpline
-from scipy.integrate import cumulative_trapezoid
 from scipy.stats import gamma
+
+from hcultinf.inference import fit_gp
 
 def decreasing_logistic(x: np.ndarray, *, mid: float, L: float, k) -> np.ndarray:
     x = np.asarray(x, dtype=float)
     return L / (1.0 + np.exp(k * (x - mid)))
-
-def derivative_gp_simulation(x, dy_noisy, y_xmax, inv_response_prior):
-    import numpy as np
-    import matplotlib.pyplot as plt
-    from sklearn.gaussian_process import GaussianProcessRegressor
-    from sklearn.gaussian_process.kernels import RBF, ConstantKernel as C, WhiteKernel
-
-    idx = np.argsort(sorted_xs_)
-    X_train = sorted_xs_[idx].reshape(-1, 1)
-    y_train = sorted_dzdx_[idx]
-
-    # -----------------------------
-    # 3. GP regression on derivatives only
-    # -----------------------------
-    X_train = x.reshape(-1, 1)
-    # y_train = dy_noisy
-
-    prior = np.median(dy_noisy)    # will be < 0
-    y_train = dy_noisy - prior       # residuals around 0
-    print(X_train.shape, len(y_train))
-
-    kernel =  C(1.0) * RBF(length_scale=50.0, length_scale_bounds=(0.1, 200.0))
-    # kernel += WhiteKernel(noise_level=1.0, noise_level_bounds=(1e-5, 10.0))
-    gp = GaussianProcessRegressor(kernel=kernel, alpha=0.01)
-    gp.fit(X_train, y_train)
-
-    # Dense grid for prediction
-    X_test = np.linspace(min(x), max(x), 400).reshape(-1, 1)
-
-    # Sample derivative functions from GP posterior
-    n_samples = 100
-    dy_samples = gp.sample_y(X_test, n_samples=n_samples) + prior
-
-    # -----------------------------
-    # 4. Integrate samples
-    # -----------------------------
-
-    X = X_test.flatten()
-    L = X[-1] - X[0]
-    ramp = (X - X[0]) / L   # 0 at Xmin, 1 at Xmax
-    f_samples = cumulative_trapezoid(
-        dy_samples,
-        X_test,
-        axis=0,
-        initial=0
-    )
-
-    # # Anchor each sample at first true value
-    print(y_xmax)
-    f_samples += y_xmax - f_samples[0, :]
-
-    # now uncertainty is 0 at both ends
-    f_mean = np.mean(f_samples, axis=1)
-    f_std  = np.std(f_samples, axis=1)
-
-    return X_test, dy_samples, f_mean, f_std
 
 prop = dict(arrowstyle="-|>,head_width=0.4,head_length=0.8",
             shrinkA=0,shrinkB=0)
@@ -193,12 +128,7 @@ if __name__ == "__main__":
     sorted_dzdx_ = np.array(dzdx_)[sorted_zs_inds]
     sorted_xs_ = np.array(xs_)[sorted_zs_inds]
     
-    X_test, dy_samples, f_mean, f_std = derivative_gp_simulation(sorted_xs_, sorted_dzdx_, Zmax, None)
-
-
-    # -----------------------------
-    # 5. Plot (single plot only)
-    # -----------------------------
+    X_test, dy_samples, f_mean, f_std = fit_gp(sorted_xs_, sorted_dzdx_, Zmax, None)
     
     # fig, axes = plt.subplots(nrows=2, ncols=3)
     fig, axes = plt.subplots(3, 3, figsize=(12, 12), constrained_layout=True)
@@ -234,7 +164,6 @@ if __name__ == "__main__":
     ax[2].set_xlabel("X")
     ax[2].set_ylabel("Z")
     ax[2].legend()
-
 
     ax[3].plot([response_func_z(z) for z in zs_], zs_, color='blue', alpha=0.5)
     _plot_arrows(zmids_, xs_, dzdx_, ax[3], W * 5, True)

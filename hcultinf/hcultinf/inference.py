@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
-from scipy.stats import norm
-
 import numpy as np
+
+from scipy.stats import norm
+from scipy.integrate import cumulative_trapezoid
+
+from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.gaussian_process.kernels import RBF, ConstantKernel
 
 
 def compute_diff(values: np.ndarray, lag_arr: int) -> np.ndarray:
@@ -101,3 +105,36 @@ def classify_events(times: np.ndarray, values: np.ndarray, lag_ms: np.int64, mad
 def zscore_pvalues(zscores: np.ndarray) -> np.ndarray:
     pvals = 2 * (1 - norm.cdf(np.abs(zscores)))
     return pvals
+
+
+def fit_gp(x, dy_noisy, y_xmax, inv_response_prior):
+
+    X_train = x.reshape(-1, 1)
+
+    prior = np.median(dy_noisy)
+    y_train = dy_noisy - prior
+
+    kernel =  ConstantKernel(1.0) * RBF(length_scale=50.0, length_scale_bounds=(0.1, 200.0))
+    gp = GaussianProcessRegressor(kernel=kernel, alpha=0.01)
+    gp.fit(X_train, y_train)
+
+    X_test = np.linspace(min(x), max(x), 400).reshape(-1, 1)
+
+    n_samples = 100
+    dy_samples = gp.sample_y(X_test, n_samples=n_samples) + prior
+
+    X = X_test.flatten()
+    L = X[-1] - X[0]
+    f_samples = cumulative_trapezoid(
+        dy_samples,
+        X_test,
+        axis=0,
+        initial=0
+    )
+
+    f_samples += y_xmax - f_samples[0, :]
+
+    f_mean = np.mean(f_samples, axis=1)
+    f_std  = np.std(f_samples, axis=1)
+
+    return X_test, dy_samples, f_mean, f_std
