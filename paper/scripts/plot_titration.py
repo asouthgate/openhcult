@@ -14,6 +14,19 @@ from hcultinf.inference import fit_monotonic_spline, \
     fit_parametric_monotonic_spline, bootstrap_parametric_spline
 
 
+def _spline_model_to_csv(spline_model, x_min, x_max, filename):
+    x_lookup = np.linspace(x_min, x_max, 1000)
+    y_lookup = spline_model(x_lookup)
+
+    # Create DataFrame and Save
+    lookup_df = pd.DataFrame({
+        'swc': x_lookup, 
+        'x': y_lookup
+    })
+    lookup_df.to_csv(filename, index=False)
+    print("CSV generated: spline_lookup.csv")
+
+
 def get_spline_derivative_midpoints(df):
     x_der_midpoint = []
     x_dswcdv_midpoint = []
@@ -217,7 +230,11 @@ if __name__ == "__main__":
     inner_knots[-1] = (inner_knots[-1] + inner_knots[-2]) / 2
     print("Inner knots:", inner_knots)
     print("X range:", df['SWC'].min(), df['SWC'].max())
+
     spline_model = fit_monotonic_spline(df['SWC'].values, df['value'].values, inner_knots=inner_knots, k=spline_k)
+    _spline_model_to_csv(spline_model, df['SWC'].min(), df['SWC'].max(), "spline_lookup.csv")
+
+
     plin_swc = np.linspace(df['SWC'].min(), df['SWC'].max(), 100)
     polyvals = spline_model(plin_swc)
 
