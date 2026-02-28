@@ -141,7 +141,8 @@ if __name__ == "__main__":
     sorted_dxdz_ = 1.0 / np.array(sorted_dzdx_)
     
     X_test, dy_samples, f_mean, f_std = fit_gp(sorted_xs_, sorted_dzdx_, Zmax, None)
-    
+    X_test_2, dy_samples_2, f_mean_2, f_std_2 = fit_gp(sorted_xs_, sorted_dxdz_, Zmax, None)
+
     # fig, axes = plt.subplots(nrows=2, ncols=3)
     fig, axes = plt.subplots(3, 3, figsize=(12, 12), constrained_layout=True)
     ax = axes.flatten()
