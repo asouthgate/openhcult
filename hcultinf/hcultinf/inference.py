@@ -224,3 +224,37 @@ def bootstrap_parametric_spline(x_anchors, z_anchors, x_der, dz_dx, knots=10, k=
             
     return boot_results
 
+
+def bootstrap_monotonic_spline(x, y, inner_knots, k=3, n_boots=50):
+    boot_splines = []
+    n = len(x)
+    
+    print(f"Starting bootstrap ({n_boots} iterations)...")
+    
+    for i in range(n_boots):
+        print(f"Bootstrap iteration {i+1}/{n_boots}")
+        # Resample indices with replacement
+        indices = np.random.choice(n, size=n, replace=True)
+        x_resampled = x[indices]
+        y_resampled = y[indices]
+        
+        try:
+            spline = fit_monotonic_spline(x_resampled, y_resampled, inner_knots, k=k)
+            boot_splines.append(spline)
+        except Exception as e:
+            print(f"Iteration {i} failed: {e}")
+            continue
+            
+    return boot_splines
+
+
+def compute_lookup_table_from_bootstrap(boot_splines, x_min, x_max, n_points=100):
+    x_grid = np.linspace(x_min, x_max, n_points)
+    z_grid = np.array([spline(x_grid) for spline in boot_splines])
+    
+    # Compute mean and confidence intervals
+    z_mean = np.mean(z_grid, axis=0)
+    z_lower = np.percentile(z_grid, 2.5, axis=0)
+    z_upper = np.percentile(z_grid, 97.5, axis=0)
+    
+    return x_grid, z_mean, z_lower, z_upper

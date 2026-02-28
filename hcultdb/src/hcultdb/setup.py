@@ -10,15 +10,17 @@ def _connect(db_url: str):
 def _setup_inference_tables(cursor):
     cursor.execute(
         """
-        CREATE TABLE IF NOT EXISTS spline_lookups (
+        CREATE TABLE spline_lookups (
             id SERIAL PRIMARY KEY,
-            version_tag VARCHAR(50) NOT NULL,
-            swc_val DOUBLE PRECISION NOT NULL,
-            predicted_val DOUBLE PRECISION NOT NULL,
+            version_tag VARCHAR(50),
+            swc_val DOUBLE PRECISION,
+            predicted_val DOUBLE PRECISION, -- This is the median/mean
+            ci_lower DOUBLE PRECISION,      -- 5th Percentile
+            ci_upper DOUBLE PRECISION,      -- 95th Percentile
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
-        CREATE INDEX idx_swc_val ON spline_lookups(swc_val);
-        CREATE INDEX idx_version ON spline_lookups(version_tag);
+
+        CREATE INDEX idx_swc_lookup ON spline_lookups(swc_val);        
         """
     )
 

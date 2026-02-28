@@ -11,20 +11,9 @@ import numpy as np
 
 from hcultutils.fetch_data import fetch_data, fetch_series_from_ctrl
 from hcultinf.inference import fit_monotonic_spline, \
-    fit_parametric_monotonic_spline, bootstrap_parametric_spline
-
-
-def _spline_model_to_csv(spline_model, x_min, x_max, filename):
-    x_lookup = np.linspace(x_min, x_max, 1000)
-    y_lookup = spline_model(x_lookup)
-
-    # Create DataFrame and Save
-    lookup_df = pd.DataFrame({
-        'swc': x_lookup, 
-        'x': y_lookup
-    })
-    lookup_df.to_csv(filename, index=False)
-    print("CSV generated: spline_lookup.csv")
+    fit_parametric_monotonic_spline, bootstrap_parametric_spline, \
+    bootstrap_monotonic_spline, compute_lookup_table_from_bootstrap
+from hcultdb.queries import insert_spline_lookup
 
 
 def get_spline_derivative_midpoints(df):
@@ -34,7 +23,8 @@ def get_spline_derivative_midpoints(df):
 
     # now compute derivative of water with respect to value
     for trial, subdf in df.groupby("trial"):
-        # Now calculate mean delta value/delta volume across sensors for this trial
+        # Now calculate mean delta value/delta volume across sensors fo
+        # r this trial
         # You do this by groupby then .mean()
         for sensor, subsubdf in subdf.groupby("sensor"):
             sorted_subdf = subsubdf.sort_values("SWC")
@@ -167,8 +157,21 @@ if __name__ == "__main__":
         "--ctrl-url",
         type=str,
         default=None,
-        help="URL of the ctrl server to fetch data from. Overrides config file.",
+        help="URL of the ctrl server to fetch data from.",
     )
+    ap.add_argument(
+        "--n-bootstraps",
+        type=int,
+        default=100,
+        help="Number of bootstrap samples to generate for uncertainty estimation.",
+    )
+    ap.add_argument(
+        "--n-bootstraps-parametric",
+        type=int,
+        default=10,
+        help="Number of bootstrap samples to generate for uncertainty estimation.",
+    )
+
     args = ap.parse_args()
 
     df = _get_data(args)
@@ -191,9 +194,10 @@ if __name__ == "__main__":
     k_spline = 3
     spline_x, spline_z = fit_parametric_monotonic_spline(value_anchor, swc_anchor, x_der_midpoint, x_dswcdv, n_inner_knots, k=k_spline, w_der=w_der)
     
-    n_boots = 5
+
+    n_boots_parametric = args.n_bootstraps_parametric
     boot_results = bootstrap_parametric_spline(
-        value_anchor, swc_anchor, x_der_midpoint, x_dswcdv, knots=n_inner_knots, k=k_spline, w_der=w_der, n_boots=n_boots)
+        value_anchor, swc_anchor, x_der_midpoint, x_dswcdv, knots=n_inner_knots, k=k_spline, w_der=w_der, n_boots=n_boots_parametric)
     
     x_rang = np.linspace(df['value'].min(), df['value'].max() , 100)
 
@@ -232,12 +236,27 @@ if __name__ == "__main__":
     print("X range:", df['SWC'].min(), df['SWC'].max())
 
     spline_model = fit_monotonic_spline(df['SWC'].values, df['value'].values, inner_knots=inner_knots, k=spline_k)
-    _spline_model_to_csv(spline_model, df['SWC'].min(), df['SWC'].max(), "spline_lookup.csv")
+    boot_splines = bootstrap_monotonic_spline(df['SWC'].values, df['value'].values, inner_knots=inner_knots, k=spline_k, 
+                                              n_boots=args.n_bootstraps)
+    lookup_table = compute_lookup_table_from_bootstrap(boot_splines, df['SWC'].min(), df['SWC'].max(), n_points=1000)
+    # write the lookup table to csv
+    lookup_df = pd.DataFrame({
+        "SWC": lookup_table[0],
+        "x": lookup_table[1],
+        "x_upper_95%": lookup_table[2],
+        "x_lower_95%": lookup_table[3],
+    })
+    lookup_df.to_csv("spline_lookup_table.csv", index=False)
+    spline_lookup_table_out_file = "spline_lookup_table.csv"
+    print(f"Lookup table saved to {spline_lookup_table_out_file}")
 
-
+    # plot the spline lookup_table values
+    ax[0].plot(lookup_table[0], lookup_table[1], color='red', label='Monotonic Spline Fit')
+    ax[0].fill_between(lookup_table[0], lookup_table[2], lookup_table[3], color='red', alpha=0.3, label='95% Confidence Interval')
     plin_swc = np.linspace(df['SWC'].min(), df['SWC'].max(), 100)
     polyvals = spline_model(plin_swc)
 
+    
     ax[0].plot(plin_swc, polyvals, color='red', label='Monotonic Spline Fit')
     ax[0].plot(z_plot, x_plot, color='green', label='Parametric Derivative Fit')
     ax[0].set_xlabel("SWC")
@@ -252,7 +271,7 @@ if __name__ == "__main__":
     for sx, sz in boot_results:
         x_boot = sx(s_fine)
         z_boot = sz(s_fine)
-        ax[1].plot(z_boot, x_boot, color='green', alpha=5.0/n_boots, label=f"Bootstrap Samples" if i == 0 else None)
+        ax[1].plot(z_boot, x_boot, color='green', alpha=5.0/n_boots_parametric, label=f"Bootstrap Samples" if i == 0 else None)
         i += 1
 
     # ax[7].scatter(df['SWC'], df['value'], color='grey', label='Data Points')
