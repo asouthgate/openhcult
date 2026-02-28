@@ -6,9 +6,6 @@ import numpy as np
 
 from scipy.stats import norm
 from scipy.integrate import cumulative_trapezoid
-from scipy.interpolate import LSQUnivariateSpline, BSpline
-from scipy.interpolate import interp1d
-from scipy.optimize import minimize
 
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, ConstantKernel
@@ -109,152 +106,35 @@ def zscore_pvalues(zscores: np.ndarray) -> np.ndarray:
     pvals = 2 * (1 - norm.cdf(np.abs(zscores)))
     return pvals
 
-def fit_monotonic_spline(x, y, inner_knots, k=3):
-    # Sort for the spline engine
-    idx = np.argsort(x)
-    xs, ys = x[idx], y[idx]
-    x_min, x_max = xs.min(), xs.max()
-    
-    # 2. Use LSQUnivariateSpline just to get the "Full" knot vector (including pads)
-    tmp_spline = LSQUnivariateSpline(xs, ys, inner_knots, k=k)
-    t = tmp_spline.get_knots() # Full knot vector
-    c0 = tmp_spline.get_coeffs() # Initial guess coefficients
-    
-    # 3. Objective: Minimize MSE of the BSpline
-    def objective(coeffs):
-        spl = BSpline(t, coeffs, k)
-        return np.sum((spl(x) - y)**2)
 
-    # 4. Constraint: Slope <= 0 (Decreasing) at 50 points
-    x_check = np.linspace(x_min, x_max, 50)
-    def monotonic_constraint(coeffs):
-        spl = BSpline(t, coeffs, k)
-        # We want -f'(x) >= 0 for decreasing
-        return -spl(x_check, nu=1)
+def fit_gp(x, dy_noisy, y_xmax, inv_response_prior):
 
-    res = minimize(objective, c0, constraints={'type': 'ineq', 'fun': monotonic_constraint})
-    
-    # Return the final optimized BSpline object
-    return BSpline(t, res.x, k)
+    X_train = x.reshape(-1, 1)
 
+    prior = np.median(dy_noisy)
+    y_train = dy_noisy - prior
 
+    kernel =  ConstantKernel(1.0) * RBF(length_scale=50.0, length_scale_bounds=(0.1, 200.0))
+    gp = GaussianProcessRegressor(kernel=kernel, alpha=0.01)
+    gp.fit(X_train, y_train)
 
-def fit_parametric_monotonic_spline(x_anchors, z_anchors, x_der, dz_dx, knots=10, k=3, w_der=1.0):
-    
-    x_min, x_max = min(x_anchors.min(), x_der.min()), max(x_anchors.max(), x_der.max())
-    
-    # Map s to the data points
-    s_der = (x_der - x_min) / (x_max - x_min)
-    s_anc = (x_anchors - x_min) / (x_max - x_min)
-    
-    if type(knots) is int:
-        n_int = knots
-        inner = np.linspace(0, 1, n_int + 2)[1:-1]
-        t = np.concatenate(([0.0]*(k+1), inner, [1.0]*(k+1)))
-    else:
-        # Assume n_int is already the inner knots
-        inner = np.asarray(knots)
-        t = np.concatenate(([0.0]*(k+1), inner, [1.0]*(k+1)))  
-    n_c = len(t) - k - 1
-    
-    # Initial guess
-    c0_x = np.linspace(x_min, x_max, n_c)
-    c0_z = np.linspace(z_anchors.max(), z_anchors.min(), n_c)
-    c0 = np.concatenate([c0_x, c0_z])
+    X_test = np.linspace(min(x), max(x), 400).reshape(-1, 1)
 
-    def objective(coeffs):
-        cx, cz = coeffs[:n_c], coeffs[n_c:]
-        sx, sz = BSpline(t, cx, k), BSpline(t, cz, k)
-        
-        # 1. Anchor Errors (Position)
-        err_anc = np.sum((sx(s_anc) - x_anchors)**2) + np.sum((sz(s_anc) - z_anchors)**2)
-        
-        # 2. X-Alignment (Ensures s_der actually corresponds to x_der)
-        # This prevents the 'shift' by forcing sx(s) approx x
-        err_x_align = np.sum((sx(s_der) - x_der)**2)
-        
-        # 3. Shape Error (Chain Rule: dz/ds = dz/dx * dx/ds)
-        # dz_dx MUST be d(SWC)/d(Value)
-        z_prime = sz(s_der, nu=1)
-        x_prime = sx(s_der, nu=1)
-        err_der = np.sum((z_prime - (dz_dx * x_prime))**2)
-        
-        # We give high priority to staying aligned with the X coordinates
-        return (err_anc + 10.0 * err_x_align) + (w_der * err_der)
+    n_samples = 100
+    dy_samples = gp.sample_y(X_test, n_samples=n_samples) + prior
 
-    def monotonic_con(coeffs):
-        cz = coeffs[n_c:]
-        # dz/ds <= 0 for decreasing SWC
-        return -BSpline(t, cz, k)(np.linspace(0, 1, 50), nu=1)
+    X = X_test.flatten()
+    L = X[-1] - X[0]
+    f_samples = cumulative_trapezoid(
+        dy_samples,
+        X_test,
+        axis=0,
+        initial=0
+    )
 
+    f_samples += y_xmax - f_samples[0, :]
 
-    res = minimize(objective, c0, constraints={'type': 'ineq', 'fun': monotonic_con})
-    return BSpline(t, res.x[:n_c], k), BSpline(t, res.x[n_c:], k)
+    f_mean = np.mean(f_samples, axis=1)
+    f_std  = np.std(f_samples, axis=1)
 
-
-
-def bootstrap_parametric_spline(x_anchors, z_anchors, x_der, dz_dx, knots=10, k=2, w_der=0.5, n_boots=50):
-    """
-    Performs bootstrapping on the derivative data to produce a distribution of splines.
-    """
-    boot_results = []
-    n_der = len(x_der)
-    
-    print(f"Starting bootstrap ({n_boots} iterations)...")
-    
-    for i in range(n_boots):
-        print(f"Bootstrap iteration {i+1}/{n_boots}")
-        # 1. Resample derivative indices with replacement
-        indices = np.random.choice(n_der, size=n_der, replace=True)
-        
-        x_resampled = x_der[indices]
-        dz_dx_resampled = dz_dx[indices]
-        
-        # 2. Fit the model using the resampled derivatives
-        try:
-            sx, sz = fit_parametric_monotonic_spline(
-                x_anchors, z_anchors, 
-                x_resampled, dz_dx_resampled, 
-                knots=knots, k=k, w_der=w_der
-            )
-            boot_results.append((sx, sz))
-        except Exception as e:
-            print(f"Iteration {i} failed: {e}")
-            continue
-            
-    return boot_results
-
-
-def bootstrap_monotonic_spline(x, y, inner_knots, k=3, n_boots=50):
-    boot_splines = []
-    n = len(x)
-    
-    print(f"Starting bootstrap ({n_boots} iterations)...")
-    
-    for i in range(n_boots):
-        print(f"Bootstrap iteration {i+1}/{n_boots}")
-        # Resample indices with replacement
-        indices = np.random.choice(n, size=n, replace=True)
-        x_resampled = x[indices]
-        y_resampled = y[indices]
-        
-        try:
-            spline = fit_monotonic_spline(x_resampled, y_resampled, inner_knots, k=k)
-            boot_splines.append(spline)
-        except Exception as e:
-            print(f"Iteration {i} failed: {e}")
-            continue
-            
-    return boot_splines
-
-
-def compute_lookup_table_from_bootstrap(boot_splines, x_min, x_max, n_points=100):
-    x_grid = np.linspace(x_min, x_max, n_points)
-    z_grid = np.array([spline(x_grid) for spline in boot_splines])
-    
-    # Compute mean and confidence intervals
-    z_mean = np.mean(z_grid, axis=0)
-    z_lower = np.percentile(z_grid, 2.5, axis=0)
-    z_upper = np.percentile(z_grid, 97.5, axis=0)
-    
-    return x_grid, z_mean, z_lower, z_upper
+    return X_test, dy_samples, f_mean, f_std
