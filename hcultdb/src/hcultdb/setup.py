@@ -56,7 +56,7 @@ def _setup_inference_tables(cursor):
 
     cursor.execute(
         """
-        CREATE TABLE response_curve_lookup (
+        CREATE TABLE IF NOT EXISTS response_curve_lookup (
             id SERIAL PRIMARY KEY,
             swc DOUBLE PRECISION,
             predicted_sensor_val DOUBLE PRECISION, -- This is the median/mean
