@@ -2,9 +2,9 @@ OpenHCult
 
 Local API smoke tests (pytest)
 
-- Requires a running `hcultctrl` instance (local or remote).
-- Default base URL: `http://127.0.0.1:8000`
-- Override with `OPENHCULT_BASE_URL`
+```
+python3 tests/run_docker_smoke_tests.py
+```
 
 Example:
 
