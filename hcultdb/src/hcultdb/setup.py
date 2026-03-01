@@ -56,17 +56,17 @@ def _setup_inference_tables(cursor):
 
     cursor.execute(
         """
-        CREATE TABLE spline_lookups (
+        CREATE TABLE response_curve_lookup (
             id SERIAL PRIMARY KEY,
-            version_tag VARCHAR(50),
-            swc_val DOUBLE PRECISION,
-            predicted_val DOUBLE PRECISION, -- This is the median/mean
+            swc DOUBLE PRECISION,
+            predicted_sensor_val DOUBLE PRECISION, -- This is the median/mean
             ci_lower DOUBLE PRECISION,      -- 5th Percentile
             ci_upper DOUBLE PRECISION,      -- 95th Percentile
+            version_tag VARCHAR(50),
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
-        CREATE INDEX idx_swc_lookup ON spline_lookups(swc_val);        
+        CREATE INDEX idx_swc_lookup ON response_curve_lookup(swc);        
         """
     )
 
