@@ -8,18 +8,12 @@ import time
 from typing import Iterable, Optional
 
 from .connection import (
-    connect as connect_db,
     fetchall_dicts,
-    is_postgres,
     placeholder as placeholder_for,
 )
 
 logger = logging.getLogger(__name__)
 
-
-def connect(db_url: str):
-    """Open a database connection for read queries."""
-    return connect_db(db_url)
 
 
 def register_device(conn, name, address):
@@ -37,19 +31,12 @@ def register_device(conn, name, address):
             (device_id,),
         )
     else:
-        if is_postgres(conn):
-            logger.debug("Registering new device %s at %s", name, address)
-            cursor.execute(
-                "INSERT INTO devices (name, address) VALUES (%s, %s) RETURNING id",
-                (name, address),
-            )
-            device_id = cursor.fetchone()[0]
-        else:
-            cursor.execute(
-                f"INSERT INTO devices (name, address) VALUES ({placeholder}, {placeholder})",
-                (name, address),
-            )
-            device_id = cursor.lastrowid
+        logger.debug("Registering new device %s at %s", name, address)
+        cursor.execute(
+            "INSERT INTO devices (name, address) VALUES (%s, %s) RETURNING id",
+            (name, address),
+        )
+        device_id = cursor.fetchone()[0]
     conn.commit()
     return device_id
 
@@ -111,19 +98,11 @@ def add_observation(conn, note, observed_at=None):
         if observed_at is not None
         else int(time.time() * 1000)
     )
-    if is_postgres(conn):
-        cursor.execute(
-            "INSERT INTO observations (observed_at, note) VALUES (%s, %s) RETURNING id",
-            (observed_at_ms, note),
-        )
-        obs_id = cursor.fetchone()[0]
-    else:
-        placeholder = placeholder_for(conn)
-        cursor.execute(
-            f"INSERT INTO observations (observed_at, note) VALUES ({placeholder}, {placeholder})",
-            (observed_at_ms, note),
-        )
-        obs_id = cursor.lastrowid
+    cursor.execute(
+        "INSERT INTO observations (observed_at, note) VALUES (%s, %s) RETURNING id",
+        (observed_at_ms, note),
+    )
+    obs_id = cursor.fetchone()[0]
     conn.commit()
     return obs_id
 
@@ -197,25 +176,17 @@ def insert_observation(
 ) -> int:
     """Insert an observation and return its id."""
     cursor = conn.cursor()
-    if is_postgres(conn):
-        cursor.execute(
-            "INSERT INTO observations (observed_at, note, plant_id) VALUES (%s, %s, %s) RETURNING id",
-            (observed_at_ms, note, plant_id),
-        )
-        obs_id = cursor.fetchone()[0]
-    else:
-        placeholder = placeholder_for(conn)
-        cursor.execute(
-            f"INSERT INTO observations (observed_at, note, plant_id) VALUES ({placeholder}, {placeholder}, {placeholder})",
-            (observed_at_ms, note, plant_id),
-        )
-        obs_id = cursor.lastrowid
+    cursor.execute(
+        "INSERT INTO observations (observed_at, note, plant_id) VALUES (%s, %s, %s) RETURNING id",
+        (observed_at_ms, note, plant_id),
+    )
+    obs_id = cursor.fetchone()[0]
     conn.commit()
     return obs_id
 
 
 def fetch_observations(
-    conn: sqlite3.Connection,
+    conn,
     *,
     start_ms: Optional[int] = None,
     end_ms: Optional[int] = None,
@@ -358,19 +329,11 @@ def insert_species(
 ) -> int:
     """Insert a species and return its id."""
     cursor = conn.cursor()
-    if is_postgres(conn):
-        cursor.execute(
-            "INSERT INTO species (name, common_name, metadata) VALUES (%s, %s, %s) RETURNING id",
-            (name, common_name, metadata),
-        )
-        species_id = cursor.fetchone()[0]
-    else:
-        placeholder = placeholder_for(conn)
-        cursor.execute(
-            f"INSERT INTO species (name, common_name, metadata) VALUES ({placeholder}, {placeholder}, {placeholder})",
-            (name, common_name, metadata),
-        )
-        species_id = cursor.lastrowid
+    cursor.execute(
+        "INSERT INTO species (name, common_name, metadata) VALUES (%s, %s, %s) RETURNING id",
+        (name, common_name, metadata),
+    )
+    species_id = cursor.fetchone()[0]
     conn.commit()
     return species_id
 
@@ -506,19 +469,11 @@ def insert_plant(
 ) -> int:
     """Insert a plant and return its id."""
     cursor = conn.cursor()
-    if is_postgres(conn):
-        cursor.execute(
-            "INSERT INTO plants (plant_name, species_id, tag, metadata) VALUES (%s, %s, %s, %s) RETURNING id",
-            (plant_name, species_id, tag, metadata),
-        )
-        plant_id = cursor.fetchone()[0]
-    else:
-        placeholder = placeholder_for(conn)
-        cursor.execute(
-            f"INSERT INTO plants (plant_name, species_id, tag, metadata) VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder})",
-            (plant_name, species_id, tag, metadata),
-        )
-        plant_id = cursor.lastrowid
+    cursor.execute(
+        "INSERT INTO plants (plant_name, species_id, tag, metadata) VALUES (%s, %s, %s, %s) RETURNING id",
+        (plant_name, species_id, tag, metadata),
+    )
+    plant_id = cursor.fetchone()[0]
     conn.commit()
     return plant_id
 
@@ -579,19 +534,12 @@ def assign_plant_sensor(conn, *, plant_id: int, device_id: int, sensor: str) -> 
     """Insert a plant-to-device sensor mapping."""
     placeholder = placeholder_for(conn)
     cursor = conn.cursor()
-    if is_postgres(conn):
-        query = (
-            "INSERT INTO plant_sensors (plant_id, device_id, sensor) "
-            "VALUES (%s, %s, %s) "
-            "ON CONFLICT (plant_id, device_id, sensor) DO NOTHING"
-        )
-        cursor.execute(query, (plant_id, device_id, sensor))
-    else:
-        query = (
-            "INSERT OR IGNORE INTO plant_sensors (plant_id, device_id, sensor) "
-            f"VALUES ({placeholder}, {placeholder}, {placeholder})"
-        )
-        cursor.execute(query, (plant_id, device_id, sensor))
+    query = (
+        "INSERT INTO plant_sensors (plant_id, device_id, sensor) "
+        "VALUES (%s, %s, %s) "
+        "ON CONFLICT (plant_id, device_id, sensor) DO NOTHING"
+    )
+    cursor.execute(query, (plant_id, device_id, sensor))
     conn.commit()
 
 
@@ -605,21 +553,12 @@ def insert_plant_status(
 ) -> int:
     """Insert a plant status entry and return its id."""
     cursor = conn.cursor()
-    if is_postgres(conn):
-        cursor.execute(
-            "INSERT INTO plant_statuses (plant_id, status_type_id, observed_at, note) "
-            "VALUES (%s, %s, %s, %s) RETURNING id",
-            (plant_id, status_type_id, observed_at, note),
-        )
-        status_id = cursor.fetchone()[0]
-    else:
-        placeholder = placeholder_for(conn)
-        cursor.execute(
-            "INSERT INTO plant_statuses (plant_id, status_type_id, observed_at, note) "
-            f"VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder})",
-            (plant_id, status_type_id, observed_at, note),
-        )
-        status_id = cursor.lastrowid
+    cursor.execute(
+        "INSERT INTO plant_statuses (plant_id, status_type_id, observed_at, note) "
+        "VALUES (%s, %s, %s, %s) RETURNING id",
+        (plant_id, status_type_id, observed_at, note),
+    )
+    status_id = cursor.fetchone()[0]
     conn.commit()
     return status_id
 
@@ -647,3 +586,29 @@ def fetch_plant_statuses(conn, *, plant_id: int, limit: int = 100) -> Iterable[d
     cursor = conn.cursor()
     cursor.execute(query, [plant_id, limit])
     return fetchall_dicts(cursor)
+
+
+def insert_response_curve_lookup(
+    conn,
+    swc, 
+    predicted_sensor_vals,
+    ci_lower,
+    ci_upper,
+    version,
+    created_at,
+):
+    cursor = conn.cursor()
+    last_id = None
+    
+    for j in range(len(swc)):
+        cursor.execute(
+            """INSERT INTO response_curve_lookup 
+               (swc, predicted_sensor_val, ci_lower, ci_upper, version, created_at) 
+               VALUES (%s, %s, %s, %s, %s, %s) 
+               RETURNING id""",
+            (swc[j], predicted_sensor_vals[j], ci_lower[j], ci_upper[j], version, created_at)
+        )
+        last_id = cursor.fetchone()[0]
+
+    conn.commit()
+    return last_id

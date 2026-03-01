@@ -161,3 +161,22 @@ def test_devices_smoke_flow():
     listed = _request_json("/devices?limit=10000")
     addresses = [item["address"] for item in listed.get("data", [])]
     assert address in addresses
+
+
+def test_calibration_smoke_flow():
+
+    data = {
+        "swc": [0.0, 0.1, 0.5, 1.0],
+        "predicted_sensor_val": [100, 200, 300, 500],
+        "ci_lower": [50, 100, 150, 250],
+        "ci_upper": [150, 200, 250, 350],
+        "version": "bazbar",
+        "created_at": "2026-01-01T11:20:23Z"
+    }
+
+    inserted_id = _request_json(
+        "/calibration/response_curve_lookup",
+        method="POST",
+        payload=data,
+    )
+    assert inserted_id

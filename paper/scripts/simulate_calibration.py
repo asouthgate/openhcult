@@ -1,78 +1,13 @@
 from __future__ import annotations
-from typing import List, Tuple, Callable, Dict
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy.optimize import minimize_scalar
-from numpy.polynomial import Chebyshev
-from scipy.interpolate import BSpline
-from scipy.linalg import solve
-import numpy as np
-from scipy.interpolate import interp1d
-from scipy.ndimage import gaussian_filter1d
-from scipy.integrate import cumulative_trapezoid
-from scipy.interpolate import PchipInterpolator, UnivariateSpline
-from scipy.integrate import cumulative_trapezoid
 from scipy.stats import gamma
+
+from hcultinf.inference import fit_gp
 
 def decreasing_logistic(x: np.ndarray, *, mid: float, L: float, k) -> np.ndarray:
     x = np.asarray(x, dtype=float)
     return L / (1.0 + np.exp(k * (x - mid)))
-
-def derivative_gp_simulation(x, dy_noisy, y_xmax, inv_response_prior):
-    import numpy as np
-    import matplotlib.pyplot as plt
-    from sklearn.gaussian_process import GaussianProcessRegressor
-    from sklearn.gaussian_process.kernels import RBF, ConstantKernel as C, WhiteKernel
-
-    idx = np.argsort(sorted_xs_)
-    X_train = sorted_xs_[idx].reshape(-1, 1)
-    y_train = sorted_dzdx_[idx]
-
-    # -----------------------------
-    # 3. GP regression on derivatives only
-    # -----------------------------
-    X_train = x.reshape(-1, 1)
-    # y_train = dy_noisy
-
-    prior = np.median(dy_noisy)    # will be < 0
-    y_train = dy_noisy - prior       # residuals around 0
-    print(X_train.shape, len(y_train))
-
-    kernel =  C(1.0) * RBF(length_scale=50.0, length_scale_bounds=(0.1, 200.0))
-    # kernel += WhiteKernel(noise_level=1.0, noise_level_bounds=(1e-5, 10.0))
-    gp = GaussianProcessRegressor(kernel=kernel, alpha=0.01)
-    gp.fit(X_train, y_train)
-
-    # Dense grid for prediction
-    X_test = np.linspace(min(x), max(x), 400).reshape(-1, 1)
-
-    # Sample derivative functions from GP posterior
-    n_samples = 100
-    dy_samples = gp.sample_y(X_test, n_samples=n_samples) + prior
-
-    # -----------------------------
-    # 4. Integrate samples
-    # -----------------------------
-
-    X = X_test.flatten()
-    L = X[-1] - X[0]
-    ramp = (X - X[0]) / L   # 0 at Xmin, 1 at Xmax
-    f_samples = cumulative_trapezoid(
-        dy_samples,
-        X_test,
-        axis=0,
-        initial=0
-    )
-
-    # # Anchor each sample at first true value
-    print(y_xmax)
-    f_samples += y_xmax - f_samples[0, :]
-
-    # now uncertainty is 0 at both ends
-    f_mean = np.mean(f_samples, axis=1)
-    f_std  = np.std(f_samples, axis=1)
-
-    return X_test, dy_samples, f_mean, f_std
 
 prop = dict(arrowstyle="-|>,head_width=0.4,head_length=0.8",
             shrinkA=0,shrinkB=0)
@@ -94,14 +29,24 @@ def _plot_arrows(zmids, xss, dzdxs, ax, step, reverse_arrow):
             ax.annotate("", xy=(x1, z1), xytext=(x2, z2), arrowprops=prop, alpha=0.5)
         ax.scatter(xmid, zmid, color='black', s=10)
 
-def get_gamma_shape_scale(z, Zmax, varZ0, varZmax):
-    varZ = varZ0 + (varZmax - varZ0) * (z / Zmax)
+def get_gamma_shape_scale(z, Zmax, varmin, varmax):
+
+    peak_location = 0.2 * Zmax
+    # use 2 term linear interpolation to get maximum variance varmax at peak location, vmin at 0 and zmax
+    if z < peak_location:
+        fz = z / peak_location
+    else:
+        fz = (Zmax - z) / (Zmax - peak_location)
+    
+    
+    varZ = varmin + (varmax - varmin) * fz ** 2
+
     shape = 1.0 / varZ
     scale = varZ
     return shape, scale
 
-def sample_gamma_func(z, Zmax, varZ0, varZmax):
-    shape, scale = get_gamma_shape_scale(z, Zmax, varZ0, varZmax)
+def sample_gamma_func(z, Zmax, varmin, varmax):
+    shape, scale = get_gamma_shape_scale(z, Zmax, varmin, varmax)
     return np.random.gamma(shape, scale)
 
 def get_gamma_pdf(x, z, Zmax, varZ0, varZmax):
@@ -120,30 +65,31 @@ def get_gamma_05_percent_ci(z, Zmax, varZ0, varZmax):
     shape, scale = get_gamma_shape_scale(z, Zmax, varZ0, varZmax)
     return gamma.ppf(0.05, a=shape, scale=scale)
 
-
 if __name__ == "__main__":
     import sys
-    W = 10.0
-    Zmax = 160.0
+    W = 0.2
+    Zmax = 2.0
     Q_at_Xmin = 1.0
     sigma2 = 0.0
     sigma2_w = 0.0
     sigma2_x = 0.0
-    X_at_Zmin = 2000
-    Z_at_Xmax = 0.0
+    X_at_Zmin = 2832
+    Z_at_Xmax = 959
     n_samps_per_sensor = 50
     n_sensors = 3
 
-    gamma_var_zmin = 0.3
-    gamma_var_zmax = 0.3  # set the same
+    gamma_var_min = 0.01
+    gamma_var_max = 0.3
 
-    # response_func_z = lambda z: X_at_Zmin  - (5.2/Zmax) * z - (10.2/Zmax) * z**2 + (0.01/Zmax) * z**3
+    pcoeffs = [-272.75690642, 1624.74832501, -3105.44572851, 2897.46597558]
+    response_func_z = lambda z: np.polyval(pcoeffs, z)
     # set response func to an exponential intersecting at X_at_Zmin
-    response_func_z = lambda z: X_at_Zmin * np.exp(-0.02 * z) + 50 * np.exp(-0.01 * z)
+    # response_func_z = lambda z: X_at_Zmin * np.exp(-0.02 * z) + 50 * np.exp(-0.01 * z)
     print(response_func_z(0), response_func_z(Zmax))
 
     # # now known dZ, choose dX to get derivatives; take dZ = 1, we compute response X
     zs_ = np.random.uniform(0, Zmax-W-W/2, n_samps_per_sensor)  # /2 because of the midpointing later
+    zs_ = np.concatenate([zs_, np.random.uniform(0, Zmax / 2, n_samps_per_sensor)])
     zs_ = sorted(zs_)
 
     dzdx_ = []
@@ -161,7 +107,7 @@ if __name__ == "__main__":
         zmids_.append(z + 0.5 * W)
         for sensor in range(n_sensors):
             # if alpha_W:
-            M = sample_gamma_func(z, Zmax, gamma_var_zmin, gamma_var_zmax)
+            M = sample_gamma_func(z, Zmax, gamma_var_min, gamma_var_max)
             # else:
             #     M = 1.0
             assert M > 0
@@ -192,22 +138,19 @@ if __name__ == "__main__":
     sorted_zmids = np.array(zmids_)[sorted_zs_inds]
     sorted_dzdx_ = np.array(dzdx_)[sorted_zs_inds]
     sorted_xs_ = np.array(xs_)[sorted_zs_inds]
+    sorted_dxdz_ = 1.0 / np.array(sorted_dzdx_)
     
-    X_test, dy_samples, f_mean, f_std = derivative_gp_simulation(sorted_xs_, sorted_dzdx_, Zmax, None)
+    X_test, dy_samples, f_mean, f_std = fit_gp(sorted_xs_, sorted_dzdx_, Zmax, None)
+    X_test_2, dy_samples_2, f_mean_2, f_std_2 = fit_gp(sorted_xs_, sorted_dxdz_, Zmax, None)
 
-
-    # -----------------------------
-    # 5. Plot (single plot only)
-    # -----------------------------
-    
     # fig, axes = plt.subplots(nrows=2, ncols=3)
     fig, axes = plt.subplots(3, 3, figsize=(12, 12), constrained_layout=True)
     ax = axes.flatten()
 
     # plot gamma func noise distribtion over z; need to take many samples from the distribution at each value of x, then plot between
-    gamma_mean_z = [get_gamma_mean(z, Zmax, gamma_var_zmin, gamma_var_zmax) for z in zs_]
-    gamma_ci_z_upper = [get_gamma_95_percent_ci(z, Zmax, gamma_var_zmin, gamma_var_zmax) for z in zs_]
-    gamma_ci_z_lower = [get_gamma_05_percent_ci(z, Zmax, gamma_var_zmin, gamma_var_zmax) for z in zs_]
+    gamma_mean_z = [get_gamma_mean(z, Zmax, gamma_var_min, gamma_var_max) for z in zs_]
+    gamma_ci_z_upper = [get_gamma_95_percent_ci(z, Zmax, gamma_var_min, gamma_var_max) for z in zs_]
+    gamma_ci_z_lower = [get_gamma_05_percent_ci(z, Zmax, gamma_var_min, gamma_var_max) for z in zs_]
     ax[0].plot(zs_, gamma_mean_z, label="Gamma noise mean")
     ax[0].fill_between(zs_, gamma_ci_z_lower, gamma_ci_z_upper, alpha=0.3, label="Gamma noise 90% CI")
     ax[0].set_xlabel("Z")
@@ -235,9 +178,8 @@ if __name__ == "__main__":
     ax[2].set_ylabel("Z")
     ax[2].legend()
 
-
     ax[3].plot([response_func_z(z) for z in zs_], zs_, color='blue', alpha=0.5)
-    _plot_arrows(zmids_, xs_, dzdx_, ax[3], W * 5, True)
+    _plot_arrows(zmids_, xs_, dzdx_, ax[3], 1/W, True)
     
     ax[3].set_xlabel("$X$ ")
     ax[3].set_ylabel("Z")
@@ -245,15 +187,24 @@ if __name__ == "__main__":
     ax[4].plot(zs_, [response_func_z(z) for z in zs_])
     ax[4].set_xlabel("Z")
     ax[4].set_ylabel("$X$")
-    _plot_arrows(xs_, zmids_, 1.0/np.array(dzdx_), ax[4], 5.0, False)
+    _plot_arrows(xs_, zmids_, 1.0/np.array(dzdx_), ax[4], W, False)
 
     ax[5].scatter(sorted_zmids, sorted_dzdx_)
     ax[5].set_xlabel("Z")
     ax[5].set_ylabel("$dZ/dX$")
 
-    ax[6].scatter(sorted_xs_, sorted_dzdx_)
+    ax[6].scatter(sorted_xs_, 1.0/sorted_dzdx_)
     ax[6].set_xlabel("X")
-    ax[6].set_ylabel("$dZ/dX$")
+    ax[6].set_ylabel("$dX/dZ$")
+    dmean2 = np.mean(dy_samples_2, axis=1)
+    dstd2 = np.std(dy_samples_2, axis=1)
+    ax[6].plot(X_test_2.flatten(), dmean2, color='orange', label="GP mean")
+    ax[6].fill_between(
+        X_test_2.flatten(),
+        dmean2 - 2 * dstd2,
+        dmean2 + 2 * dstd2,
+        alpha=0.3, color='orange', label="GP samples at 95% CI",
+    )
 
     ax[7].scatter(sorted_xs_, sorted_dzdx_, label="Sampled derivative data")
     dmean = np.mean(dy_samples, axis=1)
