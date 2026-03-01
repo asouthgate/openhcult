@@ -66,7 +66,7 @@ def _setup_inference_tables(cursor):
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
-        CREATE INDEX idx_swc_lookup ON response_curve_lookup(swc);        
+        CREATE INDEX IF NOT EXISTS idx_swc_lookup ON response_curve_lookup(swc);        
         """
     )
 
