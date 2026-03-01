@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-from urllib.parse import urlparse, unquote
+from urllib.parse import urlparse
 
 import psycopg
-import sqlite3
 
 
 def is_postgres(conn) -> bool:
