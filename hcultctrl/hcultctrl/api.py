@@ -11,13 +11,14 @@ from fastapi.staticfiles import StaticFiles
 
 from . import config
 from hcultctrl.utils import parse_utc_ms, get_db_conn
-from hcultctrl.routes import plants, species
+from hcultctrl.routes import plants, species, devices
 from hcultdb import queries as database
 
 
 app = FastAPI(title="hcultctrl", version="0.1.0")
 app.include_router(plants.router)
 app.include_router(species.router)
+app.include_router(devices.router)
 logger = logging.getLogger(__name__)
 
 from .routes import plants
@@ -138,8 +139,6 @@ class ObservationUpdate(BaseModel):
     plant_id: Optional[int] = None
 
 
-class DeviceNameUpdate(BaseModel):
-    name: Optional[str] = None
 
 
 @app.post("/observations")
@@ -214,22 +213,6 @@ def list_observations(
     return {"count": len(data), "data": data}
 
 
-@app.get("/devices")
-def list_devices(limit: int = Query(default=1000, ge=1, le=100000), conn=Depends(get_db_conn)):
-    logger.info("GET /devices limit=%s", limit)
-    rows = database.fetch_devices(conn, limit=limit)
-    data = [
-        {
-            "id": row["id"],
-            "name": row["name"],
-            "tag": row["tag"],
-            "address": row["address"],
-            "first_seen": row["first_seen"],
-            "last_seen": row["last_seen"],
-        }
-        for row in rows
-    ]
-    return {"count": len(data), "data": data}
 
 
 @app.patch("/observations/{obs_id}")
@@ -264,24 +247,4 @@ def update_observation(obs_id: int, payload: ObservationUpdate, conn=Depends(get
         "note": note,
         "plant_id": payload.plant_id,
     }
-
-
-@app.patch("/devices/{device_address}")
-def update_device(device_address: str, payload: DeviceNameUpdate, conn=Depends(get_db_conn)):
-    logger.info(
-        "PATCH /devices/%s name_set=%s name_value=%s",
-        device_address,
-        payload.name is not None,
-        payload.name,
-    )
-    if payload.name is None:
-        raise HTTPException(status_code=400, detail="name must be non-empty")
-    name = payload.name.strip()
-    if not name:
-        raise HTTPException(status_code=400, detail="name must be non-empty")
-    try:
-        database.update_device_name(conn, address=device_address, name=name)
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Device not found")
-    return {"address": device_address, "name": name}
 
