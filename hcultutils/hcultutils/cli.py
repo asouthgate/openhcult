@@ -10,6 +10,7 @@ from hcultutils import infer_events, plot_timeseries, fetch_data
 from hcultutils.plants import plants_via_ctrl
 from hcultutils.species import species_via_ctrl
 from hcultutils.devices import devices_via_ctrl
+from hcultutils.calibration import calibration_main
 
 
 class HcultArgumentParser(argparse.ArgumentParser):
@@ -255,6 +256,22 @@ def _add_devices_command(subparsers):
     devices_name.add_argument("address", type=str)
     devices_name.add_argument("name", type=str)
 
+def _add_calibration_command(subparsers):
+    devices_parser = subparsers.add_parser(
+        "calibration",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  hcultutils calibration submit_response_curve\n"
+        ),
+    )
+    cal_sub = devices_parser.add_subparsers(dest='action')
+    cal_sub.required = True
+    submit_parser = cal_sub.add_parser('submit_response_curve')
+    submit_parser.add_argument("--csv", type=str)
+    submit_parser.add_argument("--version", type=str)
+    submit_parser.add_argument("--created_at", type=str)
+
 
 def _build_parser() -> HcultArgumentParser:
     parser = HcultArgumentParser(
@@ -284,6 +301,8 @@ def _build_parser() -> HcultArgumentParser:
     _add_species_command(subparsers)
     _add_plants_command(subparsers)
     _add_devices_command(subparsers)
+    _add_calibration_command(subparsers)
+
     return parser
 
 
@@ -312,6 +331,8 @@ def _dispatch_command(args) -> int:
         return plants_via_ctrl(args.ctrl_url, args.action, args)
     if args.command == 'devices':
         return devices_via_ctrl(args.ctrl_url, args.action, args)
+    if args.command == 'calibration':
+        return calibration_main(args.ctrl_url, args.action, args)
     return 1
 
 
