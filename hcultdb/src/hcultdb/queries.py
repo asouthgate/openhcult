@@ -8,18 +8,12 @@ import time
 from typing import Iterable, Optional
 
 from .connection import (
-    connect as connect_db,
     fetchall_dicts,
-    is_postgres,
     placeholder as placeholder_for,
 )
 
 logger = logging.getLogger(__name__)
 
-
-def connect(db_url: str):
-    """Open a database connection for read queries."""
-    return connect_db(db_url)
 
 
 def register_device(conn, name, address):
