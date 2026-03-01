@@ -62,7 +62,7 @@ def _setup_inference_tables(cursor):
             predicted_sensor_val DOUBLE PRECISION, -- This is the median/mean
             ci_lower DOUBLE PRECISION,      -- 5th Percentile
             ci_upper DOUBLE PRECISION,      -- 95th Percentile
-            version_tag VARCHAR(50),
+            version VARCHAR(50),
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 

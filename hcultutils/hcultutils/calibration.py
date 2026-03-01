@@ -16,7 +16,7 @@ def _submit_calibration_data(base_url, csv_file, version, created_at) -> int:
 
     inserted_id = request_ctrl(
         "POST",
-        f"{base_url}/calibration/response_curve_lookup",
+        f"{base_url}/calibration/response_curve_lookup/",
         data,
     )
     assert inserted_id
