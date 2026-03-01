@@ -2,13 +2,10 @@ from __future__ import annotations
 
 import csv
 import io
-import json
 import logging
-import time
 from typing import Optional
 from fastapi import Depends, HTTPException, Query, APIRouter
 
-from pydantic import BaseModel
 
 from hcultctrl import config
 from hcultctrl.utils import parse_utc_ms, normalize_metadata, get_db_conn
