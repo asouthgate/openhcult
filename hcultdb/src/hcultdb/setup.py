@@ -173,11 +173,11 @@ def setup_db(db_url: str):
     conn = _connect(db_url)
     cursor = conn.cursor()
 
-    _setup_inference_tables(cursor)
     _setup_devices_tables(cursor)
-    _setup_plant_tables(cursor)
+    _setup_readings_tables(cursor)
     _setup_species_tables(cursor)
-    
+    _setup_plant_tables(cursor)
+    _setup_inference_tables(cursor)
 
     conn.commit()
     _load_status_types(conn)
