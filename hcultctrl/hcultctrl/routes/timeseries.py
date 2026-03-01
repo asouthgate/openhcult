@@ -7,8 +7,7 @@ from typing import Optional
 from fastapi import Depends, HTTPException, Query, APIRouter
 
 
-from hcultctrl import config
-from hcultctrl.utils import parse_utc_ms, normalize_metadata, get_db_conn
+from hcultctrl.utils import parse_utc_ms, get_db_conn
 from hcultdb import queries as database
 
 logger = logging.getLogger(__name__)
