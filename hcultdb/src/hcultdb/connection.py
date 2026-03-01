@@ -5,7 +5,6 @@ from __future__ import annotations
 from urllib.parse import urlparse
 
 import psycopg
-import sqlite3
 
 
 def is_postgres(conn) -> bool:
