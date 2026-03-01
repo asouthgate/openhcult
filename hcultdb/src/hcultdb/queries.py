@@ -588,18 +588,27 @@ def fetch_plant_statuses(conn, *, plant_id: int, limit: int = 100) -> Iterable[d
     return fetchall_dicts(cursor)
 
 
-def insert_spline_lookup(
+def insert_response_curve_lookup(
     conn,
-    swc,
-    predicted_sensor_val,
+    swc, 
+    predicted_sensor_vals,
     ci_lower,
     ci_upper,
     version,
     created_at,
 ):
     cursor = conn.cursor()
-    for swc_val, x in zip(swc, x):
+    last_id = None
+    
+    for j in range(len(swc)):
         cursor.execute(
-            "INSERT INTO response_curve_lookup (swc_val, predicted_sensor_val, ci_lower, ci_upper, versio, created_at) VALUES (%s, %s, %s, %s, %s, %s)",
-            (swc_val, predicted_sensor_val, ci_lower, ci_upper, version, created_at)
+            """INSERT INTO response_curve_lookup 
+               (swc, predicted_sensor_val, ci_lower, ci_upper, version, created_at) 
+               VALUES (%s, %s, %s, %s, %s, %s) 
+               RETURNING id""",
+            (swc[j], predicted_sensor_vals[j], ci_lower[j], ci_upper[j], version, created_at)
         )
+        last_id = cursor.fetchone()[0]
+
+    conn.commit()
+    return last_id

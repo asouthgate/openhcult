@@ -8,7 +8,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from hcultctrl.routes import plants, species, devices, observations, timeseries
+from hcultctrl.routes import plants, species, devices, observations, timeseries, calibration
 
 
 app = FastAPI(title="hcultctrl", version="0.1.0")
@@ -17,6 +17,8 @@ app.include_router(species.router)
 app.include_router(devices.router)
 app.include_router(observations.router)
 app.include_router(timeseries.router)
+app.include_router(calibration.router)
+
 
 logger = logging.getLogger(__name__)
 
