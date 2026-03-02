@@ -1,71 +1,78 @@
 {
-    "title": "OpenHCult Soil Water Content (SWC)",
-    "uid": "openhcult-swc-final",
-    "schemaVersion": 42,
-    "version": 2,
-    "refresh": "30s",
-    "time": {
-      "from": "now-2d",
-      "to": "now"
-    },
-    "templating": {
-      "list": [
-        {
-          "name": "view_mode",
-          "type": "custom",
-          "label": "View Mode",
-          "query": "individual,average,both",
-          "current": { "text": "individual", "value": "individual" },
-          "options": [
-            { "selected": true, "text": "individual", "value": "individual" },
-            { "selected": false, "text": "average", "value": "average" },
-            { "selected": false, "text": "both", "value": "both" }
-          ]
-        },
-        {
-          "name": "plant_name",
-          "type": "query",
-          "label": "Plant",
-          "datasource": "OpenHCult Postgres",
-          "definition": "SELECT plant_name FROM plants ORDER BY plant_name",
-          "query": "SELECT plant_name FROM plants ORDER BY plant_name",
-          "includeAll": true,
-          "allValue": "%",
-          "current": { "text": "All", "value": "%" }
-        }
-      ]
-    },
-    "panels": [
+  "title": "OpenHCult Soil Water Content (SWC)",
+  "uid": "openhcult-swc-final",
+  "schemaVersion": 42,
+  "version": 3,
+  "refresh": "30s",
+  "time": { "from": "now-2d", "to": "now" },
+  "templating": {
+    "list": [
       {
-        "title": "Soil Water Content Lookup",
-        "type": "timeseries",
-        "gridPos": { "h": 18, "w": 24, "x": 0, "y": 0 },
-        "datasource": "OpenHCult Postgres",
-        "fieldConfig": {
-          "defaults": {
-            "unit": "percentunit",
-            "min": 0,
-            "max": 1,
-            "custom": { 
-              "drawStyle": "line", 
-              "fillOpacity": 10, 
-              "pointSize": 5,
-              "lineInterpolation": "smooth" 
-            }
-          }
-        },
-        "targets": [
-          {
-            "refId": "A",
-            "format": "time_series",
-            "rawSql": "SELECT to_timestamp(sr.adjusted_time_ms / 1000.0) AS time, lookup.swc AS value, concat(COALESCE(d.tag, d.name, d.address, 'device'), ' ', sr.sensor, ' SWC') AS metric FROM sensor_readings sr JOIN devices d ON d.id = sr.device_id LEFT JOIN plant_sensors ps ON ps.device_id = d.id AND ps.sensor = sr.sensor LEFT JOIN plants p ON p.id = ps.plant_id CROSS JOIN LATERAL (SELECT swc FROM response_curve_lookup ORDER BY ABS(predicted_sensor_val - sr.measurement) ASC LIMIT 1) AS lookup WHERE $__unixEpochFilter(sr.adjusted_time_ms / 1000.0) AND ('${plant_name}' = '%' OR p.plant_name LIKE '${plant_name}') AND '${view_mode}' IN ('individual', 'both') ORDER BY 1"
-          },
-          {
-            "refId": "B",
-            "format": "time_series",
-            "rawSql": "SELECT to_timestamp(floor(sr.adjusted_time_ms / ${__interval_ms}) * ${__interval_ms} / 1000.0) AS time, AVG(lookup.swc) AS value, 'Average SWC' AS metric FROM sensor_readings sr JOIN devices d ON d.id = sr.device_id LEFT JOIN plant_sensors ps ON ps.device_id = d.id AND ps.sensor = sr.sensor LEFT JOIN plants p ON p.id = ps.plant_id CROSS JOIN LATERAL (SELECT swc FROM response_curve_lookup ORDER BY ABS(predicted_sensor_val - sr.measurement) ASC LIMIT 1) AS lookup WHERE $__unixEpochFilter(sr.adjusted_time_ms / 1000.0) AND ('${plant_name}' = '%' OR p.plant_name LIKE '${plant_name}') AND '${view_mode}' IN ('average', 'both') GROUP BY 1 ORDER BY 1"
-          }
+        "name": "view_mode",
+        "type": "custom",
+        "label": "View Mode",
+        "query": "individual,average,both",
+        "current": { "text": "individual", "value": "individual" },
+        "options": [
+          { "selected": true, "text": "individual", "value": "individual" },
+          { "selected": false, "text": "average", "value": "average" },
+          { "selected": false, "text": "both", "value": "both" }
         ]
+      },
+      {
+        "name": "plant_name",
+        "type": "query",
+        "label": "Plant",
+        "datasource": "OpenHCult Postgres",
+        "definition": "SELECT plant_name FROM plants ORDER BY plant_name",
+        "query": "SELECT plant_name FROM plants ORDER BY plant_name",
+        "includeAll": true,
+        "allValue": "%",
+        "current": { "text": "All", "value": "%" }
       }
     ]
-  }
+  },
+  "panels": [
+    {
+      "title": "Soil Water Content Lookup with 95% PI",
+      "type": "timeseries",
+      "gridPos": { "h": 18, "w": 24, "x": 0, "y": 0 },
+      "datasource": "OpenHCult Postgres",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 3,
+          "custom": { 
+            "drawStyle": "line", 
+            "fillOpacity": 10, 
+            "pointSize": 2,
+            "lineInterpolation": "smooth" 
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "type": "byRegexp", "options": "/(Upper|Lower)/" },
+            "properties": [
+              { "id": "custom.lineStyle", "value": { "dash": [5, 5], "fill": "dash" } },
+              { "id": "custom.fillOpacity", "value": 0 },
+              { "id": "custom.lineWidth", "value": 1 }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT to_timestamp(sr.adjusted_time_ms / 1000.0) AS time, lookup.swc AS value, concat(COALESCE(d.tag, d.name, d.address, 'device'), ' ', sr.sensor, ' SWC') AS metric, lookup.swc + (2 * lookup.total_std) AS \"Upper\", lookup.swc - (2 * lookup.total_std) AS \"Lower\" FROM sensor_readings sr JOIN devices d ON d.id = sr.device_id LEFT JOIN plant_sensors ps ON ps.device_id = d.id AND ps.sensor = sr.sensor LEFT JOIN plants p ON p.id = ps.plant_id CROSS JOIN LATERAL (SELECT swc, total_std FROM response_curve_lookup ORDER BY ABS(sensor_val - sr.measurement) ASC LIMIT 1) AS lookup WHERE $__unixEpochFilter(sr.adjusted_time_ms / 1000.0) AND ('${plant_name}' = '%' OR p.plant_name LIKE '${plant_name}') AND '${view_mode}' IN ('individual', 'both') ORDER BY 1"
+        },
+        {
+          "refId": "B",
+          "format": "time_series",
+          "rawSql": "SELECT to_timestamp(floor(sr.adjusted_time_ms / ${__interval_ms}) * ${__interval_ms} / 1000.0) AS time, AVG(lookup.swc) AS value, 'Average SWC' AS metric, AVG(lookup.swc + (2 * lookup.total_std)) AS \"Upper (Avg)\", AVG(lookup.swc - (2 * lookup.total_std)) AS \"Lower (Avg)\" FROM sensor_readings sr JOIN devices d ON d.id = sr.device_id LEFT JOIN plant_sensors ps ON ps.device_id = d.id AND ps.sensor = sr.sensor LEFT JOIN plants p ON p.id = ps.plant_id CROSS JOIN LATERAL (SELECT swc, total_std FROM response_curve_lookup ORDER BY ABS(sensor_val - sr.measurement) ASC LIMIT 1) AS lookup WHERE $__unixEpochFilter(sr.adjusted_time_ms / 1000.0) AND ('${plant_name}' = '%' OR p.plant_name LIKE '${plant_name}') AND '${view_mode}' IN ('average', 'both') GROUP BY 1 ORDER BY 1"
+        }
+      ]
+    }
+  ]
+}
