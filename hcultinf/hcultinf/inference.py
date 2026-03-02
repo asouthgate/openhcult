@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd 
 
 from scipy.stats import norm
 from scipy.integrate import cumulative_trapezoid
@@ -256,5 +257,15 @@ def compute_lookup_table_from_bootstrap(boot_splines, x_min, x_max, n_points=100
     z_mean = np.mean(z_grid, axis=0)
     z_lower = np.percentile(z_grid, 2.5, axis=0)
     z_upper = np.percentile(z_grid, 97.5, axis=0)
+    z_std = np.std(z_grid, axis=0)
+
+    lookup_df = pd.DataFrame({
+        "x": x_grid,
+        "swc": z_mean,
+        "swc_std": z_std,
+        "swc_upper_95%": z_upper,
+        "swc_lower_95%": z_lower,
+    })
+
     
-    return x_grid, z_mean, z_lower, z_upper
+    return lookup_df

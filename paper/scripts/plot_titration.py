@@ -247,24 +247,16 @@ if __name__ == "__main__":
         k=spline_k, 
     )
 
-    lookup_table = compute_lookup_table_from_bootstrap(boot_splines, df['value'].min(), df['value'].max(), n_points=1000)
+    lookup_df = compute_lookup_table_from_bootstrap(boot_splines, df['value'].min(), df['value'].max(), n_points=1000)
     # write the lookup table to csv
-    lookup_df = pd.DataFrame({
-        "x": lookup_table[0],
-        "SWC": lookup_table[1],
-        "swc_upper_95%": lookup_table[2],
-        "swc_lower_95%": lookup_table[3],
-    })
     lookup_df.to_csv("spline_lookup_table.csv", index=False)
     spline_lookup_table_out_file = "spline_lookup_table.csv"
     print(f"Lookup table saved to {spline_lookup_table_out_file}")
-    ax[0].plot(lookup_table[1], lookup_table[0], color='red', label='Monotonic Spline Fit')
-    ax[0].plot(lookup_table[1] + residual_spline(lookup_table[0]), lookup_table[0] , color='blue', label='Spline Fit Upper')
-    ax[0].plot(lookup_table[1] - residual_spline(lookup_table[0]), lookup_table[0], color='blue', label='Spline Fit Lower')
+    ax[0].plot(lookup_df['swc'], lookup_df['x'], color='red', label='Monotonic Spline Fit')
     ax[0].fill_betweenx(
-        lookup_table[0],
-        lookup_table[2] - residual_spline(lookup_table[0]),
-        lookup_table[3] + residual_spline(lookup_table[0]),
+        lookup_df['x'],
+        lookup_df['swc'] - 2.0 * lookup_df['swc_std'] - 2.0 * residual_spline(lookup_df['x']),
+        lookup_df['swc'] + 2.0 * lookup_df['swc_std'] + 2.0 * residual_spline(lookup_df['x']),
         color='blue', alpha=0.3, label='Spline Fit Residuals'
     )
     ax[0].plot(z_plot, x_plot, color='green', label='Parametric Derivative Fit')
