@@ -13,8 +13,6 @@ from hcultutils.fetch_data import fetch_data, fetch_series_from_ctrl
 from hcultinf.inference import fit_monotonic_spline, \
     fit_parametric_monotonic_spline, bootstrap_parametric_spline, \
     bootstrap_monotonic_spline, compute_lookup_table_from_bootstrap
-from hcultdb.queries import insert_spline_lookup
-
 
 def get_spline_derivative_midpoints(df):
     x_der_midpoint = []
@@ -194,7 +192,6 @@ if __name__ == "__main__":
     k_spline = 3
     spline_x, spline_z = fit_parametric_monotonic_spline(value_anchor, swc_anchor, x_der_midpoint, x_dswcdv, n_inner_knots, k=k_spline, w_der=w_der)
     
-
     n_boots_parametric = args.n_bootstraps_parametric
     boot_results = bootstrap_parametric_spline(
         value_anchor, swc_anchor, x_der_midpoint, x_dswcdv, knots=n_inner_knots, k=k_spline, w_der=w_der, n_boots=n_boots_parametric)
@@ -230,34 +227,46 @@ if __name__ == "__main__":
 
     spline_k = 2
     n_inner_knots = 8
-    inner_knots = ( np.linspace(0, 1, n_inner_knots)**2 * (df['SWC'].max() - df['SWC'].min()) + df['SWC'].min() ) [1:]
+    inner_knots = ( np.linspace(0, 1, n_inner_knots)**2 * (df['value'].max() - df['value'].min()) + df['value'].min() ) [1:]
     inner_knots[-1] = (inner_knots[-1] + inner_knots[-2]) / 2
     print("Inner knots:", inner_knots)
-    print("X range:", df['SWC'].min(), df['SWC'].max())
+    print("X range:", df['value'].min(), df['value'].max())
 
-    spline_model = fit_monotonic_spline(df['SWC'].values, df['value'].values, inner_knots=inner_knots, k=spline_k)
-    boot_splines = bootstrap_monotonic_spline(df['SWC'].values, df['value'].values, inner_knots=inner_knots, k=spline_k, 
-                                              n_boots=args.n_bootstraps)
-    lookup_table = compute_lookup_table_from_bootstrap(boot_splines, df['SWC'].min(), df['SWC'].max(), n_points=1000)
+    spline_model = fit_monotonic_spline(df['value'].values, df['SWC'].values, inner_knots=inner_knots, k=spline_k)
+    boot_splines = bootstrap_monotonic_spline(
+        df['value'].values,
+        df['SWC'].values,
+        inner_knots=inner_knots,
+        k=spline_k, 
+        n_boots=args.n_bootstraps
+    )
+    residual_spline = fit_monotonic_spline(
+        df['value'].values,
+        np.abs(df['SWC'].values - spline_model(df['value'].values)),
+        inner_knots=inner_knots,
+        k=spline_k, 
+    )
+
+    lookup_table = compute_lookup_table_from_bootstrap(boot_splines, df['value'].min(), df['value'].max(), n_points=1000)
     # write the lookup table to csv
     lookup_df = pd.DataFrame({
-        "SWC": lookup_table[0],
-        "x": lookup_table[1],
-        "x_upper_95%": lookup_table[2],
-        "x_lower_95%": lookup_table[3],
+        "x": lookup_table[0],
+        "SWC": lookup_table[1],
+        "swc_upper_95%": lookup_table[2],
+        "swc_lower_95%": lookup_table[3],
     })
     lookup_df.to_csv("spline_lookup_table.csv", index=False)
     spline_lookup_table_out_file = "spline_lookup_table.csv"
     print(f"Lookup table saved to {spline_lookup_table_out_file}")
-
-    # plot the spline lookup_table values
-    ax[0].plot(lookup_table[0], lookup_table[1], color='red', label='Monotonic Spline Fit')
-    ax[0].fill_between(lookup_table[0], lookup_table[2], lookup_table[3], color='red', alpha=0.3, label='95% Confidence Interval')
-    plin_swc = np.linspace(df['SWC'].min(), df['SWC'].max(), 100)
-    polyvals = spline_model(plin_swc)
-
-    
-    ax[0].plot(plin_swc, polyvals, color='red', label='Monotonic Spline Fit')
+    ax[0].plot(lookup_table[1], lookup_table[0], color='red', label='Monotonic Spline Fit')
+    ax[0].plot(lookup_table[1] + residual_spline(lookup_table[0]), lookup_table[0] , color='blue', label='Spline Fit Upper')
+    ax[0].plot(lookup_table[1] - residual_spline(lookup_table[0]), lookup_table[0], color='blue', label='Spline Fit Lower')
+    ax[0].fill_betweenx(
+        lookup_table[0],
+        lookup_table[2] - residual_spline(lookup_table[0]),
+        lookup_table[3] + residual_spline(lookup_table[0]),
+        color='blue', alpha=0.3, label='Spline Fit Residuals'
+    )
     ax[0].plot(z_plot, x_plot, color='green', label='Parametric Derivative Fit')
     ax[0].set_xlabel("SWC")
     ax[0].set_ylabel("Sensor Reading")
