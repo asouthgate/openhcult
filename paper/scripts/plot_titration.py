@@ -53,9 +53,9 @@ def get_spline_derivative_midpoints(df):
             # You wanted dswc/dv (which is 1 / (dv/ds))
             dswc_dx_mid = dswc / dx
 
-            x_dswcdv_midpoint.append(d_start)
-            x_der_midpoint.append(x[0])
-            swc_der_midpoint.append(swc[0])
+            # x_dswcdv_midpoint.append(d_start)
+            # x_der_midpoint.append(x[0])
+            # swc_der_midpoint.append(swc[0])
 
             for i in range(len(x_mid)):
                 if np.isfinite(dswc_dx_mid[i]):
@@ -63,9 +63,9 @@ def get_spline_derivative_midpoints(df):
                     x_der_midpoint.append(x_mid[i])
                     swc_der_midpoint.append(swc_mid[i])   
 
-            x_dswcdv_midpoint.append(d_end)
-            x_der_midpoint.append(x[-1])
-            swc_der_midpoint.append(swc[-1]) 
+            # x_dswcdv_midpoint.append(d_end)
+            # x_der_midpoint.append(x[-1])
+            # swc_der_midpoint.append(swc[-1]) 
 
     x_der_midpoint = np.array(x_der_midpoint).flatten()
     x_dswcdv_midpoint = np.array(x_dswcdv_midpoint).flatten()
@@ -190,7 +190,8 @@ if __name__ == "__main__":
     n_inner_knots = 8
     w_der = 10.0
     k_spline = 3
-    spline_x, spline_z = fit_parametric_monotonic_spline(value_anchor, swc_anchor, x_der_midpoint, x_dswcdv, n_inner_knots, k=k_spline, w_der=w_der)
+    spline_x, spline_z = fit_parametric_monotonic_spline(
+        value_anchor, swc_anchor, x_der_midpoint, x_dswcdv, n_inner_knots, k=k_spline, w_der=w_der)
     
     n_boots_parametric = args.n_bootstraps_parametric
     boot_results = bootstrap_parametric_spline(
@@ -213,7 +214,7 @@ if __name__ == "__main__":
     ax = axes.flatten()
 
     for sensor, subdf in df.groupby("sensor"):
-        ax[0].scatter(subdf["SWC"], subdf["value"], c=sensor_colors[sensor], label=f"sensor {sensor_indexes[sensor]}")
+        ax[0].scatter(subdf["SWC"], subdf["value"], c=sensor_colors[sensor], label=f"sensor {sensor_indexes[sensor]}", marker='x')
     # plot the average line for sensors
     means = []
     vol_at_mean = []
@@ -225,7 +226,7 @@ if __name__ == "__main__":
         lower_95_percentile.append(np.percentile(subdf["value"], 2.5))
         vol_at_mean.append(pot_water_volume)
 
-    spline_k = 2
+    spline_k = 3
     n_inner_knots = 8
     inner_knots = ( np.linspace(0, 1, n_inner_knots)**2 * (df['value'].max() - df['value'].min()) + df['value'].min() ) [1:]
     inner_knots[-1] = (inner_knots[-1] + inner_knots[-2]) / 2
@@ -233,6 +234,9 @@ if __name__ == "__main__":
     print("X range:", df['value'].min(), df['value'].max())
 
     spline_model = fit_monotonic_spline(df['value'].values, df['SWC'].values, inner_knots=inner_knots, k=spline_k)
+    spline_mod_x, spline_mod_z = fit_parametric_monotonic_spline(
+        df['value'].values, df['SWC'].values, x_der_midpoint, x_dswcdv, n_inner_knots, k=k_spline, w_der=0.0)
+
     boot_splines = bootstrap_monotonic_spline(
         df['value'].values,
         df['SWC'].values,
@@ -253,6 +257,8 @@ if __name__ == "__main__":
     spline_lookup_table_out_file = "spline_lookup_table.csv"
     print(f"Lookup table saved to {spline_lookup_table_out_file}")
     ax[0].plot(lookup_df['swc'], lookup_df['x'], color='red', label='Monotonic Spline Fit')
+    ax[0].plot(spline_mod_z(s_fine), spline_mod_x(s_fine), color='red', label='Parametric Spline Fit')
+
     ax[0].fill_betweenx(
         lookup_df['x'],
         lookup_df['swc'] - 2.0 * lookup_df['swc_std'] - 2.0 * residual_spline(lookup_df['x']),
