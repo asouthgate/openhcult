@@ -603,7 +603,7 @@ def insert_response_curve_lookup(
         cursor.execute(
             """INSERT INTO response_curve_lookup 
                (swc, sensor_val, swc_std, version, created_at) 
-               VALUES (%s, %s, %s, %s, %s, %s) 
+               VALUES (%s, %s, %s, %s, %s) 
                RETURNING id""",
             (swc[j], sensor_vals[j], swc_std[j], version, created_at)
         )
