@@ -37,9 +37,8 @@ def response_curve_lookup(
     ins_id = database.insert_response_curve_lookup(
         conn,
         payload.swc,
-        payload.predicted_sensor_val,
-        payload.ci_lower,
-        payload.ci_upper,
+        payload.sensor_val,
+        payload.swc_std,
         payload.version,
         payload.created_at,
     )

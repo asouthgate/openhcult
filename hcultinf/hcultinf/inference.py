@@ -292,16 +292,12 @@ def compute_lookup_table_parametric_forward(boot_mod_splines, s_min=0, s_max=1, 
     
     # 3. Compute Standard Deviation of the SWC (z)
     z_std = np.std(z_samples, axis=0)
-    z_lower = np.percentile(z_samples, 2.5, axis=0)
-    z_upper = np.percentile(z_samples, 97.5, axis=0)
 
     lookup_df = pd.DataFrame({
         "s": s_grid,
-        "x": x_mean,         # This is your Sensor Reading
+        "sensor_val": x_mean,         # This is your Sensor Reading
         "swc": z_mean,       # This is your moisture
-        "swc_std": z_std,
-        "swc_upper_95%": z_upper,
-        "swc_lower_95%": z_lower,
+        "swc_std": z_std
     })
     
     return lookup_df

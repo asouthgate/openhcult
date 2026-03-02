@@ -59,9 +59,8 @@ def _setup_inference_tables(cursor):
         CREATE TABLE IF NOT EXISTS response_curve_lookup (
             id SERIAL PRIMARY KEY,
             swc DOUBLE PRECISION,
-            predicted_sensor_val DOUBLE PRECISION, -- This is the median/mean
-            ci_lower DOUBLE PRECISION,      -- 5th Percentile
-            ci_upper DOUBLE PRECISION,      -- 95th Percentile
+            sensor_val DOUBLE PRECISION, -- This is the median/mean
+            swc_std DOUBLE PRECISION,
             version VARCHAR(50),
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );

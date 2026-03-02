@@ -591,9 +591,8 @@ def fetch_plant_statuses(conn, *, plant_id: int, limit: int = 100) -> Iterable[d
 def insert_response_curve_lookup(
     conn,
     swc, 
-    predicted_sensor_vals,
-    ci_lower,
-    ci_upper,
+    sensor_vals,
+    swc_std,
     version,
     created_at,
 ):
@@ -603,10 +602,10 @@ def insert_response_curve_lookup(
     for j in range(len(swc)):
         cursor.execute(
             """INSERT INTO response_curve_lookup 
-               (swc, predicted_sensor_val, ci_lower, ci_upper, version, created_at) 
+               (swc, sensor_val, swc_std, version, created_at) 
                VALUES (%s, %s, %s, %s, %s, %s) 
                RETURNING id""",
-            (swc[j], predicted_sensor_vals[j], ci_lower[j], ci_upper[j], version, created_at)
+            (swc[j], sensor_vals[j], swc_std[j], version, created_at)
         )
         last_id = cursor.fetchone()[0]
 

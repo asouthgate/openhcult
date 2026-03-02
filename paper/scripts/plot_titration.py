@@ -284,8 +284,10 @@ if __name__ == "__main__":
 
     lookup_df2 = compute_lookup_table_parametric_forward(boot_mod_splines, s_fine.min(), s_fine.max(), n_points=1000)
     lookup_df = compute_lookup_table_from_bootstrap(boot_splines, df['value'].min(), df['value'].max(), n_points=1000)
+
     # write the lookup table to csv
-    lookup_df.to_csv("spline_lookup_table.csv", index=False)
+    lookup_df2.to_csv("spline_lookup_table.csv", index=False)
+
     spline_lookup_table_out_file = "spline_lookup_table.csv"
     print(f"Lookup table saved to {spline_lookup_table_out_file}")
     ax[0].plot(lookup_df['swc'], lookup_df['x'], color='red', label='Monotonic Spline Fit')
@@ -299,9 +301,9 @@ if __name__ == "__main__":
     )
 
     ax[0].fill_betweenx(
-        lookup_df2['x'],
-        lookup_df2['swc'] - 2.0 * lookup_df2['swc_std'] - 2.0 * residual_spline_mod(lookup_df2['x']),
-        lookup_df2['swc'] + 2.0 * lookup_df2['swc_std'] + 2.0 * residual_spline_mod(lookup_df2['x']),
+        lookup_df2['sensor_val'],
+        lookup_df2['swc'] - 2.0 * lookup_df2['swc_std'] - 2.0 * residual_spline_mod(lookup_df2['sensor_val']),
+        lookup_df2['swc'] + 2.0 * lookup_df2['swc_std'] + 2.0 * residual_spline_mod(lookup_df2['sensor_val']),
         color='pink', alpha=0.3, label='Spline Fit Residuals'
     )
     ax[0].plot(z_plot, x_plot, color='green', label='Parametric Derivative Fit')
