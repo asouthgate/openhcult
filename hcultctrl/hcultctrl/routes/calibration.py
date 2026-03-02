@@ -20,9 +20,8 @@ router = APIRouter()
 
 class ResponseCurveData(BaseModel):
     swc: List[float]
-    predicted_sensor_val: List[float]
-    ci_lower: List[float]
-    ci_upper: List[float]
+    sensor_val: List[float]
+    swc_std: List[float]
     version: str
     created_at: str
 
