@@ -148,14 +148,14 @@ def fit_parametric_monotonic_spline(x_anchors, z_anchors, x_der, dz_dx, knots=10
     s_der = (x_der - x_min) / (x_max - x_min)
     s_anc = (x_anchors - x_min) / (x_max - x_min)
     
-    if type(knots) is int:
-        n_int = knots
-        inner = np.linspace(0, 1, n_int + 2)[1:-1]
-        t = np.concatenate(([0.0]*(k+1), inner, [1.0]*(k+1)))
-    else:
-        # Assume n_int is already the inner knots
-        inner = np.asarray(knots)
-        t = np.concatenate(([0.0]*(k+1), inner, [1.0]*(k+1)))  
+    # if type(knots) is int:
+    n_int = knots
+    inner = np.linspace(0, 1, n_int + 2)[1:-1]
+    t = np.concatenate(([0.0]*(k+1), inner, [1.0]*(k+1)))
+    # else:
+    #     # Assume n_int is already the inner knots
+    #     inner = np.asarray(knots)
+    #     t = np.concatenate(([0.0]*(k+1), inner, [1.0]*(k+1)))  
     n_c = len(t) - k - 1
     
     # Initial guess
@@ -267,5 +267,41 @@ def compute_lookup_table_from_bootstrap(boot_splines, x_min, x_max, n_points=100
         "swc_lower_95%": z_lower,
     })
 
+    
+    return lookup_df
+
+def compute_lookup_table_parametric_forward(boot_mod_splines, s_min=0, s_max=1, n_points=1000):
+    # 1. Create a master s_grid to evaluate the 'Average' curve
+    s_grid = np.linspace(s_min, s_max, n_points)
+    
+    # We need to collect X and Z for every bootstrap sample
+    x_samples = []
+    z_samples = []
+    
+    for sx, sz in boot_mod_splines:
+        x_samples.append(sx(s_grid))
+        z_samples.append(sz(s_grid))
+        
+    x_samples = np.array(x_samples)
+    z_samples = np.array(z_samples)
+    
+    # 2. Compute means
+    # Note: These are 'Mean X' and 'Mean Z' for a given 's'
+    x_mean = np.mean(x_samples, axis=0)
+    z_mean = np.mean(z_samples, axis=0)
+    
+    # 3. Compute Standard Deviation of the SWC (z)
+    z_std = np.std(z_samples, axis=0)
+    z_lower = np.percentile(z_samples, 2.5, axis=0)
+    z_upper = np.percentile(z_samples, 97.5, axis=0)
+
+    lookup_df = pd.DataFrame({
+        "s": s_grid,
+        "x": x_mean,         # This is your Sensor Reading
+        "swc": z_mean,       # This is your moisture
+        "swc_std": z_std,
+        "swc_upper_95%": z_upper,
+        "swc_lower_95%": z_lower,
+    })
     
     return lookup_df

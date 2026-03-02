@@ -12,7 +12,8 @@ import numpy as np
 from hcultutils.fetch_data import fetch_data, fetch_series_from_ctrl
 from hcultinf.inference import fit_monotonic_spline, \
     fit_parametric_monotonic_spline, bootstrap_parametric_spline, \
-    bootstrap_monotonic_spline, compute_lookup_table_from_bootstrap
+    bootstrap_monotonic_spline, compute_lookup_table_from_bootstrap, \
+    compute_lookup_table_parametric_forward
 
 def get_spline_derivative_midpoints(df):
     x_der_midpoint = []
@@ -244,6 +245,10 @@ if __name__ == "__main__":
         k=spline_k, 
         n_boots=args.n_bootstraps
     )
+    boot_mod_splines = bootstrap_parametric_spline(
+        df['value'].values, df['SWC'].values, x_der_midpoint,
+        x_dswcdv, knots=n_inner_knots, k=k_spline, w_der=0.0, n_boots=n_boots_parametric)
+
     residual_spline = fit_monotonic_spline(
         df['value'].values,
         np.abs(df['SWC'].values - spline_model(df['value'].values)),
@@ -251,6 +256,33 @@ if __name__ == "__main__":
         k=spline_k, 
     )
 
+    from scipy.interpolate import interp1d
+
+    # 1. Create the inverse map: X -> S
+    # We use a fine grid of s to ensure the inverse is smooth
+    s_fine = np.linspace(0, 1, 1000)
+    x_fine = spline_mod_x(s_fine)
+    # This allows us to find which 's' corresponds to a given 'value'
+    x_to_s_map = interp1d(x_fine, s_fine, bounds_error=False, fill_value="extrapolate")
+
+    # 2. Map your actual data points to the parameter s
+    s_data = x_to_s_map(df['value'].values)
+
+    # 3. Get the predicted SWC (z) for those s values
+    z_pred = spline_mod_z(s_data)
+
+    # 4. Calculate the absolute residuals
+    abs_residuals = np.abs(df['SWC'].values - z_pred)
+
+    # 5. Fit the residual spline (Mapping Sensor Reading 'value' to the Error Magnitude)
+    residual_spline_mod = fit_monotonic_spline(
+        df['value'].values,
+        abs_residuals,
+        inner_knots=inner_knots,
+        k=spline_k, 
+    )
+
+    lookup_df2 = compute_lookup_table_parametric_forward(boot_mod_splines, s_fine.min(), s_fine.max(), n_points=1000)
     lookup_df = compute_lookup_table_from_bootstrap(boot_splines, df['value'].min(), df['value'].max(), n_points=1000)
     # write the lookup table to csv
     lookup_df.to_csv("spline_lookup_table.csv", index=False)
@@ -264,6 +296,13 @@ if __name__ == "__main__":
         lookup_df['swc'] - 2.0 * lookup_df['swc_std'] - 2.0 * residual_spline(lookup_df['x']),
         lookup_df['swc'] + 2.0 * lookup_df['swc_std'] + 2.0 * residual_spline(lookup_df['x']),
         color='blue', alpha=0.3, label='Spline Fit Residuals'
+    )
+
+    ax[0].fill_betweenx(
+        lookup_df2['x'],
+        lookup_df2['swc'] - 2.0 * lookup_df2['swc_std'] - 2.0 * residual_spline_mod(lookup_df2['x']),
+        lookup_df2['swc'] + 2.0 * lookup_df2['swc_std'] + 2.0 * residual_spline_mod(lookup_df2['x']),
+        color='pink', alpha=0.3, label='Spline Fit Residuals'
     )
     ax[0].plot(z_plot, x_plot, color='green', label='Parametric Derivative Fit')
     ax[0].set_xlabel("SWC")
