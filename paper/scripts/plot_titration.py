@@ -116,9 +116,6 @@ def _get_data(args):
                 with open(f"sensor_data_{start_utc}_{end_utc}.pkl", "wb") as f:
                     pickle.dump(series, f)
 
-            sensor_names = sorted(series.keys())
-            c2i = {name: i for i, name in enumerate(sensor_names)}
-            c = 0
             for name, points in series.items():
                 times, vals = zip(*points)
                 times = np.array(times)
@@ -128,13 +125,9 @@ def _get_data(args):
                     res = compute_mrt(times[2:], vals[2:])
                 else:
                     res = ([], None)
-                print(res)
+                
                 vals_norm, aac = res
-                # if len(vals_norm):
-                #     plt.scatter(times[1:], vals[1:])
-                #     plt.show()
-                #     plt.plot(times[1:], vals_norm)
-                #     plt.show()
+
                 agg_mrt.append(aac)
                 agg_times.append(last_time)
                 agg_values.append(last_val)
@@ -241,7 +234,7 @@ def _plot_results(df, lookup_df, lookup_df2, spline_mod_x, spline_mod_z, boot_mo
                 label='Spline Knots')
     ax[1].legend()
 
-    ax[2].scatter(df["SWC"], df["mrt"] , c=df["sensor"].map(sensor_colors), label="Equilibration Time Delta")
+    ax[2].scatter(df["SWC"], df["mrt"] , c=df["sensor"].map(sensor_colors), marker ='x')
     ax[2].set_xlabel("SWC")
     ax[2].set_ylabel("MRT")
 
@@ -255,7 +248,7 @@ def _plot_results(df, lookup_df, lookup_df2, spline_mod_x, spline_mod_z, boot_mo
             # print(delta_value)
             deltas += list(delta_value / delta_volume)
             deltas_mrt += list(sorted_subdf["mrt"])
-            ax[3].scatter(sorted_subdf["SWC"], delta_value / delta_volume, c=sensor_colors[sensor], label=f"Sensor {sensor}")
+            ax[3].scatter(sorted_subdf["SWC"], delta_value / delta_volume, c=sensor_colors[sensor], label=f"Sensor {sensor}", marker='x')
     ax[3].set_xlabel("SWC")
     ax[3].set_ylabel("$\Delta X / \Delta Z$")
 
@@ -271,18 +264,13 @@ def _plot_results(df, lookup_df, lookup_df2, spline_mod_x, spline_mod_z, boot_mo
     variabilities = np.array(variabilities)
     # means = np.array(means)
 
-    ax[4].scatter(np.log(1.0/df["mrt"]), df["SWC"])
+    ax[4].scatter(np.log(1.0/df["mrt"]), df["SWC"], marker='x')
     ax[4].set_ylabel("SWC")
     ax[4].set_xlabel("log(1/MRT)")
-    print(len(df["mrt"]), len(deltas))
 
-    ax[5].scatter(variabilities, varswcs)
+    ax[5].scatter(variabilities, varswcs, marker='x')
     ax[5].set_ylabel("SWC")
     ax[5].set_xlabel("$\sigma$")
-
-    ax[6].scatter(deltas, deltas_mrt)
-    ax[6].set_ylabel("deltas")
-    ax[6].set_xlabel("MRT")
 
     plt.savefig("titration_plots.png")
     plt.show()
@@ -302,8 +290,7 @@ if __name__ == "__main__":
     max_swc = df['SWC'].max()
     inds_min = np.where(df['SWC'] == min_swc)[0]
     inds_max = np.where(df['SWC'] == max_swc)[0]
-    # print(inds_min)
-    # print(inds_max)
+
     inds_anchor = np.concatenate([np.random.choice(inds_min, 4), inds_max[:4]])
     swc_anchor = df['SWC'].values[inds_anchor]
     value_anchor = df['value'].values[inds_anchor]
@@ -317,16 +304,13 @@ if __name__ == "__main__":
     boot_results = bootstrap_parametric_spline(
         value_anchor, swc_anchor, x_der_midpoint, x_dswcdv, knots=n_inner_knots, k=k_spline, w_der=w_der, n_boots=n_boots_parametric)
     
-    x_rang = np.linspace(df['value'].min(), df['value'].max() , 100)
-
+    x_rang = np.linspace(df['value'].min(), df['value'].max(), 100)
     s_fine = np.linspace(0, 1, 500)
-
     x_plot = spline_x(s_fine)
     z_plot = spline_z(s_fine)
     knots_s = np.unique(spline_x.t)
     knots_x = spline_x(knots_s)
     knots_z = spline_z(knots_s)
-
 
     # plot the average line for sensors
     means = []
