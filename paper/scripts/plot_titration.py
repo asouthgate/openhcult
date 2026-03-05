@@ -8,12 +8,14 @@ import pickle
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.interpolate import interp1d
 
 from hcultutils.fetch_data import fetch_data, fetch_series_from_ctrl
 from hcultinf.inference import fit_monotonic_spline, \
     fit_parametric_monotonic_spline, bootstrap_parametric_spline, \
     bootstrap_monotonic_spline, compute_lookup_table_from_bootstrap, \
-    compute_lookup_table_parametric_forward
+    compute_lookup_table_parametric_forward, compute_mrt, \
+    fit_parametric_spline_with_residuals
 
 def get_spline_derivative_midpoints(df):
     x_der_midpoint = []
@@ -81,6 +83,7 @@ def _get_data(args):
     agg_trial = []
     agg_water_volumes = []
     agg_total_change = []
+    agg_mrt = []
 
     # Loop over rows of the csv, getting data
     with open(args.intervals_csv, "r") as f:
@@ -117,8 +120,22 @@ def _get_data(args):
             c2i = {name: i for i, name in enumerate(sensor_names)}
             c = 0
             for name, points in series.items():
+                times, vals = zip(*points)
+                times = np.array(times)
                 last_time = points[-1][0]
                 last_val = points[-1][1]
+                if len(times) > 3 and float(pot_water_volume) > 0:
+                    res = compute_mrt(times[2:], vals[2:])
+                else:
+                    res = ([], None)
+                print(res)
+                vals_norm, aac = res
+                # if len(vals_norm):
+                #     plt.scatter(times[1:], vals[1:])
+                #     plt.show()
+                #     plt.plot(times[1:], vals_norm)
+                #     plt.show()
+                agg_mrt.append(aac)
                 agg_times.append(last_time)
                 agg_values.append(last_val)
                 agg_sensors.append(name)
@@ -127,6 +144,7 @@ def _get_data(args):
                 agg_equil_time_deltas.append((last_time - water_utc_dt).total_seconds())
                 agg_total_change.append(last_val - points[0][1])
     SOIL_MASS = 40
+    FIELD_CAPACITY_VOL_MAX = max(agg_water_volumes)
     df = pd.DataFrame({
         "time": agg_times,
         "time_index": range(len(agg_times)),
@@ -137,14 +155,11 @@ def _get_data(args):
         "SWC": np.array(agg_water_volumes) / SOIL_MASS,
         "equil_time_hours": np.array(agg_equil_time_deltas) / 3600.0,
         "total_change": agg_total_change,
+        "mrt": agg_mrt
     })
     return df
 
-
-
-
-if __name__ == "__main__":
-
+def _parse_args():
     # Get argparse arguments: csv of time intervals. start_utc, end_utc, reseating, pot number, pot water volume
     ap = argparse.ArgumentParser(description="Plot sensor time series from the configured database.")
     ap.add_argument(
@@ -170,8 +185,12 @@ if __name__ == "__main__":
         default=10,
         help="Number of bootstrap samples to generate for uncertainty estimation.",
     )
-
     args = ap.parse_args()
+    return args
+
+if __name__ == "__main__":
+
+    args = _parse_args()
 
     df = _get_data(args)
     sensor_names = sorted(df['sensor'].unique())
@@ -211,7 +230,7 @@ if __name__ == "__main__":
     colors = ["#A9E5BB", "#F7B32B", "#8D2D3B", "#2D1E2F", "#FEFAD8"]
     sensor_colors = {name: colors[i] for i, name in enumerate(sensor_names)}
     sensor_indexes = {name: i for i, name in enumerate(sensor_names)}
-    fig, axes = plt.subplots(2, 2, figsize=(12, 12), constrained_layout=True)
+    fig, axes = plt.subplots(3, 3, figsize=(12, 9), constrained_layout=True)
     ax = axes.flatten()
 
     for sensor, subdf in df.groupby("sensor"):
@@ -235,9 +254,6 @@ if __name__ == "__main__":
     print("X range:", df['value'].min(), df['value'].max())
 
     spline_model = fit_monotonic_spline(df['value'].values, df['SWC'].values, inner_knots=inner_knots, k=spline_k)
-    spline_mod_x, spline_mod_z = fit_parametric_monotonic_spline(
-        df['value'].values, df['SWC'].values, x_der_midpoint, x_dswcdv, n_inner_knots, k=k_spline, w_der=0.0)
-
     boot_splines = bootstrap_monotonic_spline(
         df['value'].values,
         df['SWC'].values,
@@ -245,9 +261,10 @@ if __name__ == "__main__":
         k=spline_k, 
         n_boots=args.n_bootstraps
     )
-    boot_mod_splines = bootstrap_parametric_spline(
-        df['value'].values, df['SWC'].values, x_der_midpoint,
-        x_dswcdv, knots=n_inner_knots, k=k_spline, w_der=0.0, n_boots=n_boots_parametric)
+
+    spline_mod_x, spline_mod_z, boot_mod_splines, residual_spline_mod = fit_parametric_spline_with_residuals(
+        df['value'].values, df['SWC'].values, x_der_midpoint, x_dswcdv, n_inner_knots, k_spline, 0.0, n_boots_parametric
+    )
 
     residual_spline = fit_monotonic_spline(
         df['value'].values,
@@ -256,36 +273,11 @@ if __name__ == "__main__":
         k=spline_k, 
     )
 
-    from scipy.interpolate import interp1d
-
-    # 1. Create the inverse map: X -> S
-    # We use a fine grid of s to ensure the inverse is smooth
-    s_fine = np.linspace(0, 1, 1000)
-    x_fine = spline_mod_x(s_fine)
-    # This allows us to find which 's' corresponds to a given 'value'
-    x_to_s_map = interp1d(x_fine, s_fine, bounds_error=False, fill_value="extrapolate")
-
-    # 2. Map your actual data points to the parameter s
-    s_data = x_to_s_map(df['value'].values)
-
-    # 3. Get the predicted SWC (z) for those s values
-    z_pred = spline_mod_z(s_data)
-
-    # 4. Calculate the absolute residuals
-    abs_residuals = np.abs(df['SWC'].values - z_pred)
-
-    # 5. Fit the residual spline (Mapping Sensor Reading 'value' to the Error Magnitude)
-    residual_spline_mod = fit_monotonic_spline(
-        df['value'].values,
-        abs_residuals,
-        inner_knots=inner_knots,
-        k=spline_k, 
-    )
-
     lookup_df2 = compute_lookup_table_parametric_forward(boot_mod_splines, s_fine.min(), s_fine.max(), n_points=1000)
     lookup_df = compute_lookup_table_from_bootstrap(boot_splines, df['value'].min(), df['value'].max(), n_points=1000)
 
     # write the lookup table to csv
+    lookup_df2['swc_std'] += residual_spline_mod(lookup_df2['sensor_val'])
     lookup_df2.to_csv("spline_lookup_table.csv", index=False)
 
     spline_lookup_table_out_file = "spline_lookup_table.csv"
@@ -302,8 +294,8 @@ if __name__ == "__main__":
 
     ax[0].fill_betweenx(
         lookup_df2['sensor_val'],
-        lookup_df2['swc'] - 2.0 * lookup_df2['swc_std'] - 2.0 * residual_spline_mod(lookup_df2['sensor_val']),
-        lookup_df2['swc'] + 2.0 * lookup_df2['swc_std'] + 2.0 * residual_spline_mod(lookup_df2['sensor_val']),
+        lookup_df2['swc'] - 2.0 * lookup_df2['swc_std'],
+        lookup_df2['swc'] + 2.0 * lookup_df2['swc_std'],
         color='pink', alpha=0.3, label='Spline Fit Residuals'
     )
     ax[0].plot(z_plot, x_plot, color='green', label='Parametric Derivative Fit')
@@ -335,22 +327,50 @@ if __name__ == "__main__":
 
 
     # Now plot equilibriation time as a function of water content
-    ax[2].scatter(df["SWC"], df["equil_time_hours"] , c=df["sensor"].map(sensor_colors), label="Equilibration Time Delta")
+    ax[2].scatter(df["SWC"], df["mrt"] , c=df["sensor"].map(sensor_colors), label="Equilibration Time Delta")
     ax[2].set_xlabel("SWC")
-    ax[2].set_ylabel("Equilibration Time Delta (hours)")
+    ax[2].set_ylabel("MRT")
 
     # Now, for each trial, plot delta value/delta volume vs volume
     # FOR EACH SENSOR
+    deltas = []
+    deltas_mrt = []
     for trial, subdf in df.groupby("trial"):
         for sensor, subsubdf in subdf.groupby("sensor"):    
             sorted_subdf = subsubdf.sort_values("SWC")
             delta_value = sorted_subdf["value"].diff()
             delta_volume = sorted_subdf["SWC"].diff()
             # print(delta_value)
+            deltas += list(delta_value / delta_volume)
+            deltas_mrt += list(sorted_subdf["mrt"])
             ax[3].scatter(sorted_subdf["SWC"], delta_value / delta_volume, c=sensor_colors[sensor], label=f"Sensor {sensor}")
     ax[3].set_xlabel("SWC")
     ax[3].set_ylabel("$\Delta X / \Delta Z$")
 
+    variabilities = []
+    varswcs = []
+    for trial, subdf in df.groupby("trial"): 
+        for swc, subsubdf in subdf.groupby("SWC"):
+            sensor_vals = subsubdf["value"]
+            sensor_times = subsubdf["time"]
+            # Now compute the std of the LAST elements
+            variabilities.append(sensor_vals.std())
+            varswcs.append(swc)
+    variabilities = np.array(variabilities)
+    means = np.array(means)
+
+    ax[4].scatter(np.log(1.0/df["mrt"]), df["SWC"])
+    ax[4].set_ylabel("SWC")
+    ax[4].set_xlabel("log(1/MRT)")
+    print(len(df["mrt"]), len(deltas))
+
+    ax[5].scatter(variabilities, varswcs)
+    ax[5].set_ylabel("SWC")
+    ax[5].set_xlabel("$\sigma$")
+
+    ax[6].scatter(deltas, deltas_mrt)
+    ax[6].set_ylabel("deltas")
+    ax[6].set_xlabel("MRT")
 
     plt.savefig("titration_plots.png")
     plt.show()

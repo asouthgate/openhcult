@@ -301,3 +301,83 @@ def compute_lookup_table_parametric_forward(boot_mod_splines, s_min=0, s_max=1, 
     })
     
     return lookup_df
+
+
+def compute_mrt(times, vals):
+    """
+    Computes the Mean Residence Time (MRT) of the sensor transition.
+    Handles datetime64/timedelta64 and is direction-agnostic.
+    
+    Returns:
+        float: MRT in seconds (the 'delta T' of the transition).
+    """
+    # 1. Convert time to numeric seconds
+    if np.issubdtype(times.dtype, np.datetime64) or np.issubdtype(times.dtype, np.timedelta64):
+        t_numeric = (times - times[0]) / np.timedelta64(1, 's')
+    else:
+        t_numeric = times - times[0]
+
+    # 2. Extract boundaries with median filtering for noise robustness
+    v_start = np.median(vals[:5])
+    v_end = np.median(vals[-5:])
+    
+    # If the sensor didn't move, MRT is undefined/zero
+    if np.isclose(v_start, v_end, atol=1e-7):
+        return [], 0.0 
+    
+    # 3. Normalize Values to [0, 1]
+    # This 'flips' the curve so that for both wetting and drying, 
+    # the 'target' is 1 and the 'start' is 0.
+    v_norm = np.clip((vals - v_start) / (v_end - v_start), 0, 1)
+    
+    # 4. Calculate MRT via Integration
+    # MRT = Integral from 0 to T of (1 - v_norm) dt
+    try:
+        # Use trapezoid for NumPy 2.0+, fallback to trapz for older versions
+        auc = np.trapezoid(v_norm, t_numeric)
+    except AttributeError:
+        auc = np.trapz(v_norm, t_numeric)
+        
+    # The MRT is the 'Area Above the Curve'
+    total_duration = t_numeric[-1]
+    mrt = total_duration - auc
+    
+    return vals, mrt
+
+
+def fit_parametric_spline_with_residuals(x, y, xmid, dydx, n_inner_knots, k_spline, w_der, n_boots):
+    """Compute a parametric spline using both x,y data as well as xmid (x_i+1/2) and derivative at midpoint data.
+    
+    Params:
+        x, y, xmid, ydx: arrays
+        n_inner_knots: int spline knots
+        k_spline: int order of spline
+        w_der: weight of derivative samples
+        n_boots: number of bootstrap samples
+    """
+
+    spline_mod_x, spline_mod_y = fit_parametric_monotonic_spline(
+        x, y, xmid, dydx, n_inner_knots, k_spline, w_der
+    )
+
+    boot_mod_splines = bootstrap_parametric_spline(
+        x, y, xmid, dydx, n_inner_knots, k_spline, w_der, n_boots=n_boots)
+
+    # After fitting the parametric splines, we now have to invert from x -> s so that we can calculate y(x)
+    s_fine = np.linspace(0, 1, 1000)
+    x_fine = spline_mod_x(s_fine)
+    x_to_s_map = interp1d(x_fine, s_fine, bounds_error=False, fill_value="extrapolate")
+    s_data = x_to_s_map(x)
+    y_pred = spline_mod_y(s_data)
+    abs_residuals = np.abs(y - y_pred)
+
+    inner_knots = ( np.linspace(0, 1, n_inner_knots)**2 * (x.max() - x.min()) + x.min() ) [1:]
+    inner_knots[-1] = (inner_knots[-1] + inner_knots[-2]) / 2
+
+    residual_spline_mod = fit_monotonic_spline(
+        x,
+        abs_residuals,
+        inner_knots=inner_knots,
+        k=k_spline,
+    )
+    return spline_mod_x, spline_mod_y, boot_mod_splines, residual_spline_mod
