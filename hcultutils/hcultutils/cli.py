@@ -80,16 +80,16 @@ def _add_infer_args(parser):
         help="Limit number of rows when querying hcultctrl",
     )
     parser.add_argument(
-        "--diff-lag-ms",
+        "--diff-lag-seconds",
         type=int,
-        default=5000 * 60 * 4,
-        help="Lag (in samples) for d(t) = s(t) - s(t-h)",
+        default=60 * 3,
+        help="Lag (in seconds) for d(t) = s(t) - s(t-h)",
     )
     parser.add_argument(
-        "--mad-window-ms",
+        "--mad-window-seconds",
         type=int,
-        default=5000 * 60 * 20,
-        help="Window size (in samples) for rolling MAD",
+        default=60 * 5,
+        help="Window size (in seconds) for rolling MAD",
     )
     parser.add_argument(
         "--mad-scale",

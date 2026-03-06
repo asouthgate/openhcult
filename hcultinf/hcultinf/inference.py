@@ -41,14 +41,29 @@ def rolling_mad(values: np.ndarray, window_arr: int) -> np.ndarray:
     return out
 
 
-def compute_zscore(values: np.ndarray, *, lag_arr: int, mad_window_arr: int, c: float) -> np.ndarray:
-    diffs = compute_diff(values, lag_arr)
-    mads = rolling_mad(diffs, mad_window_arr) + 1e-5  # Avoid division by zero
+def compute_zscore(values: np.ndarray, diffs, *, mad_window_arr: int, c: float) -> np.ndarray:
+    # we need to add the min to stop zero MAD, where any event thereafter is + np.abs(min(diffs))
+    mads = rolling_mad(diffs, mad_window_arr) + np.min(np.abs(diffs))
+    # mads = np.ones(len(diffs)) * 1
     sigma = c * mads
     z = np.full(values.shape, np.nan, dtype=float)
     valid = np.isfinite(diffs) & np.isfinite(sigma) & (sigma > 0)
     z[valid] = diffs[valid] / sigma[valid]
     return z
+
+def compute_zscore_madval(values: np.ndarray, diffs, *, mad: int, c: float) -> np.ndarray:
+    # we need to add the min to stop zero MAD, where any event thereafter is + np.abs(min(diffs))
+    # mads = rolling_mad(diffs, mad_window_arr) + np.min(np.abs(diffs))
+    # mads = np.ones(len(diffs)) * 1
+    sigma = c * mad
+    z = np.full(values.shape, np.nan, dtype=float)
+    z = diffs / sigma
+    return z
+
+
+def compute_zscore_single(v1, v2, mad, c) -> np.ndarray:
+    sigma = c * mad
+    return v2 - v1 / sigma
 
 
 def run_lengths_at_starts(arr):
@@ -69,7 +84,9 @@ def run_lengths_at_starts(arr):
     return out
 
 
-def classify_events(times: np.ndarray, values: np.ndarray, lag_ms: np.int64, mad_window_ms: np.int64, c: float, pthresh: float) -> np.ndarray:
+def classify_events(
+    times: np.ndarray, values: np.ndarray, lag_ms: np.int64, mad_window_ms: np.int64, c: float, pthresh: float
+) -> np.ndarray:
     """ Classify events in a time series based on z-scores of differences.
 
     Returns:
@@ -78,6 +95,7 @@ def classify_events(times: np.ndarray, values: np.ndarray, lag_ms: np.int64, mad
     - starts: Boolean array indicating the start of runs of triggers that are at least as long as the lag.
     """
     # For each value point, we need to map lag_ms to lag and mad_window_ms to mad_window based on times.
+    # Each lag_arr[i] gives the integer index lag corresponding to the lag_ms for i
     lag_arr = []
     mad_window_arr = []
 
@@ -94,16 +112,54 @@ def classify_events(times: np.ndarray, values: np.ndarray, lag_ms: np.int64, mad
         mad_window_arr.append(idx - mad_window_idx if mad_window_idx >= 0 else 0)
 
     lag_arr = np.array(lag_arr, dtype=int)
+    # print(lag_arr)
+    MAD = 3
+    lag_arr = np.ones(len(values)).astype(int) * 1
+    lag_arr[0] = 0
+    print(lag_arr)
     mad_window_arr = np.array(mad_window_arr, dtype=int)
-    lag_arr = np.ones(len(lag_arr), dtype=int) * 5
-    mad_window_arr = np.ones(len(mad_window_arr), dtype=int) * 100
-    zscores = compute_zscore(values, lag_arr=lag_arr, mad_window_arr=mad_window_arr, c=c)
+
+    diffs = compute_diff(values, lag_arr)
+    # zscores = compute_zscore(values, diffs, mad_window_arr=mad_window_arr, c=c)
+    zscores = compute_zscore_madval(values, diffs, mad = 5, c=c)
+
     pvalues = zscore_pvalues(zscores)
-    triggers = pvalues < pthresh
-    run_lengths = run_lengths_at_starts(triggers)
-    start_lengths = run_lengths * triggers
+    triggers = pvalues < pthresh # triggers array one at a trigger and zero at a non-trigger
+
+    # 1. FILTER BY SIGN
+    signs_watering = diffs < 0  # only those decreasing are watering, increasing must be drying
+    triggers = triggers & signs_watering
+
+    # 2. FILTER BY HYSTERESIS (SIGNIFICANCE FROM )
+    confirmed_triggers = triggers.copy()
+    trigger_inds = np.where(triggers)[0]
+    K = 10
+    for trind in trigger_inds:
+        x0ind = trind - 1
+        x0 = values[x0ind]
+        for tj in range(trind, trind + K):
+            z_score = compute_zscore_single(x0, values[tj], MAD, c)
+            pval = zscore_pvalues(z_score)
+            if pval > pthresh:
+                confirmed_triggers[trind] = False
+
+    # 3. FILTER BY GREEDY 
+                
+    for tri in np.where(confirmed_triggers)[0]:
+        endj = tri + 1
+        for j in range(tri, len(confirmed_triggers) - 1):
+            if not confirmed_triggers[j]:
+                endj = j
+                break
+        confirmed_triggers[tri + 1:endj] = False
+
+
+    run_lengths = run_lengths_at_starts(confirmed_triggers)
+
+    start_lengths = run_lengths * confirmed_triggers
     starts = start_lengths >= lag_arr
-    return triggers, run_lengths, starts
+
+    return confirmed_triggers, run_lengths, starts
 
 
 def zscore_pvalues(zscores: np.ndarray) -> np.ndarray:
