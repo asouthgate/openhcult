@@ -111,7 +111,20 @@ def greedy_merge_event_times(event_times, dist):
             
     return sorted(filtered)
 
-def classify_events(
+def classify_events_slow(times: np.ndarray, values: np.ndarray, span=5, thresh=1
+) -> np.ndarray:
+    time_diff_minutes = (times[1:] - times[:-1]) / np.timedelta64(1, 'm')
+    diff = (values[1:] - values[:-1])
+    der = diff / time_diff_minutes
+    der_emwa = compute_ewma(der, span)
+    triggers = np.logical_or(der_emwa > thresh, der_emwa < -thresh)
+    trigger_times = times[np.where(triggers)[0]]
+    return trigger_times
+
+
+
+
+def classify_events_shock(
     times: np.ndarray, values: np.ndarray, lag_ms: np.int64, mad_window_ms: np.int64, c: float, pthresh: float
 ) -> np.ndarray:
     """ Classify events in a time series based on z-scores of differences.
@@ -140,37 +153,33 @@ def classify_events(
 
     lag_arr = np.array(lag_arr, dtype=int)
     # print(lag_arr)
-    MAD = 3
+    MAD = 6
     lag_arr = np.ones(len(values)).astype(int) * 1
     lag_arr[0] = 0
     mad_window_arr = np.array(mad_window_arr, dtype=int)
 
     diffs = compute_diff(values, lag_arr)
     # zscores = compute_zscore(values, diffs, mad_window_arr=mad_window_arr, c=c)
-    zscores = compute_zscore_madval(values, diffs, mad = 5, c=c)
+    zscores = compute_zscore_madval(values, diffs, mad = MAD, c=c)
 
     pvalues = zscore_pvalues(zscores)
-    triggers = pvalues < pthresh # triggers array one at a trigger and zero at a non-trigger
+    confirmed_triggers = pvalues < pthresh # triggers array one at a trigger and zero at a non-trigger
+    diff_triggers = times[np.where(confirmed_triggers.copy())[0]]
 
-    # 1. FILTER BY SIGN
-    signs_watering = diffs < 0  # only those decreasing are watering, increasing must be drying
-    triggers = triggers & signs_watering
 
     # 2. FILTER BY HYSTERESIS (SIGNIFICANCE FROM )
-    confirmed_triggers = triggers.copy()
-    trigger_inds = np.where(triggers)[0]
     K = 10
-    for trind in trigger_inds:
-        x0ind = trind - 1
+    for trind in np.where(confirmed_triggers)[0]:
+        x0ind = trind - 2
         x0 = values[x0ind]
         for tj in range(trind, trind + K):
             z_score = compute_zscore_single(x0, values[tj], MAD, c)
             pval = zscore_pvalues(z_score)
             if pval > pthresh:
                 confirmed_triggers[trind] = False
+    hyst_triggers = times[np.where(confirmed_triggers.copy())[0]]
 
     # 3. FILTER BY GREEDY 
-                
     for tri in np.where(confirmed_triggers)[0]:
         endj = tri + 1
         for j in range(tri, len(confirmed_triggers) - 1):
@@ -178,20 +187,29 @@ def classify_events(
                 endj = j
                 break
         confirmed_triggers[tri + 1:endj] = False
+    greedy_triggers = times[np.where(confirmed_triggers.copy())[0]]
 
     # 4. FILTER BY EMWA
     emwa = compute_ewma(values)
     K_EMWA = 5
+    THRESH_EMWA = 0.0
     # now require that emwa is decreasing for K samples after trigger
     for tri in np.where(confirmed_triggers)[0]:
         endj = min(tri + K_EMWA, len(confirmed_triggers) - 1)
-        emwa_flag = True
+        if emwa[tri] > emwa[tri + 1]:
+            comp = lambda x, y: y - x < -THRESH_EMWA  # need emwa derivative to be negative if it's a 'negative event'
+        else:
+            comp = lambda x, y: y - x > THRESH_EMWA  # need derivative to be positive if it's a positive event
         for j in range(tri, endj):
-            if emwa[j] - emwa[tri] > 0:
-                emwa_flag = False
-                break
-        confirmed_triggers[tri] = emwa_flag
+            if comp(emwa[j], emwa[tri]):
+            # if emwa[j] - emwa[tri] < THRESH_EMWA:
+                confirmed_triggers[tri] = False
+    emwa_triggers = times[np.where(confirmed_triggers.copy())[0]]
 
+    # 5 FILTER BY SIGN
+    signs_watering = diffs < 0  # only those decreasing are watering, increasing must be drying
+    # confirmed_triggers = confirmed_triggers & signs_watering
+    signed_triggers = times[np.where(confirmed_triggers.copy())[0]]
 
     # run_lengths = run_lengths_at_starts(confirmed_triggers)
 
@@ -200,7 +218,7 @@ def classify_events(
 
     final_triggers = np.where(confirmed_triggers)[0]
     trigger_times = times[final_triggers]
-    return trigger_times
+    return trigger_times, diff_triggers, hyst_triggers, greedy_triggers, emwa_triggers, signed_triggers
 
 
 def zscore_pvalues(zscores: np.ndarray) -> np.ndarray:

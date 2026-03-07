@@ -10,7 +10,7 @@ import urllib
 
 import numpy as np
 
-from hcultinf.inference import classify_events
+from hcultinf.inference import classify_events_shock
 from hcultutils.fetch_data import fetch_data
 
 
