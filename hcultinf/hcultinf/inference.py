@@ -15,6 +15,15 @@ from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, ConstantKernel
 
 
+def compute_ewma(data, span=5):
+    """
+    Computes EWMA using Pandas.
+    Span is the most common parameter (N-day EWMA).
+    """
+    series = pd.Series(data)
+    # span corresponds to alpha = 2 / (span + 1)
+    return series.ewm(span=span, adjust=False).mean().values
+
 def compute_diff(values: np.ndarray, lag_arr: int) -> np.ndarray:
     out = np.full(values.shape, np.nan, dtype=float)
     for idx in range(values.size):
@@ -83,6 +92,24 @@ def run_lengths_at_starts(arr):
     out[starts] = run_len
     return out
 
+def greedy_merge_event_times(event_times, dist):
+    """
+    Groups 1D events by a maximum distance threshold and returns 
+    the first event (representative) of each cluster.
+    """
+    if not event_times:
+        return []
+    
+    # Ensure events are sorted for 1D greedy processing
+    sorted_events = sorted(event_times)
+    filtered = [sorted_events[0]]
+    
+    for i in range(1, len(sorted_events)):
+        # If the current event is outside the window of the last kept event
+        if sorted_events[i] - filtered[-1] >= dist:
+            filtered.append(sorted_events[i])
+            
+    return sorted(filtered)
 
 def classify_events(
     times: np.ndarray, values: np.ndarray, lag_ms: np.int64, mad_window_ms: np.int64, c: float, pthresh: float
@@ -116,7 +143,6 @@ def classify_events(
     MAD = 3
     lag_arr = np.ones(len(values)).astype(int) * 1
     lag_arr[0] = 0
-    print(lag_arr)
     mad_window_arr = np.array(mad_window_arr, dtype=int)
 
     diffs = compute_diff(values, lag_arr)
@@ -153,13 +179,28 @@ def classify_events(
                 break
         confirmed_triggers[tri + 1:endj] = False
 
+    # 4. FILTER BY EMWA
+    emwa = compute_ewma(values)
+    K_EMWA = 5
+    # now require that emwa is decreasing for K samples after trigger
+    for tri in np.where(confirmed_triggers)[0]:
+        endj = min(tri + K_EMWA, len(confirmed_triggers) - 1)
+        emwa_flag = True
+        for j in range(tri, endj):
+            if emwa[j] - emwa[tri] > 0:
+                emwa_flag = False
+                break
+        confirmed_triggers[tri] = emwa_flag
 
-    run_lengths = run_lengths_at_starts(confirmed_triggers)
 
-    start_lengths = run_lengths * confirmed_triggers
-    starts = start_lengths >= lag_arr
+    # run_lengths = run_lengths_at_starts(confirmed_triggers)
 
-    return confirmed_triggers, run_lengths, starts
+    # start_lengths = run_lengths * confirmed_triggers
+    # starts = start_lengths >= lag_arr
+
+    final_triggers = np.where(confirmed_triggers)[0]
+    trigger_times = times[final_triggers]
+    return trigger_times
 
 
 def zscore_pvalues(zscores: np.ndarray) -> np.ndarray:

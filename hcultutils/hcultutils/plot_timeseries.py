@@ -10,11 +10,13 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import numpy as np
 
-from hcultinf.inference import compute_zscore, classify_events
+from hcultinf.inference import compute_zscore, classify_events, compute_ewma, greedy_merge_event_times
 from hcultutils.fetch_data import fetch_data
 
 def _plot_raw_subsensor_readings(ax, raw_ax, times, values, name, locator):
+    emwa = compute_ewma(values)
     ax.plot(times, values, label=name, linewidth=1.2)
+    ax.plot(times, emwa, label=name, linewidth=1.2, linestyle='--')
     ax.scatter(times, values)
     raw_ax.plot(times, values, label=name, linewidth=1.2)
     raw_ax.scatter(times, values, label=name, linewidth=1.2, s=0.5)
@@ -99,48 +101,32 @@ def main(args) -> int:
     equilibrium_delta_values = []
     equilibrium_sensors = []
     equilibrium_t_values = []
-    no_event_time_intervals = []
     equilbrium_intervals_index_values = []
 
     diff_lag_ms = args.diff_lag_seconds * 1000
     mad_window_ms = args.mad_window_seconds * 1000
-
+    all_trigger_times = []
     for idx, name in enumerate(sensor_names):
         points = series[name]
         times = np.array([t for t, _ in points])
         values = np.array([v for _, v in points], dtype=float)
         times_map[name] = times
-        triggers, run_lengths, starts = classify_events(times, values, diff_lag_ms, mad_window_ms, args.mad_scale, args.z_pvalue)
-        starts_t = times[starts]
+        trigger_times = classify_events(times, values, diff_lag_ms, mad_window_ms, args.mad_scale, args.z_pvalue)
+        all_trigger_times += list(trigger_times)
 
-        # compute the event time intervals
-        for i, si in enumerate(starts):
-            ei = si + run_lengths[i]
-
-        starts_inds = np.where(starts)[0]
-        for i in range(len(starts_inds) - 1):
-            si = starts_inds[i]
-            ei = si + run_lengths[si] - 1
-            next_si = starts_inds[i + 1]
-            val_subset = values[ei:next_si]
-            no_event_time_intervals.append((times[ei], times[next_si-1]))
+        for si, tt in enumerate(trigger_times):
+            ei = si + 1
+            val_subset = values[si:ei]
+            times_subset = times[si:ei]
             if len(val_subset) > 50:
                 deltas = np.diff(val_subset)
                 equilibrium_x_values += list(val_subset[:-1])
                 equilibrium_delta_values += list(deltas)
                 equilibrium_sensors += [idx] * len(deltas)
-                equilibrium_t_values += list(times[ei:next_si-1])
+                equilibrium_t_values += list(times_subset)
 
-        for ti, tri in enumerate(np.where(triggers)[0]):
-            tt = times[tri]
-            print(tri, tt)
-            # raw_axes[idx].axvline(tt, color="red", alpha=0.5, linewidth=1)
-            if ti == 0:
-                ax.axvline(tt, color="red", alpha=0.5, linewidth=1, label="Triggers")
-            else:
-                ax.axvline(tt, color="red", alpha=0.5, linewidth=1)
 
-        for ti, tt in enumerate(sorted(starts_t)):
+        for tt in trigger_times:
             # tt = times[tri]
             raw_axes[idx].axvline(tt, color="orange", alpha=0.5, linewidth=1)
             # if ti == 0:
@@ -150,21 +136,17 @@ def main(args) -> int:
         _plot_raw_subsensor_readings(ax, raw_axes[idx], times, values, name, locator)
         # now plot observations on the raw axes as well
 
-    merged_no_event_intervals = merge_time_intervals(no_event_time_intervals)
-    for idx in range(len(sensor_names)):
-        for tt, tte in merged_no_event_intervals:
-            raw_axes[idx].axvline(tt, color="green", alpha=0.5, linewidth=1, label="Merged")
+
+    all_triggers_merged = greedy_merge_event_times(all_trigger_times, np.timedelta64(5,'m'))
+    for ti, tt in enumerate(all_triggers_merged):
+        print(ti, tt)
+        # raw_axes[idx].axvline(tt, color="red", alpha=0.5, linewidth=1)
+        if ti == 0:
+            ax.axvline(tt, color="red", alpha=0.5, linewidth=1, label="Triggers")
+        else:
+            ax.axvline(tt, color="red", alpha=0.5, linewidth=1)
+
             
-    equilbrium_intervals_index_values = []
-    for t in equilibrium_t_values:
-        for i, (tt, tte) in enumerate(merged_no_event_intervals):
-            if tt <= t <= tte:
-                equilbrium_intervals_index_values.append(i)
-                break
-
-    assert len(equilbrium_intervals_index_values) == len(equilibrium_t_values)
-    assert len(equilbrium_intervals_index_values) == len(equilibrium_x_values)
-
     ax.set_title("Sensor Readings")
     ax.set_xlabel("Timestamp")
     ax.set_ylabel("Value")
