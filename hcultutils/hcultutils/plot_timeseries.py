@@ -118,9 +118,9 @@ def main(args) -> int:
         times_map[name] = times
         trigger_times, diff_triggers, hyst_triggers, greedy_triggers, emwa_triggers, signed_triggers = classify_events_shock(
             times, values, diff_lag_ms, mad_window_ms, args.mad_scale, args.z_pvalue)
-        og_slow_triggers, slow_triggers, slow_triggers_end = get_decreasing_regions(times, values, emwa_tau_minutes)
+        slow_watering_intervals = get_decreasing_regions(times, values, emwa_tau_minutes)
         all_fast_trigger_times += list(trigger_times)
-        all_slow_trigger_times += list(slow_triggers)
+        all_slow_trigger_times += list(slow_watering_intervals)
 
         for si, tt in enumerate(trigger_times):
             ei = si + 1
@@ -143,14 +143,14 @@ def main(args) -> int:
         #     raw_axes[idx].axvline(tt, color="green", alpha=1.0, linewidth=1.6)
         # for tt in signed_triggers:
         #     raw_axes[idx].axvline(tt, color="blue", alpha=1.0, linewidth=1.8)
-        for tt in og_slow_triggers:
-            raw_axes[idx].axvline(tt, color="green", alpha=0.2, linewidth=1.4)
-        for start, end in zip(slow_triggers, slow_triggers_end):
+        # for start, end in slow_watering_intervals:
+        #     raw_axes[idx].axvline(tt, color="green", alpha=0.2, linewidth=1.4)
+        for start, end in slow_watering_intervals:
             
             # Optional: Keep the lines on the edges for extra definition
-            raw_axes[idx].axvline(start, color="black", alpha=1.0, linewidth=1.5)
-            raw_axes[idx].axvline(end, color="blue", alpha=0.8, linewidth=1.5)
-            raw_axes[idx].axvspan(start, end, color="purple", alpha=0.9)
+            # raw_axes[idx].axvline(start, color="black", alpha=1.0, linewidth=1.5)
+            # raw_axes[idx].axvline(end, color="blue", alpha=0.8, linewidth=1.5)
+            raw_axes[idx].axvspan(start, end, color="purple", alpha=0.1)
         # for tt in trigger_times:
         #     raw_axes[idx].axvline(tt, color="black", alpha=1.0, linewidth=2)
         _plot_raw_subsensor_readings(ax, raw_axes[idx], times, values, name, locator, emwa_tau_minutes)
@@ -158,13 +158,14 @@ def main(args) -> int:
 
 
     # all_slow_triggers_merged = greedy_merge_event_times(all_slow_trigger_times, np.timedelta64(5,'m'))
-    for ti, tt in enumerate(all_slow_trigger_times):
+    for start, end in all_slow_trigger_times:
+        ax.axvspan(start, end, color="purple", alpha=0.1)
         # print(ti, tt)
         # raw_axes[idx].axvline(tt, color="red", alpha=0.5, linewidth=1)
-        if ti == 0:
-            ax.axvline(tt, color="blue", alpha=0.5, linewidth=1)
-        else:
-            ax.axvline(tt, color="blue", alpha=0.5, linewidth=1)
+        # if ti == 0:
+        #     ax.axvline(tt, color="blue", alpha=0.5, linewidth=1)
+        # else:
+        #     ax.axvline(tt, color="blue", alpha=0.5, linewidth=1)
     for ti, tt in enumerate(all_fast_trigger_times):
         # print(ti, tt)
         # raw_axes[idx].axvline(tt, color="red", alpha=0.5, linewidth=1)

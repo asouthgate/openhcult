@@ -248,22 +248,23 @@ def get_decreasing_regions(times: np.ndarray, values: np.ndarray, emwa_tau_minut
 
     # 3. Calculate Velocity on the regular grid (dt is now constant = 1.0)
     # This is much cleaner than (times[1:] - times[:-1])
-    vel_resampled = resampled_emwa.diff() 
+    vel_resampled = resampled_emwa.diff().fillna(0)
 
     # 4. Final Smooth of the velocity (optional but recommended for your "Double Smooth")
     vel_final = vel_resampled.ewm(span=emwa_tau_minutes).mean()
+
 
     # 5. Extract values for your plotting/detection logic
     times_reg = vel_final.index.to_numpy()
     v_vals = vel_final.values
 
-
-    # dt2 = (times[2:] - times[1:-1]) / np.timedelta64(1, 'm')
-    # accel = np.diff(vel_emwa) / dt2
+    accel_series = vel_final.diff().fillna(0)
+    accel_smooth = accel_series.ewm(span=emwa_tau_minutes).mean()
+    print(accel_smooth)
     # accel_emwa = compute_ewma(times[2:], accel, emwa_tau_minutes)
 
     trigger_tresh = -0.45
-    release_thresh = -0.15
+    release_thresh = -0.25
     down_regions = find_regions_with_hysteresis(times_reg, v_vals, trigger_tresh, release_thresh)
     import matplotlib.pyplot as plt
 
@@ -271,7 +272,7 @@ def get_decreasing_regions(times: np.ndarray, values: np.ndarray, emwa_tau_minut
 
     # Left Axis: Raw Moisture Values
     ax1.scatter(times, values, color='tab:blue', label='Moisture (%)', alpha=0.5)
-    ax1.plot(times_reg, resampled_emwa, color='tab:green', label='Moisture (%)', alpha=1.0, linewidth=1)
+    ax1.plot(times_reg, resampled_emwa, color='tab:blue', label='Moisture (%)', alpha=1.0, linewidth=1)
     ax1.plot(times, values_emwa, color='tab:blue', label='Moisture (%)', alpha=1.0, linewidth=1)
     ax1.set_ylabel('Moisture Content', color='tab:blue')
     ax1.tick_params(axis='y', labelcolor='tab:blue')
@@ -279,8 +280,10 @@ def get_decreasing_regions(times: np.ndarray, values: np.ndarray, emwa_tau_minut
     # Right Axis: Velocity (EWMA)
     ax2 = ax1.twinx()
     # Note: times[1:] aligns with the diff-based velocity
-    ax2.plot(times[1:], vel_emwa/max(vel_emwa), color='tab:red', label='Normalized Velocity (EWMA)', linewidth=2)
-    ax2.plot(times_reg, v_vals/max(vel_emwa), color='tab:pink', label='Regular Velocity (EWMA)', linewidth=2)
+    # ax2.plot(times[1:], vel_emwa/max(vel_emwa), color='tab:red', label='Normalized Velocity (EWMA)', linewidth=2)
+    ax2.plot(times_reg, v_vals/max(v_vals), color='tab:pink', label='Regular Velocity (EWMA)', linewidth=2)
+    # ax2.plot(times_reg, v_vals/max(vel_emwa), color='tab:pink', label='Regular Velocity (EWMA)', linewidth=2)
+    ax2.plot(times_reg, accel_smooth.values/max(accel_smooth), color='tab:purple', label='Regular Velocity (EWMA)', linewidth=2)
 
     ax2.axhline(trigger_tresh/max(vel_emwa), color='red', linestyle='--', alpha=0.6, label='Threshold')
     ax2.axhline(release_thresh/max(vel_emwa), color='red', linestyle='--', alpha=0.6, label='Threshold')
@@ -297,18 +300,8 @@ def get_decreasing_regions(times: np.ndarray, values: np.ndarray, emwa_tau_minut
     plt.title('Moisture Levels vs. Smoothed Velocity')
     fig.tight_layout()
     plt.show()
-    triggers_pos = vel_emwa > thresh
-    triggers_neg = vel_emwa < -thresh
-    og_triggers = sorted(list(times[np.where(triggers_neg)[0]]) + list(times[np.where(triggers_pos)[0]]))
-    runs_neg = get_runs_boolean(triggers_neg)
-    comb_runs = runs_neg
-
-    starts = [start for start, end in comb_runs]
-    ends = [end for _, end in comb_runs]
-
-    trigger_start_times = times[starts]
-    trigger_end_times = times[ends]
-    return og_triggers, trigger_start_times, trigger_end_times
+    
+    return down_regions
 
 
 def classify_events_shock(
