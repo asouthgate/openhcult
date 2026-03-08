@@ -186,6 +186,29 @@ def get_runs_boolean(boolean):
                 
     return res
 
+def find_downward_regions(times, vel_emwa, delta=-0.05):
+    """
+    Finds start/end times where velocity < delta (negative threshold).
+    Note: times and vel_emwa must be the same length.
+    """
+    # 1. Create mask (velocity is more negative than delta)
+    is_down = vel_emwa < delta
+    
+    # 2. Find transitions
+    # prepend/append False to handle cases starting or ending 'in-run'
+    padded = np.r_[False, is_down, False]
+    idx = np.flatnonzero(padded[1:] != padded[:-1])
+    
+    # 3. Pair starts and ends
+    # Result is a list of (start_time, end_time)
+    regions = []
+    for i in range(0, len(idx), 2):
+        start_idx = idx[i]
+        end_idx = idx[i+1] - 1
+        regions.append((times[start_idx], times[end_idx]))
+        
+    return regions
+
 def get_decreasing_regions(times: np.ndarray, values: np.ndarray, emwa_tau_minutes, thresh=0.05) -> np.ndarray:
 
     
@@ -196,12 +219,15 @@ def get_decreasing_regions(times: np.ndarray, values: np.ndarray, emwa_tau_minut
     values_emwa = compute_ewma(times, values, emwa_tau_minutes)
     dvalues_emwa_dt = (values_emwa[1:] - values_emwa[:-1]) / time_diff_minutes
 
-    vel_emwa = compute_ewma(times, vel, emwa_tau_minutes)
+    vel_emwa = compute_ewma(times, dvalues_emwa_dt, emwa_tau_minutes)
 
 
     dt2 = (times[2:] - times[1:-1]) / np.timedelta64(1, 'm')
     accel = np.diff(vel_emwa) / dt2
     accel_emwa = compute_ewma(times[2:], accel, emwa_tau_minutes)
+
+    threshold = -0.25   
+    down_regions = find_downward_regions(times[1:], vel_emwa, threshold)
     import matplotlib.pyplot as plt
 
     fig, ax1 = plt.subplots(figsize=(12, 6))
@@ -216,8 +242,13 @@ def get_decreasing_regions(times: np.ndarray, values: np.ndarray, emwa_tau_minut
     ax2 = ax1.twinx()
     # Note: times[1:] aligns with the diff-based velocity
     ax2.plot(times[1:], vel_emwa/max(vel_emwa), color='tab:red', label='Normalized Velocity (EWMA)', linewidth=2)
-    # ax2.plot(times[2:], accel_emwa/max(accel_emwa), color='tab:purple', label='Normalized Acceleration (EWMA)', linewidth=2)
-    ax2.plot(times[1:], dvalues_emwa_dt/max(dvalues_emwa_dt), color='tab:pink', label='EWMA derivative', alpha=0.5, linewidth=3)
+    ax2.axhline(threshold/max(vel_emwa), color='red', linestyle='--', alpha=0.6, label='Threshold')
+
+    # 2. Shaded regions for each detected event
+    for start, end in down_regions:
+        ax2.axvspan(start, end, color='gray', alpha=0.15)
+    # ax2.plot(times[2:], accel/max(accel), color='tab:purple', label='Normalized Acceleration (EWMA)', linewidth=2)
+    # ax2.plot(times[1:], dvalues_emwa_dt/max(dvalues_emwa_dt), color='tab:pink', label='EWMA derivative', alpha=0.5, linewidth=3)
     ax2.axhline(0, color='black', linestyle='--', alpha=0.3) # Zero baseline
     ax2.set_ylabel('Velocity (Units/Min)', color='tab:red')
     ax2.tick_params(axis='y', labelcolor='tab:red')
