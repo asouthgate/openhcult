@@ -14,13 +14,13 @@ from hcultinf.inference import compute_zscore, classify_events_shock, classify_e
 from hcultutils.fetch_data import fetch_data
 
 def _plot_raw_subsensor_readings(ax, raw_ax, times, values, name, locator):
-    emwa = compute_ewma(values)
+    emwa = compute_ewma(times, values)
     ax.plot(times, values, label=name, linewidth=1.2)
     ax.plot(times, emwa, label=name, linewidth=1.2, linestyle='--')
     ax.scatter(times, values)
     raw_ax.plot(times, emwa, label=name, linewidth=1.2, linestyle='--')
     raw_ax.plot(times, values, label=name, linewidth=1.2)
-    raw_ax.scatter(times, values, label=name, linewidth=1.2, s=1.0)
+    raw_ax.scatter(times, values, label=name, linewidth=1.2)
     raw_ax.legend()
     raw_ax.set_title(name)
     raw_ax.set_xlabel("Timestamp")
@@ -107,6 +107,9 @@ def main(args) -> int:
     diff_lag_ms = args.diff_lag_seconds * 1000
     mad_window_ms = args.mad_window_seconds * 1000
     all_trigger_times = []
+
+    # SPAN = 20
+
     for idx, name in enumerate(sensor_names):
         points = series[name]
         times = np.array([t for t, _ in points])
@@ -114,7 +117,7 @@ def main(args) -> int:
         times_map[name] = times
         trigger_times, diff_triggers, hyst_triggers, greedy_triggers, emwa_triggers, signed_triggers = classify_events_shock(
             times, values, diff_lag_ms, mad_window_ms, args.mad_scale, args.z_pvalue)
-        slow_triggers = classify_events_slow(times, values)
+        og_slow_triggers, slow_triggers = classify_events_slow(times, values)
         all_trigger_times += list(trigger_times)
 
         for si, tt in enumerate(trigger_times):
@@ -128,28 +131,30 @@ def main(args) -> int:
                 equilibrium_sensors += [idx] * len(deltas)
                 equilibrium_t_values += list(times_subset)
 
-        for tt in diff_triggers:
-            raw_axes[idx].axvline(tt, color="red", alpha=1.0, linewidth=1)
-        for tt in hyst_triggers:
-            raw_axes[idx].axvline(tt, color="orange", alpha=1.0, linewidth=1.2)
-        for tt in greedy_triggers:
-            raw_axes[idx].axvline(tt, color="yellow", alpha=1.0, linewidth=1.4)
-        for tt in emwa_triggers:
-            raw_axes[idx].axvline(tt, color="green", alpha=1.0, linewidth=1.6)
-        for tt in signed_triggers:
-            raw_axes[idx].axvline(tt, color="blue", alpha=1.0, linewidth=1.8)
+        # for tt in diff_triggers:
+        #     raw_axes[idx].axvline(tt, color="red", alpha=1.0, linewidth=1)
+        # for tt in hyst_triggers:
+        #     raw_axes[idx].axvline(tt, color="orange", alpha=1.0, linewidth=1.2)
+        # for tt in greedy_triggers:
+        #     raw_axes[idx].axvline(tt, color="yellow", alpha=1.0, linewidth=1.4)
+        # for tt in emwa_triggers:
+        #     raw_axes[idx].axvline(tt, color="green", alpha=1.0, linewidth=1.6)
+        # for tt in signed_triggers:
+        #     raw_axes[idx].axvline(tt, color="blue", alpha=1.0, linewidth=1.8)
+        for tt in og_slow_triggers:
+            raw_axes[idx].axvline(tt, color="green", alpha=1.0, linewidth=1.4)
         for tt in slow_triggers:
-            raw_axes[idx].axvline(tt, color="pink", alpha=1.0, linewidth=1.8)
+            raw_axes[idx].axvline(tt, color="purple", alpha=1.0, linewidth=1.8)
 
-        for tt in trigger_times:
-            raw_axes[idx].axvline(tt, color="black", alpha=1.0, linewidth=2)
+        # for tt in trigger_times:
+        #     raw_axes[idx].axvline(tt, color="black", alpha=1.0, linewidth=2)
         _plot_raw_subsensor_readings(ax, raw_axes[idx], times, values, name, locator)
         # now plot observations on the raw axes as well
 
 
     all_triggers_merged = greedy_merge_event_times(all_trigger_times, np.timedelta64(5,'m'))
     for ti, tt in enumerate(all_triggers_merged):
-        print(ti, tt)
+        # print(ti, tt)
         # raw_axes[idx].axvline(tt, color="red", alpha=0.5, linewidth=1)
         if ti == 0:
             ax.axvline(tt, color="red", alpha=0.5, linewidth=1)

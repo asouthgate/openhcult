@@ -15,14 +15,36 @@ from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, ConstantKernel
 
 
-def compute_ewma(data, span=5):
+# def compute_ewma(data, span=5):
+#     """
+#     Computes EWMA using Pandas.
+#     Span is the most common parameter (N-day EWMA).
+#     """
+#     series = pd.Series(data)
+#     # span corresponds to alpha = 2 / (span + 1)
+#     return series.ewm(span=span, adjust=False).mean().values
+
+def compute_ewma(times, values, tau_minutes=30.0):
     """
-    Computes EWMA using Pandas.
-    Span is the most common parameter (N-day EWMA).
+    tau_minutes: The 'memory' of the filter. 
+    Larger tau = smoother, but stays 'stuck' longer after gaps.
     """
-    series = pd.Series(data)
-    # span corresponds to alpha = 2 / (span + 1)
-    return series.ewm(span=span, adjust=False).mean().values
+    # Convert times to float minutes
+    t_min = times.astype('datetime64[m]').astype(float)
+    
+    n = len(values)
+    smoothed = np.zeros(n)
+    smoothed[0] = values[0] # Initialize
+    
+    for i in range(1, n):
+        delta_t = t_min[i] - t_min[i-1]
+        
+        # Calculate dynamic alpha based on time gap
+        alpha = 1 - np.exp(-delta_t / tau_minutes)
+        
+        smoothed[i] = (1 - alpha) * smoothed[i-1] + alpha * values[i]
+        
+    return smoothed
 
 def compute_diff(values: np.ndarray, lag_arr: int) -> np.ndarray:
     out = np.full(values.shape, np.nan, dtype=float)
@@ -111,17 +133,58 @@ def greedy_merge_event_times(event_times, dist):
             
     return sorted(filtered)
 
-def classify_events_slow(times: np.ndarray, values: np.ndarray, span=5, thresh=1
-) -> np.ndarray:
+
+def get_runs(times, boolean, max_time_dist):
+    # Easy algorithm. 1 loop. 
+    # Iterate over. If boolean[j], set last_trigger to j, continue in same event
+    # Otherwise, if time dist(times[j], times[last_trigger]) < max_time_dist, keep going
+    # When dist(times[j], times[last_trigger]) > max_time_dist, mark end, reset start
+    res = []
+    start = None
+    last_j = None
+    last_time = None
+    for j, bj in enumerate(boolean):
+        # if we are in a run but the time delta is too big, end regardless
+        if not start is None:
+            dt = times[j] - last_time
+            if dt > max_time_dist:
+                # end condition reached
+                res.append((start, last_j))
+                start = None
+                last_j = None
+                last_time = None
+        if bj:
+            if start is None:  # Not in an event period
+                start = j
+            last_j = j
+            last_time = times[j]
+            continue
+        # It's a zero, but could be in the time period anyway
+
+            
+    return res
+
+
+def classify_events_slow(times: np.ndarray, values: np.ndarray, thresh=0.3, l = np.timedelta64(15, 'm')) -> np.ndarray:
     time_diff_minutes = (times[1:] - times[:-1]) / np.timedelta64(1, 'm')
     diff = (values[1:] - values[:-1])
     der = diff / time_diff_minutes
-    der_emwa = compute_ewma(der, span)
-    triggers = np.logical_or(der_emwa > thresh, der_emwa < -thresh)
-    trigger_times = times[np.where(triggers)[0]]
-    return trigger_times
+    der_emwa = compute_ewma(times, der)
 
-
+    triggers_pos = der_emwa > thresh
+    triggers_neg = der_emwa < -thresh
+    og_triggers = sorted(list(times[np.where(triggers_neg)[0]]) + list(times[np.where(triggers_pos)[0]]))
+    max_time_dist = np.timedelta64(15, 'm')
+    runs_pos = get_runs(times, triggers_pos, max_time_dist)
+    runs_neg = get_runs(times, triggers_neg, max_time_dist)
+    # print(runs)
+    comb_runs = runs_neg
+    comb_runs += runs_pos
+    long_triggers = [start for start, end in comb_runs if times[end]-times[start] > l]
+    print(long_triggers)
+    trigger_times = times[long_triggers]
+    print(trigger_times)
+    return og_triggers, trigger_times
 
 
 def classify_events_shock(
@@ -190,7 +253,7 @@ def classify_events_shock(
     greedy_triggers = times[np.where(confirmed_triggers.copy())[0]]
 
     # 4. FILTER BY EMWA
-    emwa = compute_ewma(values)
+    emwa = compute_ewma(times, values)
     K_EMWA = 5
     THRESH_EMWA = 0.0
     # now require that emwa is decreasing for K samples after trigger
