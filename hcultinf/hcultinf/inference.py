@@ -209,31 +209,69 @@ def find_downward_regions(times, vel_emwa, delta=-0.05):
         
     return regions
 
+def find_regions_with_hysteresis(times, vel, trigger=-0.015, release=-0.005):
+    regions = []
+    active = False
+    start_time = None
+    
+    for t, v in zip(times, vel):
+        if not active and v < trigger:
+            active = True
+            start_time = t
+        elif active and v > release:
+            active = False
+            regions.append((start_time, t))
+            
+    # Handle event still active at end of data
+    if active:
+        regions.append((start_time, times[-1]))
+        
+    return regions
+
 def get_decreasing_regions(times: np.ndarray, values: np.ndarray, emwa_tau_minutes, thresh=0.05) -> np.ndarray:
 
     
     time_diff_minutes = (times[1:] - times[:-1]) / np.timedelta64(1, 'm')
     diff = (values[1:] - values[:-1])
-    vel = diff / time_diff_minutes
+    # vel = diff / time_diff_minutes
 
     values_emwa = compute_ewma(times, values, emwa_tau_minutes)
     dvalues_emwa_dt = (values_emwa[1:] - values_emwa[:-1]) / time_diff_minutes
 
     vel_emwa = compute_ewma(times, dvalues_emwa_dt, emwa_tau_minutes)
 
+    series_emwa = pd.Series(values_emwa, index=pd.to_datetime(times))
 
-    dt2 = (times[2:] - times[1:-1]) / np.timedelta64(1, 'm')
-    accel = np.diff(vel_emwa) / dt2
-    accel_emwa = compute_ewma(times[2:], accel, emwa_tau_minutes)
+    # 2. Resample to a regular 1-minute grid
+    # 'mean' handles multiple points in a minute, 'interpolate' fills gaps
+    resampled_emwa = series_emwa.resample('1min').mean().interpolate(method='linear')
 
-    threshold = -0.25   
-    down_regions = find_downward_regions(times[1:], vel_emwa, threshold)
+    # 3. Calculate Velocity on the regular grid (dt is now constant = 1.0)
+    # This is much cleaner than (times[1:] - times[:-1])
+    vel_resampled = resampled_emwa.diff() 
+
+    # 4. Final Smooth of the velocity (optional but recommended for your "Double Smooth")
+    vel_final = vel_resampled.ewm(span=emwa_tau_minutes).mean()
+
+    # 5. Extract values for your plotting/detection logic
+    times_reg = vel_final.index.to_numpy()
+    v_vals = vel_final.values
+
+
+    # dt2 = (times[2:] - times[1:-1]) / np.timedelta64(1, 'm')
+    # accel = np.diff(vel_emwa) / dt2
+    # accel_emwa = compute_ewma(times[2:], accel, emwa_tau_minutes)
+
+    trigger_tresh = -0.45
+    release_thresh = -0.15
+    down_regions = find_regions_with_hysteresis(times_reg, v_vals, trigger_tresh, release_thresh)
     import matplotlib.pyplot as plt
 
     fig, ax1 = plt.subplots(figsize=(12, 6))
 
     # Left Axis: Raw Moisture Values
     ax1.scatter(times, values, color='tab:blue', label='Moisture (%)', alpha=0.5)
+    ax1.plot(times_reg, resampled_emwa, color='tab:green', label='Moisture (%)', alpha=1.0, linewidth=1)
     ax1.plot(times, values_emwa, color='tab:blue', label='Moisture (%)', alpha=1.0, linewidth=1)
     ax1.set_ylabel('Moisture Content', color='tab:blue')
     ax1.tick_params(axis='y', labelcolor='tab:blue')
@@ -242,7 +280,10 @@ def get_decreasing_regions(times: np.ndarray, values: np.ndarray, emwa_tau_minut
     ax2 = ax1.twinx()
     # Note: times[1:] aligns with the diff-based velocity
     ax2.plot(times[1:], vel_emwa/max(vel_emwa), color='tab:red', label='Normalized Velocity (EWMA)', linewidth=2)
-    ax2.axhline(threshold/max(vel_emwa), color='red', linestyle='--', alpha=0.6, label='Threshold')
+    ax2.plot(times_reg, v_vals/max(vel_emwa), color='tab:pink', label='Regular Velocity (EWMA)', linewidth=2)
+
+    ax2.axhline(trigger_tresh/max(vel_emwa), color='red', linestyle='--', alpha=0.6, label='Threshold')
+    ax2.axhline(release_thresh/max(vel_emwa), color='red', linestyle='--', alpha=0.6, label='Threshold')
 
     # 2. Shaded regions for each detected event
     for start, end in down_regions:
