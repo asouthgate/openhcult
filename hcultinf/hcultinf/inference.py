@@ -263,7 +263,7 @@ def get_decreasing_regions(times: np.ndarray, values: np.ndarray, emwa_tau_minut
     print(accel_smooth)
     # accel_emwa = compute_ewma(times[2:], accel, emwa_tau_minutes)
 
-    trigger_tresh = -0.45
+    trigger_tresh = -0.55
     release_thresh = -0.25
     down_regions = find_regions_with_hysteresis(times_reg, v_vals, trigger_tresh, release_thresh)
     import matplotlib.pyplot as plt
