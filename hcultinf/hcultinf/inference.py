@@ -147,7 +147,7 @@ def get_runs(times, boolean, max_time_dist):
         # if we are in a run but the time delta is too big, end regardless
         if not start is None:
             dt = times[j] - last_time
-            if dt > max_time_dist:
+            if not boolean[j] :
                 # end condition reached
                 res.append((start, last_j))
                 start = None
@@ -160,31 +160,83 @@ def get_runs(times, boolean, max_time_dist):
             last_time = times[j]
             continue
         # It's a zero, but could be in the time period anyway
-
-            
     return res
 
+def get_runs_boolean(boolean):
+    res = []
+    start = None
+    n = len(boolean)
+    
+    for j in range(n):
+        bj = boolean[j]
+        # Check neighbors safely (handling edges)
+        bprev = boolean[j-1] if j > 0 else False
+        bnext = boolean[j+1] if j < n-1 else False
+        
+        # 1. Detection of Start
+        if bj and not bprev:
+            start = j
+            
+        # 2. Detection of End
+        if bj and not bnext:
+            if start is not None:
+                # Use (start, j) or (start, j+1) depending on your indexing preference
+                res.append((start, j))
+                start = None # CRITICAL: Reset memory for next event
+                
+    return res
 
-def classify_events_slow(times: np.ndarray, values: np.ndarray, thresh=0.3, l = np.timedelta64(15, 'm')) -> np.ndarray:
+def get_decreasing_regions(times: np.ndarray, values: np.ndarray, emwa_tau_minutes, thresh=0.05) -> np.ndarray:
+
+    
     time_diff_minutes = (times[1:] - times[:-1]) / np.timedelta64(1, 'm')
     diff = (values[1:] - values[:-1])
-    der = diff / time_diff_minutes
-    der_emwa = compute_ewma(times, der)
+    vel = diff / time_diff_minutes
 
-    triggers_pos = der_emwa > thresh
-    triggers_neg = der_emwa < -thresh
+    values_emwa = compute_ewma(times, values, emwa_tau_minutes)
+    dvalues_emwa_dt = (values_emwa[1:] - values_emwa[:-1]) / time_diff_minutes
+
+    vel_emwa = compute_ewma(times, vel, emwa_tau_minutes)
+
+
+    dt2 = (times[2:] - times[1:-1]) / np.timedelta64(1, 'm')
+    accel = np.diff(vel_emwa) / dt2
+    accel_emwa = compute_ewma(times[2:], accel, emwa_tau_minutes)
+    import matplotlib.pyplot as plt
+
+    fig, ax1 = plt.subplots(figsize=(12, 6))
+
+    # Left Axis: Raw Moisture Values
+    ax1.scatter(times, values, color='tab:blue', label='Moisture (%)', alpha=0.5)
+    ax1.plot(times, values_emwa, color='tab:blue', label='Moisture (%)', alpha=1.0, linewidth=1)
+    ax1.set_ylabel('Moisture Content', color='tab:blue')
+    ax1.tick_params(axis='y', labelcolor='tab:blue')
+
+    # Right Axis: Velocity (EWMA)
+    ax2 = ax1.twinx()
+    # Note: times[1:] aligns with the diff-based velocity
+    ax2.plot(times[1:], vel_emwa/max(vel_emwa), color='tab:red', label='Normalized Velocity (EWMA)', linewidth=2)
+    # ax2.plot(times[2:], accel_emwa/max(accel_emwa), color='tab:purple', label='Normalized Acceleration (EWMA)', linewidth=2)
+    ax2.plot(times[1:], dvalues_emwa_dt/max(dvalues_emwa_dt), color='tab:pink', label='EWMA derivative', alpha=0.5, linewidth=3)
+    ax2.axhline(0, color='black', linestyle='--', alpha=0.3) # Zero baseline
+    ax2.set_ylabel('Velocity (Units/Min)', color='tab:red')
+    ax2.tick_params(axis='y', labelcolor='tab:red')
+    plt.legend()
+    plt.title('Moisture Levels vs. Smoothed Velocity')
+    fig.tight_layout()
+    plt.show()
+    triggers_pos = vel_emwa > thresh
+    triggers_neg = vel_emwa < -thresh
     og_triggers = sorted(list(times[np.where(triggers_neg)[0]]) + list(times[np.where(triggers_pos)[0]]))
-    max_time_dist = np.timedelta64(15, 'm')
-    runs_pos = get_runs(times, triggers_pos, max_time_dist)
-    runs_neg = get_runs(times, triggers_neg, max_time_dist)
-    # print(runs)
+    runs_neg = get_runs_boolean(triggers_neg)
     comb_runs = runs_neg
-    comb_runs += runs_pos
-    long_triggers = [start for start, end in comb_runs if times[end]-times[start] > l]
-    print(long_triggers)
-    trigger_times = times[long_triggers]
-    print(trigger_times)
-    return og_triggers, trigger_times
+
+    starts = [start for start, end in comb_runs]
+    ends = [end for _, end in comb_runs]
+
+    trigger_start_times = times[starts]
+    trigger_end_times = times[ends]
+    return og_triggers, trigger_start_times, trigger_end_times
 
 
 def classify_events_shock(
