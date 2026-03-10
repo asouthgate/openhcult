@@ -1,17 +1,11 @@
 
 from __future__ import annotations
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd 
 
 from scipy.stats import norm
-# from scipy.integrate import cumulative_trapezoid
-# from scipy.interpolate import LSQUnivariateSpline, BSpline
-# from scipy.interpolate import interp1d
-# from scipy.optimize import minimize
-
-# from sklearn.gaussian_process import GaussianProcessRegressor
-# from sklearn.gaussian_process.kernels import RBF, ConstantKernel
 
 def compute_ewma(data, span=5):
     """
@@ -111,15 +105,114 @@ def run_lengths_at_starts(arr):
 
 class DisequilibriumIntervalDetector:
     """Takes sensor data and identifies regions in (dis)equilibrium."""
-    def __init__(self, time_arr, values_arr, emwa_tau_minutes=30, threshold=0.05):
+    def __init__(self, time_arr, values_arr, emwa_tau_minutes=30, trigger_thresh=-0.25, release_thresh = -0.05):
         self._time_arr = time_arr
         self._values_arr = values_arr
         self._emwa_tau_minutes = emwa_tau_minutes
-        self._threshold = threshold
+        self._trigger_thresh = trigger_thresh
+        self._release_thresh = release_thresh
+
+        self._times_reg = None # interpolated
+        self._values_emwa = None
+        self._v_vals = None
+        self._accel_smooth = None
+        # self._vel_emwa = None
         # TODO: replace with numpy diff
         self._diff = np.diff(values_arr)
+
     def get_intervals(self):
-        return get_decreasing_regions(self._time_arr, self._values_arr, self._emwa_tau_minutes, self._threshold)
+
+        # TODO: 
+        times = self._time_arr
+        values = self._values_arr
+        emwa_tau_minutes = self._emwa_tau_minutes
+        # threshold = self._threshold
+
+        time_diff_minutes = (times[1:] - times[:-1]) / np.timedelta64(1, 'm')
+        diff = (values[1:] - values[:-1])
+        # vel = diff / time_diff_minutes
+
+        values_emwa = compute_time_weighted_ewma(times, values, emwa_tau_minutes)
+        self._values_emwa = values_emwa
+        dvalues_emwa_dt = (values_emwa[1:] - values_emwa[:-1]) / time_diff_minutes
+
+        # vel_emwa = compute_time_weighted_ewma(times, dvalues_emwa_dt, emwa_tau_minutes)
+        # self._vel_emwa = vel_emwa   
+        series_emwa = pd.Series(values_emwa, index=pd.to_datetime(times))
+
+        # 2. Resample to a regular 1-minute grid
+        # 'mean' handles multiple points in a minute, 'interpolate' fills gaps
+        resampled_emwa = series_emwa.resample('1min').mean().interpolate(method='linear')
+        self._resampled_emwa = resampled_emwa
+
+        # 3. Calculate Velocity on the regular grid (dt is now constant = 1.0)
+        # This is much cleaner than (times[1:] - times[:-1])
+        vel_resampled = resampled_emwa.diff().fillna(0)
+
+        # 4. Final Smooth of the velocity (optional but recommended for your "Double Smooth")
+        vel_final = vel_resampled.ewm(span=emwa_tau_minutes).mean()
+
+        # 5. Extract values for your plotting/detection logic
+        times_reg = vel_final.index.to_numpy()
+        self._times_reg = times_reg
+        v_vals = vel_final.values
+        self._v_vals = v_vals
+        accel_series = vel_final.diff().fillna(0)
+        accel_smooth = accel_series.ewm(span=emwa_tau_minutes).mean()
+        self._accel_smooth = accel_smooth
+        print(accel_smooth)
+        # accel_emwa = compute_ewma(times[2:], accel, emwa_tau_minutes)
+
+        down_regions = find_regions_with_hysteresis(times_reg, v_vals, self._trigger_thresh, self._release_thresh)
+        return down_regions
+    
+    def debug_plot(self):
+
+
+        times = self._time_arr
+        values = self._values_arr
+        emwa_tau_minutes = self._emwa_tau_minutes
+        # threshold = self._trigger_thresh
+        times_reg = self._times_reg
+        resampled_emwa = self._resampled_emwa
+        values_emwa = self._values_emwa
+        v_vals = self._v_vals
+        accel_smooth = self._accel_smooth
+        fig, ax1 = plt.subplots(figsize=(12, 6))
+
+        # Left Axis: Raw Moisture Values
+        ax1.scatter(times, values, color='tab:blue', label='Moisture (%)', alpha=0.5)
+        print(times_reg)
+        ax1.plot(times_reg, resampled_emwa, color='tab:blue', label='Moisture (%)', alpha=1.0, linewidth=1)
+        ax1.plot(times, values_emwa, color='tab:blue', label='Moisture (%)', alpha=1.0, linewidth=1)
+        ax1.set_ylabel('Moisture Content', color='tab:blue')
+        ax1.tick_params(axis='y', labelcolor='tab:blue')
+
+        # Right Axis: Velocity (EWMA)
+        ax2 = ax1.twinx()
+        # Note: times[1:] aligns with the diff-based velocity
+        # ax2.plot(times[1:], vel_emwa/max(vel_emwa), color='tab:red', label='Normalized Velocity (EWMA)', linewidth=2)
+        ax2.plot(times_reg, v_vals/max(v_vals), color='tab:pink', label='Regular Velocity (EWMA)', linewidth=2)
+        # ax2.plot(times_reg, v_vals/max(vel_emwa), color='tab:pink', label='Regular Velocity (EWMA)', linewidth=2)
+        ax2.plot(times_reg-emwa_tau_minutes, accel_smooth.values/max(accel_smooth), color='tab:purple', label='Regular Velocity (EWMA)', linewidth=2)
+
+        ax2.axhline(self._trigger_thresh/max(v_vals), color='red', linestyle='--', alpha=0.6, label='Threshold')
+        ax2.axhline(self._release_thresh/max(v_vals), color='red', linestyle='--', alpha=0.6, label='Threshold')
+
+        down_regions = self.get_intervals()
+        # 2. Shaded regions for each detected event
+        for start, end in down_regions:
+            ax2.axvspan(start, end, color='gray', alpha=0.15)
+        # ax2.plot(times[2:], accel/max(accel), color='tab:purple', label='Normalized Acceleration (EWMA)', linewidth=2)
+        # ax2.plot(times[1:], dvalues_emwa_dt/max(dvalues_emwa_dt), color='tab:pink', label='EWMA derivative', alpha=0.5, linewidth=3)
+        ax2.axhline(0, color='black', linestyle='--', alpha=0.3) # Zero baseline
+        ax2.set_ylabel('Velocity (Units/Min)', color='tab:red')
+        ax2.tick_params(axis='y', labelcolor='tab:red')
+        plt.legend()
+        plt.title('Moisture Levels vs. Smoothed Velocity')
+        fig.tight_layout()
+        plt.show()
+
 
 
 def greedy_merge_event_times(event_times, dist):
@@ -236,80 +329,46 @@ def find_regions_with_hysteresis(times, vel, trigger=-0.015, release=-0.005):
         
     return regions
 
-def get_decreasing_regions(times: np.ndarray, values: np.ndarray, emwa_tau_minutes, thresh=0.05) -> np.ndarray:
+# def get_decreasing_regions(times: np.ndarray, values: np.ndarray, emwa_tau_minutes, thresh=0.05) -> np.ndarray:
 
     
-    time_diff_minutes = (times[1:] - times[:-1]) / np.timedelta64(1, 'm')
-    diff = (values[1:] - values[:-1])
-    # vel = diff / time_diff_minutes
+#     time_diff_minutes = (times[1:] - times[:-1]) / np.timedelta64(1, 'm')
+#     diff = (values[1:] - values[:-1])
+#     # vel = diff / time_diff_minutes
 
-    values_emwa = compute_time_weighted_ewma(times, values, emwa_tau_minutes)
-    dvalues_emwa_dt = (values_emwa[1:] - values_emwa[:-1]) / time_diff_minutes
+#     values_emwa = compute_time_weighted_ewma(times, values, emwa_tau_minutes)
+#     dvalues_emwa_dt = (values_emwa[1:] - values_emwa[:-1]) / time_diff_minutes
 
-    vel_emwa = compute_time_weighted_ewma(times, dvalues_emwa_dt, emwa_tau_minutes)
+#     vel_emwa = compute_time_weighted_ewma(times, dvalues_emwa_dt, emwa_tau_minutes)
 
-    series_emwa = pd.Series(values_emwa, index=pd.to_datetime(times))
+#     series_emwa = pd.Series(values_emwa, index=pd.to_datetime(times))
 
-    # 2. Resample to a regular 1-minute grid
-    # 'mean' handles multiple points in a minute, 'interpolate' fills gaps
-    resampled_emwa = series_emwa.resample('1min').mean().interpolate(method='linear')
+#     # 2. Resample to a regular 1-minute grid
+#     # 'mean' handles multiple points in a minute, 'interpolate' fills gaps
+#     resampled_emwa = series_emwa.resample('1min').mean().interpolate(method='linear')
 
-    # 3. Calculate Velocity on the regular grid (dt is now constant = 1.0)
-    # This is much cleaner than (times[1:] - times[:-1])
-    vel_resampled = resampled_emwa.diff().fillna(0)
+#     # 3. Calculate Velocity on the regular grid (dt is now constant = 1.0)
+#     # This is much cleaner than (times[1:] - times[:-1])
+#     vel_resampled = resampled_emwa.diff().fillna(0)
 
-    # 4. Final Smooth of the velocity (optional but recommended for your "Double Smooth")
-    vel_final = vel_resampled.ewm(span=emwa_tau_minutes).mean()
+#     # 4. Final Smooth of the velocity (optional but recommended for your "Double Smooth")
+#     vel_final = vel_resampled.ewm(span=emwa_tau_minutes).mean()
 
 
-    # 5. Extract values for your plotting/detection logic
-    times_reg = vel_final.index.to_numpy()
-    v_vals = vel_final.values
+#     # 5. Extract values for your plotting/detection logic
+#     times_reg = vel_final.index.to_numpy()
+#     v_vals = vel_final.values
 
-    accel_series = vel_final.diff().fillna(0)
-    accel_smooth = accel_series.ewm(span=emwa_tau_minutes).mean()
-    print(accel_smooth)
-    # accel_emwa = compute_ewma(times[2:], accel, emwa_tau_minutes)
+#     accel_series = vel_final.diff().fillna(0)
+#     accel_smooth = accel_series.ewm(span=emwa_tau_minutes).mean()
+#     print(accel_smooth)
+#     # accel_emwa = compute_ewma(times[2:], accel, emwa_tau_minutes)
 
-    trigger_tresh = -0.55
-    release_thresh = -0.25
-    down_regions = find_regions_with_hysteresis(times_reg, v_vals, trigger_tresh, release_thresh)
-    import matplotlib.pyplot as plt
-
-    fig, ax1 = plt.subplots(figsize=(12, 6))
-
-    # Left Axis: Raw Moisture Values
-    ax1.scatter(times, values, color='tab:blue', label='Moisture (%)', alpha=0.5)
-    ax1.plot(times_reg, resampled_emwa, color='tab:blue', label='Moisture (%)', alpha=1.0, linewidth=1)
-    ax1.plot(times, values_emwa, color='tab:blue', label='Moisture (%)', alpha=1.0, linewidth=1)
-    ax1.set_ylabel('Moisture Content', color='tab:blue')
-    ax1.tick_params(axis='y', labelcolor='tab:blue')
-
-    # Right Axis: Velocity (EWMA)
-    ax2 = ax1.twinx()
-    # Note: times[1:] aligns with the diff-based velocity
-    # ax2.plot(times[1:], vel_emwa/max(vel_emwa), color='tab:red', label='Normalized Velocity (EWMA)', linewidth=2)
-    ax2.plot(times_reg, v_vals/max(v_vals), color='tab:pink', label='Regular Velocity (EWMA)', linewidth=2)
-    # ax2.plot(times_reg, v_vals/max(vel_emwa), color='tab:pink', label='Regular Velocity (EWMA)', linewidth=2)
-    ax2.plot(times_reg-emwa_tau_minutes, accel_smooth.values/max(accel_smooth), color='tab:purple', label='Regular Velocity (EWMA)', linewidth=2)
-
-    ax2.axhline(trigger_tresh/max(vel_emwa), color='red', linestyle='--', alpha=0.6, label='Threshold')
-    ax2.axhline(release_thresh/max(vel_emwa), color='red', linestyle='--', alpha=0.6, label='Threshold')
-
-    # 2. Shaded regions for each detected event
-    for start, end in down_regions:
-        ax2.axvspan(start, end, color='gray', alpha=0.15)
-    # ax2.plot(times[2:], accel/max(accel), color='tab:purple', label='Normalized Acceleration (EWMA)', linewidth=2)
-    # ax2.plot(times[1:], dvalues_emwa_dt/max(dvalues_emwa_dt), color='tab:pink', label='EWMA derivative', alpha=0.5, linewidth=3)
-    ax2.axhline(0, color='black', linestyle='--', alpha=0.3) # Zero baseline
-    ax2.set_ylabel('Velocity (Units/Min)', color='tab:red')
-    ax2.tick_params(axis='y', labelcolor='tab:red')
-    plt.legend()
-    plt.title('Moisture Levels vs. Smoothed Velocity')
-    fig.tight_layout()
-    plt.show()
+#     trigger_tresh = -0.55
+#     release_thresh = -0.25
+#     down_regions = find_regions_with_hysteresis(times_reg, v_vals, trigger_tresh, release_thresh)
     
-    return down_regions
+#     return down_regions
 
 
 def classify_events_shock(
