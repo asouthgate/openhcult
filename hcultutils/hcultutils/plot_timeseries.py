@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import numpy as np
 
-from hcultinf.inference import compute_zscore, classify_events_shock, get_decreasing_regions, compute_ewma, greedy_merge_event_times
+from hcultinf.detection import DisequilibriumIntervalDetector, compute_ewma, greedy_merge_event_times, classify_events_shock, compute_zscore
 from hcultutils.fetch_data import fetch_data
 
 def _plot_raw_subsensor_readings(ax, raw_ax, times, values, name, locator, emwa_tau_minutes):
@@ -118,7 +118,7 @@ def main(args) -> int:
         times_map[name] = times
         trigger_times, diff_triggers, hyst_triggers, greedy_triggers, emwa_triggers, signed_triggers = classify_events_shock(
             times, values, diff_lag_ms, mad_window_ms, args.mad_scale, args.z_pvalue)
-        slow_watering_intervals = get_decreasing_regions(times, values, emwa_tau_minutes)
+        slow_watering_intervals = DisequilibriumIntervalDetector(times, values, emwa_tau_minutes).get_intervals()
         all_fast_trigger_times += list(trigger_times)
         all_slow_trigger_times += list(slow_watering_intervals)
 
