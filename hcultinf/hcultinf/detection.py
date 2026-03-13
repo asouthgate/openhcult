@@ -136,8 +136,8 @@ class DisequilibriumIntervalDetector:
             emwa_tau_minutes=30,
             trigger_thresh=-0.25,
             release_thresh = -0.15,
-            trigger_thresh_acc = -0.005,
-            release_thresh_acc = -0.001,
+            trigger_thresh_acc = -0.015,
+            release_thresh_acc = -0.0075,
         ):
         self._time_arr = time_arr
         self._values_arr = values_arr
@@ -172,8 +172,19 @@ class DisequilibriumIntervalDetector:
         return eq_regions
     
     def get_acceleration_intervals(self):
-        return find_regions_with_hysteresis(
-            self._resampled_times, self._resampled_acc_smoothed, self._trigger_thresh_acc, self._release_thresh_acc
+
+        trigger_arr, release_arr = lerp_thresholds(
+            self._resampled_emwa,
+            self._trigger_thresh_acc,
+            self._release_thresh_acc,
+            self._trigger_thresh_acc / 2.0,
+            self._release_thresh_acc / 2.0
+        )
+        return find_regions_with_hysteresis_adapative_thresh(
+            self._resampled_times,
+            self._resampled_acc_smoothed,
+            trigger_arr,
+            release_arr
         )
 
     def debug_plot(self):
@@ -335,6 +346,63 @@ def find_regions_with_hysteresis(times, vel, trigger=-0.015, release=-0.005):
             active = False
             regions.append((start_time, t))
         if not active and v < trigger:
+            active = True
+            start_time = t
+            
+    # Handle event still active at end of data
+    if active:
+        regions.append((start_time, times[-1]))
+        
+    return regions
+
+def lerp_thresholds(val, trigger_high, release_high, trigger_low, release_low):
+    # assert trigger_high >= trigger_low
+    # assert release_high >= release_low
+
+    # Linear interp thresholds
+    maxx = max(val)
+    minxx = min(val)
+    rangex = maxx - minxx
+
+    range_trigger = trigger_high - trigger_low
+    range_release = release_high - release_low
+
+    m_trigger = range_trigger / rangex
+    m_release = range_release / rangex
+
+    c_trigger = trigger_low
+    c_release = release_low
+
+    # trigger_max = m_trigger * (maxx-minxx) + c_trigger
+    # trigger_min = m_trigger * (minxx-minxx) + c_trigger
+
+    # release_max = m_release * (maxx-minxx) + c_release
+    # release_min = m_release * (minxx-minxx) + c_release
+
+    trigger_arr = np.zeros(len(val))
+    release_arr = np.zeros(len(val))
+
+    for i, v in enumerate(val):
+        trigger = m_trigger * (v-minxx) + c_trigger
+        release = m_release * (v-minxx) + c_release
+        trigger_arr[i] = trigger
+        release_arr[i] = release
+            
+    return trigger_arr, release_arr
+
+
+
+def find_regions_with_hysteresis_adapative_thresh(times, val, trigger_arr, release_arr):
+    regions = []
+    active = False
+    start_time = None
+
+    for ti, tup in enumerate(zip(times, val)):
+        t, v = tup
+        if active and v > release_arr[ti]:
+            active = False
+            regions.append((start_time, t))
+        if not active and v < trigger_arr[ti]:
             active = True
             start_time = t
             
