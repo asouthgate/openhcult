@@ -10,7 +10,6 @@ import urllib
 
 import numpy as np
 
-from hcultinf.detection import classify_events_shock
 from hcultutils.fetch_data import fetch_data
 
 

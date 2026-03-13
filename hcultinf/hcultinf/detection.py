@@ -148,7 +148,6 @@ class DisequilibriumIntervalDetector:
         self._trigger_thresh_acc = trigger_thresh_acc
         self._release_thresh_acc = release_thresh_acc
 
-
         self._time_diff_minutes = (time_arr[1:] - time_arr[:-1]) / np.timedelta64(1, 'm')
         self._values_diff = (values_arr[1:] - values_arr[:-1])
 
@@ -159,6 +158,16 @@ class DisequilibriumIntervalDetector:
         self._resampled_vel_smoothed = self._resampled_vel.ewm(span=emwa_tau_minutes).mean()
         self._resampled_acc_smoothed = self._resampled_vel_smoothed.diff().fillna(0).ewm(span=emwa_tau_minutes).mean()
         self._resampled_times = self._resampled_emwa.index.to_numpy()
+        self._trigger_arr, self._release_arr = lerp_thresholds(
+            self._resampled_emwa,
+            self._trigger_thresh_acc,
+            self._release_thresh_acc,
+            self._trigger_thresh_acc / 4.0,
+            self._release_thresh_acc / 4.0
+        )
+
+
+
 
     def get_disequilibrium_intervals(self):
         diseq_regions = find_regions_with_hysteresis(
@@ -172,50 +181,44 @@ class DisequilibriumIntervalDetector:
         return eq_regions
     
     def get_acceleration_intervals(self):
-
-        trigger_arr, release_arr = lerp_thresholds(
-            self._resampled_emwa,
-            self._trigger_thresh_acc,
-            self._release_thresh_acc,
-            self._trigger_thresh_acc / 2.0,
-            self._release_thresh_acc / 2.0
-        )
+        
         return find_regions_with_hysteresis_adapative_thresh(
             self._resampled_times,
             self._resampled_acc_smoothed,
-            trigger_arr,
-            release_arr
+            self._trigger_arr,
+            self._release_arr
         )
+    
+    def get_thresholds(self):
+        return self._trigger_arr, self._release_arr
+
 
     def debug_plot(self):
         fig, ax1 = plt.subplots(figsize=(12, 6))
 
-        ax1.scatter(self._time_arr, self._values_arr, color='black', label='Sensor values', alpha=0.5, marker='x')
-        ax1.plot(self._resampled_times, self._resampled_emwa, color='black', label='Smoothed values (EWMA)', alpha=1.0, linewidth=1)
-        # ax1.plot(self._time_arr, self._values_emwa, color='tab:blue', alpha=1.0, linewidth=1)
-        ax1.set_ylabel('Sensor reading', color='black')
-        ax1.tick_params(axis='y', labelcolor='black')
+        ax1.scatter(self._time_arr, self._values_arr, color='tab:blue', label='Sensor values', alpha=0.5, marker='x')
+        ax1.plot(self._resampled_times, self._resampled_emwa, color='tab:blue', label='Smoothed values (EWMA)', alpha=1.0, linewidth=1)
+        # ax1.plot(self._time_arr, self._values_emwa, color='tab:tab:blue', alpha=1.0, linewidth=1)
+        ax1.set_ylabel('Sensor reading', color='tab:blue')
+        ax1.tick_params(axis='y', labelcolor='tab:blue')
 
         ax2 = ax1.twinx()
         ax2.plot(
             self._resampled_times,
             self._resampled_vel_smoothed/max(self._resampled_vel_smoothed),
-            color='orange', label='Smoothed velocity (EWMA)', linewidth=2
+            color='#ad444f', label='Smoothed velocity (EWMA)', linewidth=1
         )
         ax2.plot(
             self._resampled_times-self._emwa_tau_minutes,
             self._resampled_acc_smoothed.values/max(self._resampled_acc_smoothed),
             color='purple',
             label='Smoothed acceleration (EWMA)',
-            linewidth=2
+            linewidth=1
         )
-
-        # ax2.axhline(self._trigger_thresh/max(self._resampled_vel_smoothed), color='red', linestyle='--', alpha=0.6, label='Trigger threshold')
-        # ax2.axhline(self._release_thresh/max(self._resampled_vel_smoothed), color='red', linestyle='--', alpha=0.6, label='Release threshold')
 
         deq_regions = self.get_disequilibrium_intervals()
         for start, end in deq_regions:
-            ax2.axvspan(start, end, color='yellow', alpha=0.15)
+            ax2.axvspan(start, end, color='green', alpha=0.15)
 
         eq_regions = self.get_equilibrium_intervals()
         for start, end in eq_regions:
@@ -223,19 +226,24 @@ class DisequilibriumIntervalDetector:
 
         acc_regions = self.get_acceleration_intervals()
         for start, end in acc_regions:
-            ax2.axvspan(start, end, color='purple', alpha=0.15)
+            ax2.axvspan(start, end, color='orange', alpha=0.15)
 
 
-        ax2.axhline(0, color='black', linestyle='--', alpha=0.3) # Zero baseline
+        trigger, release = self.get_thresholds()
+        ax2.axhline(0, color='tab:blue', linestyle='--', alpha=0.3) # Zero baseline
+        ax2.plot(self._resampled_times, trigger, color='red', linestyle='--')
+        ax2.plot(self._resampled_times, release, color='red', linestyle='--')
+
         ax2.set_ylabel('Normalized values (derivatives)', color='tab:red')
         ax2.tick_params(axis='y', labelcolor='tab:red')
-        # ax1.legend()
+
         lines_1, labels_1 = ax1.get_legend_handles_labels()
         lines_2, labels_2 = ax2.get_legend_handles_labels()
 
         # 2. Combine them and call legend on just one of the axes
         ax1.legend(lines_1 + lines_2, labels_1 + labels_2, loc='upper left')
         plt.title('Moisture Levels vs. Smoothed Velocity')
+        plt.savefig("segmentation.png")
         fig.tight_layout()
         plt.show()
 
@@ -260,81 +268,6 @@ def greedy_merge_event_times(event_times, dist):
             
     return sorted(filtered)
 
-
-def get_runs(times, boolean, max_time_dist):
-    # Easy algorithm. 1 loop. 
-    # Iterate over. If boolean[j], set last_trigger to j, continue in same event
-    # Otherwise, if time dist(times[j], times[last_trigger]) < max_time_dist, keep going
-    # When dist(times[j], times[last_trigger]) > max_time_dist, mark end, reset start
-    res = []
-    start = None
-    last_j = None
-    last_time = None
-    for j, bj in enumerate(boolean):
-        # if we are in a run but the time delta is too big, end regardless
-        if not start is None:
-            dt = times[j] - last_time
-            if not boolean[j] :
-                # end condition reached
-                res.append((start, last_j))
-                start = None
-                last_j = None
-                last_time = None
-        if bj:
-            if start is None:  # Not in an event period
-                start = j
-            last_j = j
-            last_time = times[j]
-            continue
-        # It's a zero, but could be in the time period anyway
-    return res
-
-def get_runs_boolean(boolean):
-    res = []
-    start = None
-    n = len(boolean)
-    
-    for j in range(n):
-        bj = boolean[j]
-        # Check neighbors safely (handling edges)
-        bprev = boolean[j-1] if j > 0 else False
-        bnext = boolean[j+1] if j < n-1 else False
-        
-        # 1. Detection of Start
-        if bj and not bprev:
-            start = j
-            
-        # 2. Detection of End
-        if bj and not bnext:
-            if start is not None:
-                # Use (start, j) or (start, j+1) depending on your indexing preference
-                res.append((start, j))
-                start = None # CRITICAL: Reset memory for next event
-                
-    return res
-
-def find_downward_regions(times, vel_emwa, delta=-0.05):
-    """
-    Finds start/end times where velocity < delta (negative threshold).
-    Note: times and vel_emwa must be the same length.
-    """
-    # 1. Create mask (velocity is more negative than delta)
-    is_down = vel_emwa < delta
-    
-    # 2. Find transitions
-    # prepend/append False to handle cases starting or ending 'in-run'
-    padded = np.r_[False, is_down, False]
-    idx = np.flatnonzero(padded[1:] != padded[:-1])
-    
-    # 3. Pair starts and ends
-    # Result is a list of (start_time, end_time)
-    regions = []
-    for i in range(0, len(idx), 2):
-        start_idx = idx[i]
-        end_idx = idx[i+1] - 1
-        regions.append((times[start_idx], times[end_idx]))
-        
-    return regions
 
 def find_regions_with_hysteresis(times, vel, trigger=-0.015, release=-0.005):
     regions = []
@@ -411,104 +344,3 @@ def find_regions_with_hysteresis_adapative_thresh(times, val, trigger_arr, relea
         regions.append((start_time, times[-1]))
         
     return regions
-
-def classify_events_shock(
-    times: np.ndarray, values: np.ndarray, lag_ms: np.int64, mad_window_ms: np.int64, c: float, pthresh: float
-) -> np.ndarray:
-    """ Classify events in a time series based on z-scores of differences.
-
-    Returns:
-    - triggers: Boolean array indicating where events are triggered.
-    - run_lengths: Array of the same shape as values, where each element is the length of the run of consecutive triggers starting at that index (0 if not a trigger).
-    - starts: Boolean array indicating the start of runs of triggers that are at least as long as the lag.
-    """
-    # For each value point, we need to map lag_ms to lag and mad_window_ms to mad_window based on times.
-    # Each lag_arr[i] gives the integer index lag corresponding to the lag_ms for i
-    lag_arr = []
-    mad_window_arr = []
-
-    for idx in range(times.size):
-        current_time = times[idx]
-        lag_time = current_time - np.timedelta64(lag_ms, 'ms')
-        mad_window_time = current_time - np.timedelta64(mad_window_ms, 'ms')
-
-        # Find the indices of the lag and mad window
-        lag_idx = np.searchsorted(times[:idx], lag_time, side='right') - 1
-        mad_window_idx = np.searchsorted(times[:idx], mad_window_time, side='right') - 1
-
-        lag_arr.append(idx - lag_idx if lag_idx >= 0 else 0)
-        mad_window_arr.append(idx - mad_window_idx if mad_window_idx >= 0 else 0)
-
-    lag_arr = np.array(lag_arr, dtype=int)
-    # print(lag_arr)
-    MAD = 6
-    lag_arr = np.ones(len(values)).astype(int) * 1
-    lag_arr[0] = 0
-    mad_window_arr = np.array(mad_window_arr, dtype=int)
-
-    diffs = compute_diff_arr(values, lag_arr)
-    # zscores = compute_zscore(values, diffs, mad_window_arr=mad_window_arr, c=c)
-    zscores = compute_zscore_madval(values, diffs, mad = MAD, c=c)
-
-    pvalues = zscore_pvalues(zscores)
-    confirmed_triggers = pvalues < pthresh # triggers array one at a trigger and zero at a non-trigger
-    diff_triggers = times[np.where(confirmed_triggers.copy())[0]]
-
-
-    # 2. FILTER BY HYSTERESIS (SIGNIFICANCE FROM )
-    K = 10
-    for trind in np.where(confirmed_triggers)[0]:
-        x0ind = trind - 2
-        x0 = values[x0ind]
-        for tj in range(trind, trind + K):
-            z_score = compute_zscore_single(x0, values[tj], MAD, c)
-            pval = zscore_pvalues(z_score)
-            if pval > pthresh:
-                confirmed_triggers[trind] = False
-    hyst_triggers = times[np.where(confirmed_triggers.copy())[0]]
-
-    # 3. FILTER BY GREEDY 
-    for tri in np.where(confirmed_triggers)[0]:
-        endj = tri + 1
-        for j in range(tri, len(confirmed_triggers) - 1):
-            if not confirmed_triggers[j]:
-                endj = j
-                break
-        confirmed_triggers[tri + 1:endj] = False
-    greedy_triggers = times[np.where(confirmed_triggers.copy())[0]]
-
-    # 4. FILTER BY EMWA
-    emwa = compute_time_weighted_ewma(times, values)
-    K_EMWA = 5
-    THRESH_EMWA = 0.0
-    # now require that emwa is decreasing for K samples after trigger
-    for tri in np.where(confirmed_triggers)[0]:
-        endj = min(tri + K_EMWA, len(confirmed_triggers) - 1)
-        if emwa[tri] > emwa[tri + 1]:
-            comp = lambda x, y: y - x < -THRESH_EMWA  # need emwa derivative to be negative if it's a 'negative event'
-        else:
-            comp = lambda x, y: y - x > THRESH_EMWA  # need derivative to be positive if it's a positive event
-        for j in range(tri, endj):
-            if comp(emwa[j], emwa[tri]):
-            # if emwa[j] - emwa[tri] < THRESH_EMWA:
-                confirmed_triggers[tri] = False
-    emwa_triggers = times[np.where(confirmed_triggers.copy())[0]]
-
-    # 5 FILTER BY SIGN
-    signs_watering = diffs < 0  # only those decreasing are watering, increasing must be drying
-    # confirmed_triggers = confirmed_triggers & signs_watering
-    signed_triggers = times[np.where(confirmed_triggers.copy())[0]]
-
-    # run_lengths = run_lengths_at_starts(confirmed_triggers)
-
-    # start_lengths = run_lengths * confirmed_triggers
-    # starts = start_lengths >= lag_arr
-
-    final_triggers = np.where(confirmed_triggers)[0]
-    trigger_times = times[final_triggers]
-    return trigger_times, diff_triggers, hyst_triggers, greedy_triggers, emwa_triggers, signed_triggers
-
-
-def zscore_pvalues(zscores: np.ndarray) -> np.ndarray:
-    pvals = 2 * (1 - norm.cdf(np.abs(zscores)))
-    return pvals

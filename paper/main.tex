@@ -44,127 +44,39 @@ The objective of this work was to introduce an automated system and statistical 
   \centering
   \includegraphics[width=1.0\linewidth]{images/hcult.pdf}
   \caption{Simplified software architecture. ESP32 devices repeat a cycle of deep-sleep, sample, advertise-only BLE. A monitor node continuously scans for advertising sensors, collects payloads, and writes them to the database. Occasionally, an inference daemon runs event detection and curve calibration. Finally, an API node allows users to run operations and retrieve data for dashboards. }
-  \label{fig:myfigure}
+  \label{fig:esp32system}
 \end{figure}
 
-In our test system, ESP32s were used with low-cost capacitive moisture sensors. \hl{TODO}: description of boards, sensor sampling frequency, polling, etc.
+\ref{fig:esp32system} gives an overview of the sensor system. In our test system, ESP32s were used with low-cost capacitive moisture sensors. \hl{TODO}: description of boards, sensor sampling frequency, polling, etc.
 
 \subsection{Segmentation}
 
-A hierarchical approach was taken to segmentation. For the target system, three types of processes are defined at different time-scales: shocks caused by watering from above; smooth changes induced by watering from below; loss of moisture due to drying or uptake by a plant. All of these processes cause a response in sensor readings over a period of time. Given that the timescales of watering dynamics are much smaller than those of drying and uptake, we first defined `high-velocity' and `low-velocity' states, with the latter approximately corresponding to equilibrium when drying and uptake is slow. Firstly, irregularly spaced sensor data was smoothed with an exponential moving average \cite{genccay2001introduction} (or exponentially weighted moving average (EWMA) \cite{zumbach2001operators}), a single-pole low-pass filter \cite{smith1997scientist} with time-weighted coefficients:
+A hierarchical approach was taken to segmentation with coarse and fine steps. For the target system, three types of processes were defined at different time-scales: shocks caused by watering from above; smooth changes induced by watering from below; loss of moisture due to drying or uptake by a plant. All of these processes cause a response in sensor readings over a period of time. Given that the timescales of watering dynamics are much smaller than those of drying and uptake, we first defined coarse `high-velocity' and `low-velocity' states, with the latter approximately corresponding to equilibrium when drying and uptake is slow. Firstly, irregularly spaced sensor data was smoothed with an exponential moving average \cite{genccay2001introduction} (or exponentially weighted moving average (EWMA) \cite{zumbach2001operators}), a single-pole low-pass filter \cite{smith1997scientist} with time-weighted coefficients:
 
 \[
 \tilde{X}_t = \exp^{-\Delta t/\tau} \tilde{X}_{i-1} + (1-\exp^{-\Delta t/\tau}) X_i
 \]
 
-After smoothing, the data was resampled and derivatives were approximated by finite differences (second order) \cite{griffiths2006numerical}. Two thresholds were defined for identification of high-velocity state regions: a trigger threshold $v_{trigger}$ and a release threshold $v_{release}$ (see relay with hysteresis \cite{khalil2002nonlinear}). Once the trigger is passed at a high instantaneous velocity, it must decrease beyond the release to return to the `low-velocity` state. \\
+After smoothing, the data was resampled and derivatives were approximated by finite differences (second order) \cite{griffiths2006numerical}. Two thresholds were defined for identification of high-velocity state regions: a trigger threshold $v_{trigger}$ and a release threshold $v_{release}$ (see relay with hysteresis \cite{khalil2002nonlinear}). Once the trigger is passed at a high instantaneous velocity, it must decrease beyond the release to return to the `low-velocity` state. Given that sensor data decreases with moisture content, only negative velocity regions were taken.\\
 
-It is possible in operation that several watering events will happen in rapid succession before system equilibriation. So, given an initial segmented sequence of data into `high-velocity' (non-equilibrium) and `low-velocity' (close to equilibrium) regions, within-block characterisation was undertaken. In the high-velocity state, a second relay with hysteresis was applied to the second derivative.\\
-
-\subsection{Watering event detection}
-
-Raw sensor data is continuously streamed into the database system. From there, event detection is performed on recent time intervals. Event detection is performed in several steps: initial triggers based on outlier time series deltas; stable event detection by testing for stability of change in a window; subsetting to events with a sign consistent with watering; consensus amongst sensors for a single microcontroller; manual exclusion of known non-watering events such as sensor removal or repositioning; evaluation. Firstly, denoting measurement at $t_i$ of sensor $s$ as $X_{i,s}$, which are assumed to be continuously generated by the software system previously described, the distribution of $\Delta X_{i,s}$ in manually-defined event-free time intervals can be gathered, and with a threshold $p$, extreme values are taken as candidates if $|\Delta X_{i,s}|$ is greater than a threshold. In this case, using the median absolute deviation and compute modified Z-scores \cite{iglewicz1993volume}:
+It is possible in operation that several watering events will happen in rapid succession before system equilibriation. So, given an initial segmented sequence of data into `negative-velocity' (non-equilibrium) and `low-velocity' (close to equilibrium) regions, a within-block fine-grained step was undertaken. In the high-velocity state, a second relay with hysteresis was applied to the second derivative. In this case, adaptive thresholding was used. Given that the sensor response curve has variable sensitivity to input, sensor values were used for adaptive filtering, with thresholds decreasing with sensor values:
 
 \[
-M_{i,s} = \frac{0.6745 \cdot (|\Delta X_{i,s}| - median_{w}{|\Delta X_{\cdot,s}|})}{MAD_w}
+a_{trigger,j} = \frac{a_{high} - a_{low}}{x_{max}-x_{min}}(X_j-x_{min}) + a_{low}
 \]
 
-Given an integer lag $L$ to compute differences, a median window $w$, and a significance threshold $p$, an event was defined at a time point $t_i$ if $p_j > p$ for all $j$ between $i$ and $i+L$. The requirement for a sequence of significant results was used as a simple way to only take stable changes. These were selected manually on account of low individual-sensor noise (see results, between-sensor was much larger), although these parameters could be optimised in future work.
+See Appendix \ref{fig:myfigure} for an example of segmentation for a single segment of raw sensor data.
 
-\subsection{Noise characterisation}
 
-Sensors are subject to a range of noise sources. We performed an experiment to characterise: sensor noise per sample, which could vary per sensor, per-sensor bias, and per-placement bias, which accounts for variation such as due to variable packing, soil-moisture spatial heterogeneity, or insertion depth.
-
-\hl{TODO: write up}
-
-\begin{enumerate}
-    \item Common pot with 40g of soil
-    \item 4 sensors were placed in the soil, left to equilibriate, and measurements taken. This was repeated 8 times.
-    \item Sensors were removed, 10 mL of water was added and the soil was re-mixed. Return to 2)
-    \item By doing this, we were able to characterise short time-scale noise, potential sensor bias, and bias due to placement or packing.
-\end{enumerate}
-
-\subsection{Automated response curve calibration}
-
-Consumer-grade soil moisture probes generally report coarse, normalized measurements. Here, we define soil water content as $Z$ as total water volume in a given container with fixed soil content (such as in a pot), instead of the usual $\theta$, which is the ratio of water to total soil volume. A well-described method in various contexts is to reconstruct a curve from added quantities when the quantity itself is not directly measurable, known in analytical chemistry as the method of standard additions \cite{ziegel2004statistics}. Similarly, here we assume that $Z$ itself is not directly measurable, although at a given watering, $\Delta Z$ is known, unlike $\Delta \theta$. We fix this for a given pot and soil volume, and refer to it as $W$. This is a simplifying assumption that disregards runoff and user measurement error.\\
-
-For a given event at time $t_i$, and sensor $s$, we extract associated $X_{i,s}$. This leads to sampled pairs $(\Delta Z_{i,s}, X_{i,s})$. We asssume the relationship:
-
-\[
-X_{i,s} = h(Z_{i,s}) + \epsilon_i + \epsilon_s + \epsilon_p
-\]
-
-Where $\epsilon_i$ is measurement noise, $\epsilon_s$ noise offset per-sensor, and $\epsilon_p$ noise offset per-placement (accounting for factors such as sensor-specific offsets and variable depth and packing). In this equation, both the response function $h(\cdot)$ and the water content $Z$ are unknown. For simplicity, we assume $h$ is monotonically decreasing and refer to $g=h^{-1}$. In terms of the data, we have samples:
-
-\[
-\Big(\frac{\Delta Z}{\Delta X}\Big)_{i,s} \approx \Big(\frac{dz}{dx}\Big)_{i,s} + \epsilon_i + \epsilon_s + \epsilon_p
-\]
-
-where:
-
-\[
-\Big(\frac{dZ}{dX}\Big)_{i,s} = g'(X_{i,s})
-\]
-
-This is a basic regression problem except that it is required to estimate a derivative $g'$ instead of $g$ itself, and invert to get $h$. One complication is that for a given sample, we may like to use the midpoint time for a given estimate for the derivative: 
-
-\[
-\Big(\frac{\Delta Z}{\Delta X}\Big)_{i+1/2} = \frac{Z_{i+1} - Z{i}}{X_{i+1} - X{i}} = \frac{W}{X(Z + W) - X(Z)}
-\]
-
-The problem with this is that $X(Z + W)$ depends on noise attributable to spatial heterogeneity. In order to account for this, we introduce $M$, such that $X(Z + W\cdot M)$, where $M$ is non-negative and e.g. Gamma distributed (sensor values should decrease when water is added, but non-uniformly). We used:
-
-\[
-M \sim \Gamma(1/\sigma(z), \sigma(z))\]
-
-with $\sigma$ linearly descreasing from $Z=0$ to $Z=Z_{max}$, in order to achieve $E[M] = 1$ and decreasing $var(M)$ consistent with observed variability descreasing with $Z$.  \\
-
-We used Gaussian process regression \cite{williams2006gaussian} using Scikit-learn \cite{pedregosa2011scikit} to estimate $g'$. Then, we sample from $\hat{g'}$ and integrate to produce estimates and CIs for $\hat{g}$.
-
-\[
-g'(x) \sim \mathcal{GP}(m(X), k(X, X'))
-\]
-
-Estimation was performed with RBF kernel \cite{pedregosa2011scikit}. For integration, \texttt{scipy.integrate.cumulative\_trapezoid} \cite{virtanen2020scipy} was used. In practice, $X(Z_{max})$ is easiest endpoint to obtain because it is the value of $X$ at which all added water is lost as runoff. A prior linear calibration curve $g'_{prior}(x)$ was used by specifying constant derivative priors, as previously described \hl{cite}.
+\section{Appendix}
 
 \begin{figure}[htb!]
   \centering
-  \includegraphics[width=1.0\linewidth]{images/simulation_example.png}
-  \caption{One sample of curve reconstruction process from simulated data. Top left: distribution of multiplicative noise as a function of $Z$ (95\% density). Top middle and top right: vertical (horizontal) lines indicate response $\Delta X$ on addition of $WM$ water. Middle-left and middle-middle: arrows indicate derivatives with error. Middle right and bottom left: plot of sampled derivatives. Bottom middle: GP regression of derivative curve $g'$. Bottom right: integrated estimated curve compared to real curve.}
+  \includegraphics[width=1.0\linewidth]{images/segmentation.png}
+  \caption{Graph showing segmentation methodology applied to raw data. Raw sensor values, which decrease with moisture content, are shown in blue. First and second derivatives of the resampled EWMA of sensor values (axis 2) are shown with max-normalized scale for clarity. Grey regions denote low-velocity, near-equilibrium intervals. Green regions denote high-velocity regions. Orange regions denote high-acceleration regions. Several events identified by high-acceleration can occur within a single low-velocity region in instances such as repeaated watering over short time-scales.}
   \label{fig:myfigure}
-\end{figure}
+\end{figure} 
 
-
-
-\subsection{Validation}
-
-\section{Results}
-
-\subsection{Sensor noise}
-
-TODO: sensor noise is mostly driven by packing and placement. Variation is not driven by sensor bias or by measurement error. Measurement error is low. 
-
-\begin{figure}[htb!]
-  \centering
-  \includegraphics[width=1.0\linewidth]{images/equilibrium_noise_distribution.png}
-  \caption{TODO: complete the data collection. Sensor measurements from real data. Top left: repeated sensor measurements in 3 time intervals corresponding to 0, 10, and 20 ml, $Z$ (or 0.0, 0.2, and 0.4 relative SWC, $\theta$). Top right: intra-placement variability, which was low. Bottom left: zero-centered total variability across intervals for each sensors, which was much greater than per-sample variability and \hl{TODO: and subject to test, may not be different between sensors}. Bottom right: X as a function of Z across moisture levels. Conclusions: variation due to placement contributes greatest of the sources considered \hl{TODO: statistical test}}.
-  \label{fig:myfigure}
-\end{figure}
-
-\begin{enumerate}
-    \item Sensor stationary noise and drying
-    \item Per-sensor noise and per-insertion noise
-\end{enumerate}
-
-\subsection{Event detection}
-
-\subsection{Calibration simulation}
-
-\subsection{Validation}
-
-\section{Discussion}
-
-\section{Future work}
 
 \bibliographystyle{plain}
 \bibliography{references}
