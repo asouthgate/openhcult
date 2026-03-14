@@ -5,17 +5,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd 
 
-from scipy.stats import norm
-
-def compute_ewma(data, span=5):
-    """
-    Computes EWMA using Pandas.
-    Span is the most common parameter (N-day EWMA).
-    """
-    series = pd.Series(data)
-    # span corresponds to alpha = 2 / (span + 1)
-    return series.ewm(span=span, adjust=False).mean().values
-
 
 def compute_time_weighted_ewma(times, values, tau_minutes=30.0):
     """
@@ -34,73 +23,6 @@ def compute_time_weighted_ewma(times, values, tau_minutes=30.0):
         smoothed[i] = (1 - alpha) * smoothed[i-1] + alpha * values[i]
     return smoothed
 
-
-def compute_diff_arr(values: np.ndarray, lag_arr: int) -> np.ndarray:
-    out = np.full(values.shape, np.nan, dtype=float)
-    for idx in range(values.size):
-        lag_idx = idx - lag_arr[idx]
-        if lag_idx < 0:
-            continue
-        if not np.isfinite(values[idx]) or not np.isfinite(values[lag_idx]):
-            continue
-        out[idx] = values[idx] - values[lag_idx]
-    return out
-
-
-def rolling_mad(values: np.ndarray, window_arr: int) -> np.ndarray:
-    out = np.full(values.shape, np.nan, dtype=float)
-    for idx in range(values.size):
-        start = max(0, idx - window_arr[idx] + 1)
-        window_slice = values[start : idx + 1]
-        window_slice = window_slice[np.isfinite(window_slice)]
-        if window_slice.size == 0:
-            continue
-        median = np.median(window_slice)
-        mad = np.median(np.abs(window_slice - median))
-        out[idx] = mad
-    return out
-
-
-def compute_zscore(values: np.ndarray, diffs, *, mad_window_arr: int, c: float) -> np.ndarray:
-    mads = rolling_mad(diffs, mad_window_arr) + np.min(np.abs(diffs))
-    sigma = c * mads
-    z = np.full(values.shape, np.nan, dtype=float)
-    valid = np.isfinite(diffs) & np.isfinite(sigma) & (sigma > 0)
-    z[valid] = diffs[valid] / sigma[valid]
-    return z
-
-
-def compute_zscore_madval(values: np.ndarray, diffs, *, mad: int, c: float) -> np.ndarray:
-    # we need to add the min to stop zero MAD, where any event thereafter is + np.abs(min(diffs))
-    # mads = rolling_mad(diffs, mad_window_arr) + np.min(np.abs(diffs))
-    # mads = np.ones(len(diffs)) * 1
-    sigma = c * mad
-    z = np.full(values.shape, np.nan, dtype=float)
-    z = diffs / sigma
-    return z
-
-
-def compute_zscore_single(v1, v2, mad, c) -> np.ndarray:
-    sigma = c * mad
-    return v2 - v1 / sigma
-
-
-def run_lengths_at_starts(arr):
-    arr = np.asarray(arr, dtype=bool)
-    n = arr.size
-    if n == 0:
-        return np.array([], dtype=int)
-
-    # run starts (True at the first index of each constant segment)
-    run_start = np.r_[True, arr[1:] != arr[:-1]]
-    starts = np.flatnonzero(run_start)
-
-    # run lengths
-    run_len = np.diff(np.r_[starts, n])
-
-    out = np.zeros(n, dtype=int)
-    out[starts] = run_len
-    return out
 
 def get_complementary_intervals(intervals, start_bound, end_bound):
     """
@@ -166,9 +88,6 @@ class DisequilibriumIntervalDetector:
             self._release_thresh_acc / 4.0
         )
 
-
-
-
     def get_disequilibrium_intervals(self):
         diseq_regions = find_regions_with_hysteresis(
             self._resampled_times, self._resampled_vel_smoothed, self._trigger_thresh, self._release_thresh)
@@ -191,7 +110,6 @@ class DisequilibriumIntervalDetector:
     
     def get_thresholds(self):
         return self._trigger_arr, self._release_arr
-
 
     def debug_plot(self):
         fig, ax1 = plt.subplots(figsize=(12, 6))
@@ -248,7 +166,6 @@ class DisequilibriumIntervalDetector:
         plt.show()
 
 
-
 def greedy_merge_event_times(event_times, dist):
     """
     Groups 1D events by a maximum distance threshold and returns 
@@ -288,9 +205,8 @@ def find_regions_with_hysteresis(times, vel, trigger=-0.015, release=-0.005):
         
     return regions
 
+
 def lerp_thresholds(val, trigger_high, release_high, trigger_low, release_low):
-    # assert trigger_high >= trigger_low
-    # assert release_high >= release_low
 
     # Linear interp thresholds
     maxx = max(val)
@@ -306,12 +222,6 @@ def lerp_thresholds(val, trigger_high, release_high, trigger_low, release_low):
     c_trigger = trigger_low
     c_release = release_low
 
-    # trigger_max = m_trigger * (maxx-minxx) + c_trigger
-    # trigger_min = m_trigger * (minxx-minxx) + c_trigger
-
-    # release_max = m_release * (maxx-minxx) + c_release
-    # release_min = m_release * (minxx-minxx) + c_release
-
     trigger_arr = np.zeros(len(val))
     release_arr = np.zeros(len(val))
 
@@ -322,7 +232,6 @@ def lerp_thresholds(val, trigger_high, release_high, trigger_low, release_low):
         release_arr[i] = release
             
     return trigger_arr, release_arr
-
 
 
 def find_regions_with_hysteresis_adapative_thresh(times, val, trigger_arr, release_arr):
