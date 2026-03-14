@@ -6,47 +6,19 @@ import numpy as np
 import pandas as pd 
 
 
-def compute_time_weighted_ewma(times, values, tau_minutes=30.0):
-    """
-    tau_minutes: The 'memory' of the filter. 
-    Larger tau = smoother, but stays 'stuck' longer after gaps.
-    """
-    # Convert times to float minutes
-    t_min = times.astype('datetime64[m]').astype(float)
-    n = len(values)
-    smoothed = np.zeros(n)
-    smoothed[0] = values[0] # Initialize
-    for i in range(1, n):
-        delta_t = t_min[i] - t_min[i-1]
-        # Calculate dynamic alpha based on time gap
-        alpha = 1 - np.exp(-delta_t / tau_minutes)
-        smoothed[i] = (1 - alpha) * smoothed[i-1] + alpha * values[i]
-    return smoothed
-
-
-def get_complementary_intervals(intervals, start_bound, end_bound):
-    """
-    Returns the gaps between disjoint intervals within a specific range.
-    """
-    # 1. Ensure intervals are sorted by their start index
-    sorted_intervals = sorted(intervals)
-    
-    complementary = []
-    current_pos = start_bound
-
-    for start, end in sorted_intervals:
-        # If there is space between the current position and the next interval
-        if start > current_pos:
-            complementary.append([current_pos, start - 1])
-        
-        # Move the cursor to just after the current interval
-        current_pos = max(current_pos, end + 1)
-
-    # 2. Check if there is a remaining gap after the last interval
-    if current_pos <= end_bound:
-        complementary.append([current_pos, end_bound])
-
-    return complementary
+class DynamicIntervalInfo:
+    def __init__(self, t_values, x_values, at_equilibrium):
+        assert len(t_values) > 0
+        self.start = t_values[0]
+        self.end = t_values[-1]
+        self.at_equilibrium = at_equilibrium
+        self.max = max(x_values)
+        self.min = min(x_values)
+        self.var = np.var(x_values)
+        self.mean = np.mean(x_values)
+        self.duration = self.end - self.start
+        t_numeric = (t_values - self.start).astype('float64')
+        # self.m, self.c = np.polyfit(t_numeric, x_values, 1)
 
 
 class DisequilibriumIntervalDetector:
@@ -88,24 +60,33 @@ class DisequilibriumIntervalDetector:
             self._release_thresh_acc / 4.0
         )
 
+    def _ind_pairs_to_dynamic_interval(self, ind_pairs):
+        return [DynamicIntervalInfo(
+            self._resampled_times[start:end],
+            self._resampled_emwa[start:end],
+            False
+        ) for start, end in ind_pairs]
+
+
     def get_disequilibrium_intervals(self):
-        diseq_regions = find_regions_with_hysteresis(
+        diseq_inds = find_regions_with_hysteresis(
             self._resampled_times, self._resampled_vel_smoothed, self._trigger_thresh, self._release_thresh)
-        return diseq_regions
+        return self._ind_pairs_to_dynamic_interval(diseq_inds)
     
     def get_equilibrium_intervals(self):
-        diseq_regions = find_regions_with_hysteresis(
+        diseq_inds = find_regions_with_hysteresis(
             self._resampled_times, self._resampled_vel_smoothed, self._trigger_thresh, self._release_thresh)
-        eq_regions = get_complementary_intervals(diseq_regions, min(self._time_arr), max(self._time_arr))
-        return eq_regions
+        eq_regions = get_complementary_intervals(diseq_inds, 0, len(self._time_arr))
+        return self._ind_pairs_to_dynamic_interval(eq_regions)
     
     def get_acceleration_intervals(self):
-        
-        return find_regions_with_hysteresis_adapative_thresh(
+        return self._ind_pairs_to_dynamic_interval(
+            find_regions_with_hysteresis_adapative_thresh(
             self._resampled_times,
             self._resampled_acc_smoothed,
             self._trigger_arr,
             self._release_arr
+            )
         )
     
     def get_thresholds(self):
@@ -116,7 +97,6 @@ class DisequilibriumIntervalDetector:
 
         ax1.scatter(self._time_arr, self._values_arr, color='tab:blue', label='Sensor values', alpha=0.5, marker='x')
         ax1.plot(self._resampled_times, self._resampled_emwa, color='tab:blue', label='Smoothed values (EWMA)', alpha=1.0, linewidth=1)
-        # ax1.plot(self._time_arr, self._values_emwa, color='tab:tab:blue', alpha=1.0, linewidth=1)
         ax1.set_ylabel('Sensor reading', color='tab:blue')
         ax1.tick_params(axis='y', labelcolor='tab:blue')
 
@@ -135,16 +115,16 @@ class DisequilibriumIntervalDetector:
         )
 
         deq_regions = self.get_disequilibrium_intervals()
-        for start, end in deq_regions:
-            ax2.axvspan(start, end, color='green', alpha=0.15)
+        for deqr in deq_regions:
+            ax2.axvspan(deqr.start, deqr.end, color='green', alpha=0.15)
 
         eq_regions = self.get_equilibrium_intervals()
-        for start, end in eq_regions:
-            ax2.axvspan(start, end, color='grey', alpha=0.15)
+        for deqr in eq_regions:
+            ax2.axvspan(deqr.start, deqr.end, color='grey', alpha=0.15)
 
         acc_regions = self.get_acceleration_intervals()
-        for start, end in acc_regions:
-            ax2.axvspan(start, end, color='orange', alpha=0.15)
+        for deqr in acc_regions:
+            ax2.axvspan(deqr.start, deqr.end, color='orange', alpha=0.15)
 
 
         trigger, release = self.get_thresholds()
@@ -166,42 +146,23 @@ class DisequilibriumIntervalDetector:
         plt.show()
 
 
-def greedy_merge_event_times(event_times, dist):
-    """
-    Groups 1D events by a maximum distance threshold and returns 
-    the first event (representative) of each cluster.
-    """
-    if not event_times:
-        return []
-    
-    # Ensure events are sorted for 1D greedy processing
-    sorted_events = sorted(event_times)
-    filtered = [sorted_events[0]]
-    
-    for i in range(1, len(sorted_events)):
-        # If the current event is outside the window of the last kept event
-        if sorted_events[i] - filtered[-1] >= dist:
-            filtered.append(sorted_events[i])
-            
-    return sorted(filtered)
-
-
 def find_regions_with_hysteresis(times, vel, trigger=-0.015, release=-0.005):
     regions = []
     active = False
-    start_time = None
+    start_ind = None
     
-    for t, v in zip(times, vel):
+    for j, tv in enumerate(zip(times, vel)):
+        t, v = tv
         if active and v > release:
             active = False
-            regions.append((start_time, t))
+            regions.append((start_ind, j))
         if not active and v < trigger:
             active = True
-            start_time = t
+            start_ind = j
             
     # Handle event still active at end of data
     if active:
-        regions.append((start_time, times[-1]))
+        regions.append((start_ind, len(times) - 1))
         
     return regions
 
@@ -237,19 +198,64 @@ def lerp_thresholds(val, trigger_high, release_high, trigger_low, release_low):
 def find_regions_with_hysteresis_adapative_thresh(times, val, trigger_arr, release_arr):
     regions = []
     active = False
-    start_time = None
+    start_ind = None
 
     for ti, tup in enumerate(zip(times, val)):
         t, v = tup
         if active and v > release_arr[ti]:
             active = False
-            regions.append((start_time, t))
+            regions.append((start_ind, ti))
         if not active and v < trigger_arr[ti]:
             active = True
-            start_time = t
+            start_ind = ti
             
     # Handle event still active at end of data
     if active:
-        regions.append((start_time, times[-1]))
+        regions.append((start_ind, len(times) - 1 ))
         
     return regions
+
+
+
+
+def compute_time_weighted_ewma(times, values, tau_minutes=30.0):
+    """
+    tau_minutes: The 'memory' of the filter. 
+    Larger tau = smoother, but stays 'stuck' longer after gaps.
+    """
+    # Convert times to float minutes
+    t_min = times.astype('datetime64[m]').astype(float)
+    n = len(values)
+    smoothed = np.zeros(n)
+    smoothed[0] = values[0] # Initialize
+    for i in range(1, n):
+        delta_t = t_min[i] - t_min[i-1]
+        # Calculate dynamic alpha based on time gap
+        alpha = 1 - np.exp(-delta_t / tau_minutes)
+        smoothed[i] = (1 - alpha) * smoothed[i-1] + alpha * values[i]
+    return smoothed
+
+
+def get_complementary_intervals(intervals, start_bound, end_bound):
+    """
+    Returns the gaps between disjoint intervals within a specific range.
+    """
+    # 1. Ensure intervals are sorted by their start index
+    sorted_intervals = sorted(intervals)
+    
+    complementary = []
+    current_pos = start_bound
+
+    for start, end in sorted_intervals:
+        # If there is space between the current position and the next interval
+        if start > current_pos:
+            complementary.append([current_pos, start - 1])
+        
+        # Move the cursor to just after the current interval
+        current_pos = max(current_pos, end + 1)
+
+    # 2. Check if there is a remaining gap after the last interval
+    if current_pos <= end_bound:
+        complementary.append([current_pos, end_bound])
+
+    return complementary
