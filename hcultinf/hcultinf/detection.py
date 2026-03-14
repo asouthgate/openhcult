@@ -17,8 +17,12 @@ class DynamicIntervalInfo:
         self.var = np.var(x_values)
         self.mean = np.mean(x_values)
         self.duration = self.end - self.start
-        t_numeric = (t_values - self.start).astype('float64')
-        # self.m, self.c = np.polyfit(t_numeric, x_values, 1)
+        t_numeric = (t_values - self.start).astype('timedelta64[ms]').astype('int64')
+        self.m, self.c = None, None
+        try:
+            self.m, self.c = np.polyfit(t_numeric, x_values, 1)
+        except np.linalg.LinAlgError as e:
+            print(e)
 
 
 class DisequilibriumIntervalDetector:
@@ -121,7 +125,14 @@ class DisequilibriumIntervalDetector:
         eq_regions = self.get_equilibrium_intervals()
         for deqr in eq_regions:
             ax2.axvspan(deqr.start, deqr.end, color='grey', alpha=0.15)
-
+            if deqr.m is not None:
+                x1 = deqr.c 
+                
+                # Force [ms] here too to match the slope 'm'
+                duration_ms = (deqr.end - deqr.start).astype('timedelta64[ms]').astype('int64')
+                
+                x2 = (duration_ms * deqr.m) + deqr.c
+                ax1.plot([deqr.start, deqr.end], [x1, x2], color='red', linewidth=2)        
         acc_regions = self.get_acceleration_intervals()
         for deqr in acc_regions:
             ax2.axvspan(deqr.start, deqr.end, color='orange', alpha=0.15)
