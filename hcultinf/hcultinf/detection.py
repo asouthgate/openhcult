@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-
+from collections import deque
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd 
@@ -63,7 +63,7 @@ class SegmentDetector:
         self._resampled_times = self._resampled_emwa.index.to_numpy()
         self._resampled_vel_smoothed = compute_time_weighted_ewma(self._resampled_times, self._resampled_vel.values, emwa_tau_minutes)
         self._resampled_acc = np.diff(self._resampled_vel_smoothed, prepend=0)
-        self._resampled_acc_smoothed = compute_time_weighted_ewma(self._resampled_times, self._resampled_acc, emwa_tau_minutes)
+        self._resampled_acc_smoothed = compute_time_weighted_ewma(self._resampled_times, self._resampled_acc, emwa_tau_minutes / 4.0)
 
 
         self._acc_trigger_arr, self._acc_release_arr = lerp_thresholds(
@@ -108,7 +108,7 @@ class SegmentDetector:
 
         # Indices for regions with velocity ON ^ acceleration ON
         self._neg_diseq_inds = merge_intervals([self._vel_inds, self._neg_acc_inds])
-        self._diseq_inds = merge_intervals([self._vel_inds, self._neg_acc_inds, self._pos_acc_inds])
+        self._diseq_inds = self._vel_inds
         self._acc_inds = merge_intervals([self._pos_acc_inds, self._neg_acc_inds])
 
         # Indices for regions with both OFF
@@ -375,7 +375,7 @@ def compute_time_weighted_ewma(times, values, tau_minutes=30.0):
     for i in range(1, n):
         delta_t = t_min[i] - t_min[i-1]
         # Calculate dynamic alpha based on time gap
-        alpha = 1 - np.exp(-delta_t / tau_minutes)
+        alpha = 1 - np.exp(- delta_t / tau_minutes)
         smoothed[i] = (1 - alpha) * smoothed[i-1] + alpha * values[i]
     return smoothed
 
