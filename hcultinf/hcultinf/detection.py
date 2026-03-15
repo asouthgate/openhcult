@@ -38,8 +38,8 @@ class SegmentDetector:
             time_arr,
             values_arr,
             emwa_tau_minutes=30,
-            trigger_thresh=-0.25,
-            release_thresh = -0.15,
+            trigger_thresh=-0.45,
+            release_thresh = -0.35,
             trigger_thresh_acc = -0.015,
             release_thresh_acc = -0.0075,
         ):
@@ -60,12 +60,10 @@ class SegmentDetector:
         self._resampled_emwa = tmp_emwa_series.resample('1min').mean().interpolate(method='linear')
         self._resampled_vel = self._resampled_emwa.diff().fillna(0)
         
-        # self._resampled_vel_smoothed = self._resampled_vel.ewm(span=emwa_tau_minutes).mean()
-        # self._resampled_acc_smoothed = self._resampled_vel_smoothed.diff().fillna(0).ewm(span=emwa_tau_minutes).mean()
         self._resampled_times = self._resampled_emwa.index.to_numpy()
-        self._resampled_vel_smoothed = compute_time_weighted_ewma(self._resampled_times, self._resampled_vel.values, emwa_tau_minutes / 4)
+        self._resampled_vel_smoothed = compute_time_weighted_ewma(self._resampled_times, self._resampled_vel.values, emwa_tau_minutes)
         self._resampled_acc = np.diff(self._resampled_vel_smoothed, prepend=0)
-        self._resampled_acc_smoothed = compute_time_weighted_ewma(self._resampled_times, self._resampled_acc, emwa_tau_minutes / 8)
+        self._resampled_acc_smoothed = compute_time_weighted_ewma(self._resampled_times, self._resampled_acc, emwa_tau_minutes)
 
 
         self._acc_trigger_arr, self._acc_release_arr = lerp_thresholds(
@@ -75,11 +73,21 @@ class SegmentDetector:
             self._trigger_thresh_acc / 4.0,
             self._release_thresh_acc / 4.0
         )
+
+        self._vel_trigger_arr, self._vel_release_arr = lerp_thresholds(
+            self._resampled_emwa,
+            self._trigger_thresh,
+            self._release_thresh,
+            self._trigger_thresh / 4.0,
+            self._release_thresh / 4.0
+        )
         
         # Indices for regions with velocity ON
-        self._vel_inds = find_regions_with_hysteresis(
-            self._resampled_times, self._resampled_vel_smoothed,
-            self._trigger_thresh, self._release_thresh
+        self._vel_inds = find_regions_with_hysteresis_adapative_thresh(
+            self._resampled_times,
+            self._resampled_vel_smoothed,
+            self._vel_trigger_arr,
+            self._vel_release_arr
         )
 
         # Indices for regions with acceleration ON
@@ -99,7 +107,7 @@ class SegmentDetector:
         )
 
         # Indices for regions with velocity ON ^ acceleration ON
-        self._neg_diseq_inds = merge_intervals([self._vel_inds, self._neg_acc_inds, self._pos_acc_inds])
+        self._neg_diseq_inds = merge_intervals([self._vel_inds, self._neg_acc_inds])
         self._diseq_inds = merge_intervals([self._vel_inds, self._neg_acc_inds, self._pos_acc_inds])
         self._acc_inds = merge_intervals([self._pos_acc_inds, self._neg_acc_inds])
 
@@ -110,36 +118,54 @@ class SegmentDetector:
             len(self._resampled_times)
         )
 
-    def _ind_pairs_to_dynamic_interval(self, ind_pairs):
+        self._diseq_regions = self._ind_pairs_to_dynamic_interval(self._diseq_inds, False)
+        self._eq_regions = self._ind_pairs_to_dynamic_interval(self._eq_inds, True)
+
+    def _ind_pairs_to_dynamic_interval(self, ind_pairs, at_equilibrium):
         dis = []
         for start, end in ind_pairs:
             dis.append(
                 DynamicIntervalInfo(
                     self._resampled_times[start:end],
                     self._resampled_emwa[start:end],
-                    False
+                    at_equilibrium
                 )
             )
         return dis
 
     def get_disequilibrium_intervals(self):
-        logger.warn("get_disequilibrium_intervals")
-        return self._ind_pairs_to_dynamic_interval(self._diseq_inds)
+        return self._diseq_regions
     
     def get_equilibrium_intervals(self):
-        logger.warn("get_equilibrium_intervals")
-        return self._ind_pairs_to_dynamic_interval(self._eq_inds)
+        return self._eq_regions
     
     def get_neg_acceleration_intervals(self):
-        logger.warn("get_neg_acceleration_intervals")
-        return self._ind_pairs_to_dynamic_interval(self._neg_acc_inds)
+        return self._ind_pairs_to_dynamic_interval(self._neg_acc_inds, False)
     
     def get_pos_acceleration_intervals(self):
-        logger.warn("get_pos_acceleration_intervals")
-        return self._ind_pairs_to_dynamic_interval(self._pos_acc_inds)
+        return self._ind_pairs_to_dynamic_interval(self._pos_acc_inds, False)
 
     def get_acc_thresholds(self):
         return self._acc_trigger_arr, self._acc_release_arr
+    
+    def get_vel_thresholds(self):
+        return self._vel_trigger_arr, self._vel_release_arr
+    
+    def get_segment_data_triples(self):
+        """Yield (eq, diseq, eq) triples."""
+        all_segments = sorted(self._diseq_regions + self._eq_regions, key=lambda x: x.start)
+        # If the very first element not at equilibrium, we cut it off
+        # A baseline before an event is required for comparison
+        if not all_segments[0].at_equilibrium:
+            all_segments = all_segments[1:]
+        # Same at the end
+        if not all_segments[-1].at_equilibrium:
+            all_segments = all_segments[:-1]
+        for si in range(1, len(all_segments) - 1, 2):
+            assert all_segments[si - 1].at_equilibrium
+            assert not all_segments[si].at_equilibrium
+            assert all_segments[si + 1].at_equilibrium
+            yield (all_segments[si - 1], all_segments[si], all_segments[si + 1])
 
     def debug_plot(self):
         fig, ax1 = plt.subplots(figsize=(12, 6))
@@ -167,17 +193,24 @@ class SegmentDetector:
         for deqr in deq_regions:
             ax2.axvspan(deqr.start, deqr.end, color='green', alpha=0.15)
 
-        eq_regions = self.get_equilibrium_intervals()
-        for deqr in eq_regions:
-            ax2.axvspan(deqr.start, deqr.end, color='grey', alpha=0.15)
-            if deqr.m is not None:
+        eq_triples = list(self.get_segment_data_triples())
+        eq_segments = [eqs for eqtriple in eq_triples for eqs in eqtriple]
+        for deqr in eq_segments:
+            if deqr.at_equilibrium:
+                color = 'grey'
+            else:
+                color = 'orange'
+            ax2.axvspan(deqr.start, deqr.end, color=color, alpha=0.15)
+
+            if deqr.m is not None and deqr.at_equilibrium:
                 x1 = deqr.c 
                 
                 # Force [ms] here too to match the slope 'm'
                 duration_ms = (deqr.end - deqr.start).astype('timedelta64[ms]').astype('int64')
                 
                 x2 = (duration_ms * deqr.m) + deqr.c
-                ax1.plot([deqr.start, deqr.end], [x1, x2], color='red', linewidth=2)        
+                ax1.plot([deqr.start, deqr.end], [x1, x2], color='red', linewidth=2)   
+
         acc_regions = self.get_neg_acceleration_intervals()
         for deqr in acc_regions:
             ax2.axvspan(deqr.start, deqr.end, color='orange', alpha=0.15)
@@ -185,8 +218,13 @@ class SegmentDetector:
 
         trigger, release = self.get_acc_thresholds()
         ax2.axhline(0, color='tab:blue', linestyle='--', alpha=0.3) # Zero baseline
-        ax2.plot(self._resampled_times, trigger, color='red', linestyle='--')
-        ax2.plot(self._resampled_times, release, color='red', linestyle='--')
+        ax2.plot(self._resampled_times, trigger / max(self._resampled_acc_smoothed), color='purple', linestyle='--')
+        ax2.plot(self._resampled_times, release / max(self._resampled_acc_smoothed), color='purple', linestyle='--')
+
+        trigger, release = self.get_vel_thresholds()
+        ax2.plot(self._resampled_times, trigger / max(self._resampled_vel_smoothed), color='red', linestyle='--')
+        ax2.plot(self._resampled_times, release / max(self._resampled_vel_smoothed), color='red', linestyle='--')
+
 
         ax2.set_ylabel('Normalized values (derivatives)', color='tab:red')
         ax2.tick_params(axis='y', labelcolor='tab:red')
