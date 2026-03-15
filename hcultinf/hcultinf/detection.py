@@ -1,14 +1,20 @@
 
 from __future__ import annotations
 
+import logging
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd 
 
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG) # Lowest level to capture everything
 
 class DynamicIntervalInfo:
     def __init__(self, t_values, x_values, at_equilibrium):
         assert len(t_values) > 0
+        assert len(t_values) == len(x_values)
+        self.n_samples = len(t_values)
         self.start = t_values[0]
         self.end = t_values[-1]
         self.at_equilibrium = at_equilibrium
@@ -25,7 +31,7 @@ class DynamicIntervalInfo:
             print(e)
 
 
-class DisequilibriumIntervalDetector:
+class SegmentDetector:
     """Takes sensor data and identifies regions in (dis)equilibrium."""
     def __init__(
             self,
@@ -53,48 +59,87 @@ class DisequilibriumIntervalDetector:
         tmp_emwa_series = pd.Series(self._values_emwa, index=pd.to_datetime(time_arr))
         self._resampled_emwa = tmp_emwa_series.resample('1min').mean().interpolate(method='linear')
         self._resampled_vel = self._resampled_emwa.diff().fillna(0)
-        self._resampled_vel_smoothed = self._resampled_vel.ewm(span=emwa_tau_minutes).mean()
-        self._resampled_acc_smoothed = self._resampled_vel_smoothed.diff().fillna(0).ewm(span=emwa_tau_minutes).mean()
+        
+        # self._resampled_vel_smoothed = self._resampled_vel.ewm(span=emwa_tau_minutes).mean()
+        # self._resampled_acc_smoothed = self._resampled_vel_smoothed.diff().fillna(0).ewm(span=emwa_tau_minutes).mean()
         self._resampled_times = self._resampled_emwa.index.to_numpy()
-        self._trigger_arr, self._release_arr = lerp_thresholds(
+        self._resampled_vel_smoothed = compute_time_weighted_ewma(self._resampled_times, self._resampled_vel.values, emwa_tau_minutes / 4)
+        self._resampled_acc = np.diff(self._resampled_vel_smoothed, prepend=0)
+        self._resampled_acc_smoothed = compute_time_weighted_ewma(self._resampled_times, self._resampled_acc, emwa_tau_minutes / 8)
+
+
+        self._acc_trigger_arr, self._acc_release_arr = lerp_thresholds(
             self._resampled_emwa,
             self._trigger_thresh_acc,
             self._release_thresh_acc,
             self._trigger_thresh_acc / 4.0,
             self._release_thresh_acc / 4.0
         )
+        
+        # Indices for regions with velocity ON
+        self._vel_inds = find_regions_with_hysteresis(
+            self._resampled_times, self._resampled_vel_smoothed,
+            self._trigger_thresh, self._release_thresh
+        )
 
-    def _ind_pairs_to_dynamic_interval(self, ind_pairs):
-        return [DynamicIntervalInfo(
-            self._resampled_times[start:end],
-            self._resampled_emwa[start:end],
-            False
-        ) for start, end in ind_pairs]
-
-
-    def get_disequilibrium_intervals(self):
-        diseq_inds = find_regions_with_hysteresis(
-            self._resampled_times, self._resampled_vel_smoothed, self._trigger_thresh, self._release_thresh)
-        return self._ind_pairs_to_dynamic_interval(diseq_inds)
-    
-    def get_equilibrium_intervals(self):
-        diseq_inds = find_regions_with_hysteresis(
-            self._resampled_times, self._resampled_vel_smoothed, self._trigger_thresh, self._release_thresh)
-        eq_regions = get_complementary_intervals(diseq_inds, 0, len(self._time_arr))
-        return self._ind_pairs_to_dynamic_interval(eq_regions)
-    
-    def get_acceleration_intervals(self):
-        return self._ind_pairs_to_dynamic_interval(
-            find_regions_with_hysteresis_adapative_thresh(
+        # Indices for regions with acceleration ON
+        self._neg_acc_inds = find_regions_with_hysteresis_adapative_thresh(
             self._resampled_times,
             self._resampled_acc_smoothed,
-            self._trigger_arr,
-            self._release_arr
-            )
+            self._acc_trigger_arr,
+            self._acc_release_arr
         )
+
+        self._pos_acc_inds = find_regions_with_hysteresis_adapative_thresh(
+            self._resampled_times,
+            self._resampled_acc_smoothed,
+            - self._acc_trigger_arr,
+            - self._acc_release_arr,
+            1
+        )
+
+        # Indices for regions with velocity ON ^ acceleration ON
+        self._neg_diseq_inds = merge_intervals([self._vel_inds, self._neg_acc_inds, self._pos_acc_inds])
+        self._diseq_inds = merge_intervals([self._vel_inds, self._neg_acc_inds, self._pos_acc_inds])
+        self._acc_inds = merge_intervals([self._pos_acc_inds, self._neg_acc_inds])
+
+        # Indices for regions with both OFF
+        self._eq_inds = get_complementary_intervals(
+            self._diseq_inds,
+            0,
+            len(self._resampled_times)
+        )
+
+    def _ind_pairs_to_dynamic_interval(self, ind_pairs):
+        dis = []
+        for start, end in ind_pairs:
+            dis.append(
+                DynamicIntervalInfo(
+                    self._resampled_times[start:end],
+                    self._resampled_emwa[start:end],
+                    False
+                )
+            )
+        return dis
+
+    def get_disequilibrium_intervals(self):
+        logger.warn("get_disequilibrium_intervals")
+        return self._ind_pairs_to_dynamic_interval(self._diseq_inds)
     
-    def get_thresholds(self):
-        return self._trigger_arr, self._release_arr
+    def get_equilibrium_intervals(self):
+        logger.warn("get_equilibrium_intervals")
+        return self._ind_pairs_to_dynamic_interval(self._eq_inds)
+    
+    def get_neg_acceleration_intervals(self):
+        logger.warn("get_neg_acceleration_intervals")
+        return self._ind_pairs_to_dynamic_interval(self._neg_acc_inds)
+    
+    def get_pos_acceleration_intervals(self):
+        logger.warn("get_pos_acceleration_intervals")
+        return self._ind_pairs_to_dynamic_interval(self._pos_acc_inds)
+
+    def get_acc_thresholds(self):
+        return self._acc_trigger_arr, self._acc_release_arr
 
     def debug_plot(self):
         fig, ax1 = plt.subplots(figsize=(12, 6))
@@ -112,7 +157,7 @@ class DisequilibriumIntervalDetector:
         )
         ax2.plot(
             self._resampled_times-self._emwa_tau_minutes,
-            self._resampled_acc_smoothed.values/max(self._resampled_acc_smoothed),
+            self._resampled_acc_smoothed/max(self._resampled_acc_smoothed),
             color='purple',
             label='Smoothed acceleration (EWMA)',
             linewidth=1
@@ -133,12 +178,12 @@ class DisequilibriumIntervalDetector:
                 
                 x2 = (duration_ms * deqr.m) + deqr.c
                 ax1.plot([deqr.start, deqr.end], [x1, x2], color='red', linewidth=2)        
-        acc_regions = self.get_acceleration_intervals()
+        acc_regions = self.get_neg_acceleration_intervals()
         for deqr in acc_regions:
             ax2.axvspan(deqr.start, deqr.end, color='orange', alpha=0.15)
 
 
-        trigger, release = self.get_thresholds()
+        trigger, release = self.get_acc_thresholds()
         ax2.axhline(0, color='tab:blue', linestyle='--', alpha=0.3) # Zero baseline
         ax2.plot(self._resampled_times, trigger, color='red', linestyle='--')
         ax2.plot(self._resampled_times, release, color='red', linestyle='--')
@@ -157,17 +202,33 @@ class DisequilibriumIntervalDetector:
         plt.show()
 
 
-def find_regions_with_hysteresis(times, vel, trigger=-0.015, release=-0.005):
+def find_regions_with_hysteresis(times, vel, trigger=-0.015, release=-0.005, direction=-1):
+    """ Use a two-threshold trigger and release to determine ON and OFF states
+
+    Parameters
+    ----------
+        times: array of time values
+        vel: array of values (e.g. velocity)
+        trigger: threshold for trigger
+        release: threshold for release
+        direction: -1 up toward zero, 1 down toward zero; -1 corresponds to negative velocity increase
+    
+    """
+
+    if direction == -1:
+        assert release < 0
+        assert trigger < 0
+
     regions = []
     active = False
     start_ind = None
     
     for j, tv in enumerate(zip(times, vel)):
         t, v = tv
-        if active and v > release:
+        if active and direction * v < direction * release:
             active = False
             regions.append((start_ind, j))
-        if not active and v < trigger:
+        if not active and direction * v > direction * trigger:
             active = True
             start_ind = j
             
@@ -176,6 +237,37 @@ def find_regions_with_hysteresis(times, vel, trigger=-0.015, release=-0.005):
         regions.append((start_ind, len(times) - 1))
         
     return regions
+
+def merge_intervals(interval_lists):
+
+    assert len(interval_lists) > 1, "Expected to merge more than one list"
+    
+
+    intervals = []
+    for il in interval_lists:
+        intervals += il
+
+    if not intervals:
+        return []
+
+    # Sort intervals by the start value
+    intervals.sort(key=lambda x: x[0])
+
+    merged = [list(intervals[0])]
+
+    for current_start, current_end in intervals[1:]:
+        _, last_end = merged[-1]
+
+        # Check if they overlap or touch at the boundary
+        if current_start <= last_end:
+            # Update the end of the last interval in the list
+            merged[-1][1] = max(last_end, current_end)
+        else:
+            # No overlap, add the current interval as a new entry
+            merged.append([current_start, current_end])
+
+    # Convert back to tuples if preferred
+    return [tuple(i) for i in merged]
 
 
 def lerp_thresholds(val, trigger_high, release_high, trigger_low, release_low):
@@ -206,17 +298,22 @@ def lerp_thresholds(val, trigger_high, release_high, trigger_low, release_low):
     return trigger_arr, release_arr
 
 
-def find_regions_with_hysteresis_adapative_thresh(times, val, trigger_arr, release_arr):
+def find_regions_with_hysteresis_adapative_thresh(times, val, trigger_arr, release_arr, direction=-1):
+
+    if direction == -1:
+        assert all(trigger_arr < 0)
+        assert all(release_arr < 0)
+
     regions = []
     active = False
     start_ind = None
 
     for ti, tup in enumerate(zip(times, val)):
         t, v = tup
-        if active and v > release_arr[ti]:
+        if active and direction * v < direction * release_arr[ti]:
             active = False
             regions.append((start_ind, ti))
-        if not active and v < trigger_arr[ti]:
+        if not active and direction * v > direction * trigger_arr[ti]:
             active = True
             start_ind = ti
             
@@ -225,8 +322,6 @@ def find_regions_with_hysteresis_adapative_thresh(times, val, trigger_arr, relea
         regions.append((start_ind, len(times) - 1 ))
         
     return regions
-
-
 
 
 def compute_time_weighted_ewma(times, values, tau_minutes=30.0):
@@ -253,20 +348,21 @@ def get_complementary_intervals(intervals, start_bound, end_bound):
     """
     # 1. Ensure intervals are sorted by their start index
     sorted_intervals = sorted(intervals)
-    
     complementary = []
     current_pos = start_bound
 
     for start, end in sorted_intervals:
         # If there is space between the current position and the next interval
         if start > current_pos:
-            complementary.append([current_pos, start - 1])
+            complementary.append([current_pos, start])
         
         # Move the cursor to just after the current interval
+        assert current_pos != end + 1
         current_pos = max(current_pos, end + 1)
 
     # 2. Check if there is a remaining gap after the last interval
-    if current_pos <= end_bound:
+    if current_pos < end_bound:
+        assert current_pos != end_bound
         complementary.append([current_pos, end_bound])
 
     return complementary

@@ -11,7 +11,7 @@ import matplotlib.dates as mdates
 import numpy as np
 
 
-from hcultinf.detection import DisequilibriumIntervalDetector, greedy_merge_event_times
+from hcultinf.detection import SegmentDetector
 from hcultutils.fetch_data import fetch_data
 
 
@@ -35,13 +35,13 @@ def main(args) -> int:
 
     times_map = {}
 
-    emwa_tau_minutes = 30
+    emwa_tau_minutes = 60
 
     for idx, name in enumerate(sensor_names):
         points = series[name]
         times = np.array([t for t, _ in points])
         values = np.array([v for _, v in points], dtype=float)
         times_map[name] = times
-        ded = DisequilibriumIntervalDetector(times, values, emwa_tau_minutes)
+        ded = SegmentDetector(times, values, emwa_tau_minutes)
         ded.debug_plot()
 
