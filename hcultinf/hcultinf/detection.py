@@ -6,12 +6,13 @@ from collections import deque
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd 
+from scipy.optimize import curve_fit
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG) # Lowest level to capture everything
 
 class DynamicIntervalInfo:
-    def __init__(self, t_values, x_values, at_equilibrium):
+    def __init__(self, t_values, x_values, vel, at_equilibrium):
         assert len(t_values) > 0
         assert len(t_values) == len(x_values)
         self.n_samples = len(t_values)
@@ -29,8 +30,61 @@ class DynamicIntervalInfo:
             self.m, self.c = np.polyfit(t_numeric, x_values, 1)
         except np.linalg.LinAlgError as e:
             print(e)
+        self.v_pred = None
+        if not at_equilibrium:
+            try:
+                self.v_pred = self._estimate_negative_lognormal(t_values, vel)
+            except RuntimeError as e:
+                print(e)
+            except ValueError as e:
+                print(e)
+    
+    def _estimate_negative_lognormal(self, t, x):
+        t_num = (t - t[0]).astype('timedelta64[ms]').astype(float) / 1000.0
+    
+        # x_p: peak time, h: peak height, w: width/skew factor
+        def model(t_val, h, x_p, w):
+            # We use a localized log-normal shape
+            # This is more stable: exp(- (ln(t/xp)/w)^2 )
+            # Shift t so that the start of the window isn't 0 (log(0) is bad)
+            t_shifted = t_val - (t_num[0] - 1.0) 
+            xp_shifted = x_p - (t_num[0] - 1.0)
+            
+            # Guard against t <= 0 for log
+            res = np.zeros_like(t_val)
+            mask = t_shifted > 0
+            
+            exponent = -(np.log(t_shifted[mask] / xp_shifted)**2) / (2 * w**2)
+            res[mask] = h * np.exp(np.clip(exponent, -700, 0))
+            return res
 
+        min_val = np.min(x)
+        if min_val >= 0:
+            return lambda t_inp: np.zeros_like(t_inp).astype(float)
 
+        max_t = t_num[-1]
+        peak_t = t_num[np.argmin(x)]
+
+        # Bounds: 
+        # h: [depth, 0], x_p: [window], w: [min_width, max_width]
+        # Increasing the lower bound of 'w' (width) prevents the "skinny" spike.
+        lower_bounds = [min_val * 2.0, 0, 0.2] # w=0.2 is the "anti-skinny" floor
+        upper_bounds = [0, max_t, 2.0]        # w=2.0 is very fat/lazy
+
+        try:
+            popt, _ = curve_fit(
+                model, t_num, x, 
+                p0=[min_val, peak_t, 0.5],
+                bounds=(lower_bounds, upper_bounds)
+            )
+        except:
+            return lambda t_inp: np.zeros_like(t_inp).astype(float)
+
+        def fit_func(t_input):
+            t_in = (t_input - t[0]).astype('timedelta64[ms]').astype(float) / 1000.0
+            return model(t_in, *popt)
+
+        return fit_func
 class SegmentDetector:
     """Takes sensor data and identifies regions in (dis)equilibrium."""
     def __init__(
@@ -128,6 +182,7 @@ class SegmentDetector:
                 DynamicIntervalInfo(
                     self._resampled_times[start:end],
                     self._resampled_emwa[start:end],
+                    self._resampled_vel_smoothed[start:end],
                     at_equilibrium
                 )
             )
@@ -209,7 +264,10 @@ class SegmentDetector:
                 duration_ms = (deqr.end - deqr.start).astype('timedelta64[ms]').astype('int64')
                 
                 x2 = (duration_ms * deqr.m) + deqr.c
-                ax1.plot([deqr.start, deqr.end], [x1, x2], color='red', linewidth=2)   
+                ax1.plot([deqr.start, deqr.end], [x1, x2], color='red', linewidth=2)
+            if deqr.v_pred is not None:
+                vpred = deqr.v_pred(self._resampled_times)
+                ax2.plot(self._resampled_times, vpred/max(self._resampled_vel_smoothed), color='black', linestyle='dotted')
 
         acc_regions = self.get_neg_acceleration_intervals()
         for deqr in acc_regions:
