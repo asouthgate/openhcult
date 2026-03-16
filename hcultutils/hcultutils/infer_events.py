@@ -6,11 +6,16 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timedelta, timezone
 import json
+import logging
 import urllib
 
 import numpy as np
 
 from hcultutils.fetch_data import fetch_data
+from hcultinf.detection import SegmentDetector
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG) # Lowest level to capture everything
 
 
 def _iso_utc(ms: int) -> str:
@@ -38,34 +43,50 @@ def _post_observation(ctrl_url: str, note: str, observed_at: str) -> None:
     with urllib.request.urlopen(req, timeout=10) as resp:
         resp.read()
 
+def _has_close_neighbors(sensor, event_time, prev_sensor_times, merge_distance_sec):
+    """
+    Checks if any other sensor has already logged an event within the merge distance.
+    """
+    
+    for other_sensor, logged_times in prev_sensor_times:
+        # print(sensor, other_sensor)
+        if other_sensor != sensor:
+            continue
+            
+        for prev_time in logged_times:
+            # Check if the time difference is within our threshold
+            if abs(event_time - prev_time).seconds <= merge_distance_sec:
+                print("Detected duplicate")
+                return True
+            else:
+                print("No duplicate", abs(event_time - prev_time).seconds)
+                
+    return False
 
-def _get_non_duplicate_events(series, prev_event_times, diff_lag_ms, mad_window_ms, mad_scale, z_pvalue, merge_distance_sec): 
-    events = [] # (note, observed_at)
+
+def _get_non_duplicate_events(series, prev_sensor_times, merge_distance_sec, emwa_tau_minutes, trigger_threshold, release_threshold):
+
+    result = []
+    print(prev_sensor_times)
     for sensor, points in series.items():
-        times_ms = np.array([t.astype(np.int64) for t, _ in points], dtype=np.int64)
+        times = np.array([t for t, _ in points])
         values = np.array([v for _, v in points], dtype=float)
-        _, _, starts = classify_events(times_ms, values, diff_lag_ms, mad_window_ms, mad_scale, z_pvalue)
-        starts_t = sorted(times_ms[starts])
+        ded = SegmentDetector(times, values, emwa_tau_minutes, trigger_threshold, release_threshold)
+        ded.debug_plot()
+        events = ded.get_watering_events()
+        sensor_event_times = [event.start for event in events]
 
-        for tt in starts_t:
-            candidate_nbrs = np.array(list(prev_event_times) + [tk for tk in starts_t if tt != tk])
-            observed_at = _iso_utc(int(tt))
-            nbrs = []
-            for cnbr in candidate_nbrs:
-                delta_sec = abs((cnbr - tt) / 1000)
-                if delta_sec <= merge_distance_sec:
-                    nbrs.append(cnbr)
-            if not len(nbrs):
+        for event_time in sensor_event_times:
+
+            if not _has_close_neighbors(sensor, event_time, prev_sensor_times, merge_distance_sec):
                 note = (
                     "AUTO: "
                     f"{sensor} "
-                    f"z_p={z_pvalue} "
-                    f"lag={diff_lag_ms} "
-                    f"madw={mad_window_ms} "
-                    f"mads={mad_scale} "
+                    f"emwa_tau_minutes={emwa_tau_minutes} "
                 )
-                events.append((note, observed_at))
-    return events
+                iso_string = str(event_time.astype('datetime64[ms]')) + "Z"
+                result.append((note, iso_string))
+    return result
 
 
 def run(args: argparse.Namespace) -> int:
@@ -87,20 +108,19 @@ def run(args: argparse.Namespace) -> int:
         print("No sensor readings found.")
         return 0
 
-    auto_times = sorted(
-        obs_time.astype(np.int64) for _, obs_time, note in observations if note.startswith("AUTO:")
+    prev_sensor_times = sorted(
+        (sensor, obs_time) for sensor, obs_time, note in observations if note.startswith("AUTO:")
     )
 
-    auto_times_np = np.array(auto_times, dtype=np.int64)
+    print(prev_sensor_times)
 
     events = _get_non_duplicate_events(
         series,
-        auto_times_np,
-        args.diff_lag_ms,
-        args.mad_window_ms,
-        args.mad_scale,
-        args.z_pvalue,
-        args.merge_distance_sec,
+        prev_sensor_times,
+        args.merge_distance_seconds,
+        args.emwa_tau_minutes,
+        args.trigger_threshold,
+        args.release_threshold
     )
     
     for note, observed_at in events:

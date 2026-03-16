@@ -34,7 +34,7 @@ class DynamicIntervalInfo:
         if not at_equilibrium:
             try:
                 self.pred_func, self.pred_params_d = self._estimate_negative_lognormal(t_values, vel)
-                self.gof_d = self._cal_goodness_of_fit(t_values, x_values)
+                self.gof_d = self._cal_goodness_of_fit(t_values, vel)
             except RuntimeError as e:
                 print(e)
             except ValueError as e:
@@ -84,9 +84,12 @@ class DynamicIntervalInfo:
         """
         if self.pred_func is None:
             return {"rmse": np.inf, "nrmse": np.inf}
+        
+        # t_num = (t - t[0]).astype('timedelta64[ms]').astype(float) / 1000.0
 
         y_pred = self.pred_func(t)
         residuals = x - y_pred
+
         
         rmse = np.sqrt(np.mean(residuals**2))
         
@@ -139,8 +142,8 @@ class SegmentDetector:
             time_arr,
             values_arr,
             emwa_tau_minutes=30,
-            trigger_thresh=-0.45,
-            release_thresh = -0.35,
+            trigger_thresh=-0.75,
+            release_thresh = -0.70,
             trigger_thresh_acc = -0.015,
             release_thresh_acc = -0.0075,
         ):
@@ -169,6 +172,8 @@ class SegmentDetector:
 
         self._acc_trigger_arr, self._acc_release_arr = lerp_thresholds(
             self._resampled_emwa,
+            3000,
+            1000,
             self._trigger_thresh_acc,
             self._release_thresh_acc,
             self._trigger_thresh_acc / 4.0,
@@ -177,6 +182,8 @@ class SegmentDetector:
 
         self._vel_trigger_arr, self._vel_release_arr = lerp_thresholds(
             self._resampled_emwa,
+            3000,
+            1000,
             self._trigger_thresh,
             self._release_thresh,
             self._trigger_thresh / 4.0,
@@ -253,23 +260,7 @@ class SegmentDetector:
     def get_vel_thresholds(self):
         return self._vel_trigger_arr, self._vel_release_arr
     
-    def get_segment_data_triples(self):
-        """Yield (eq, diseq, eq) triples."""
-        all_segments = sorted(self._diseq_regions + self._eq_regions, key=lambda x: x.start)
-        # If the very first element not at equilibrium, we cut it off
-        # A baseline before an event is required for comparison
-        if not all_segments[0].at_equilibrium:
-            all_segments = all_segments[1:]
-        # Same at the end
-        if not all_segments[-1].at_equilibrium:
-            all_segments = all_segments[:-1]
-        for si in range(1, len(all_segments) - 1, 2):
-            assert all_segments[si - 1].at_equilibrium
-            assert not all_segments[si].at_equilibrium
-            assert all_segments[si + 1].at_equilibrium
-            yield (all_segments[si - 1], all_segments[si], all_segments[si + 1])
-
-    def get_watering_events(self, nmrse_max=40) -> DynamicIntervalInfo:
+    def get_watering_events(self, nmrse_max=0.5) -> DynamicIntervalInfo:
         for deqr in self.get_disequilibrium_intervals():
             if deqr.gof_d:
                 nmrse = deqr.gof_d['nrmse']
@@ -302,15 +293,14 @@ class SegmentDetector:
         for deqr in deq_regions:
             ax2.axvspan(deqr.start, deqr.end, color='green', alpha=0.15)
 
-        eq_triples = list(self.get_segment_data_triples())
-        eq_segments = [eqs for eqtriple in eq_triples for eqs in eqtriple]
+        # eq_segments = [eqs for eqtriple in eq_triples for eqs in eqtriple]
         nmrse_max = 0
 
         for deqr in deq_regions:
-            if deqr.gof_d:
+            if deqr.gof_d and not np.isinf(deqr.gof_d['nrmse']):
                 nmrse = deqr.gof_d['nrmse']
                 nmrse_max = max(nmrse, nmrse_max)
-        for deqr in eq_segments:
+        for deqr in deq_regions:
             if deqr.at_equilibrium:
                 color = 'grey'
             else:
@@ -327,8 +317,9 @@ class SegmentDetector:
                 ax2.plot(self._resampled_times, vpred/max(self._resampled_vel_smoothed), color='black', linestyle='dotted')
                 model_start, model_end = deqr.get_model_active_interval()
                 ax2.axvspan(model_start, model_end, color="blue", alpha=0.15)
+                print(deqr.gof_d['nrmse'])
                 ax2.axvline(x = model_start, ymax = deqr.gof_d['nrmse'] / nmrse_max, color='black')
-
+        print()
         trigger, release = self.get_acc_thresholds()
         ax2.axhline(0, color='tab:blue', linestyle='--', alpha=0.3) # Zero baseline
         ax2.plot(self._resampled_times, trigger / max(self._resampled_acc_smoothed), color='purple', linestyle='--')
@@ -382,11 +373,11 @@ def merge_intervals(interval_lists):
     return [tuple(i) for i in merged]
 
 
-def lerp_thresholds(val, trigger_high, release_high, trigger_low, release_low):
+def lerp_thresholds(val, max_val, min_val, trigger_high, release_high, trigger_low, release_low):
 
     # Linear interp thresholds
-    maxx = max(val)
-    minxx = min(val)
+    maxx = max_val
+    minxx = min_val
     rangex = maxx - minxx
 
     range_trigger = trigger_high - trigger_low

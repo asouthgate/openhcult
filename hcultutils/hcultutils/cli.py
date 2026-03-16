@@ -68,10 +68,28 @@ def _add_plotter_args(parser):
 
 def _add_infer_args(parser):
     parser.add_argument(
+        "--merge_distance_seconds",
+        type=int,
+        default=10,
+        help="Events this close together are considered duplicates",
+    )
+    parser.add_argument(
         "--emwa_tau_minutes",
         type=int,
         default=30,
         help="EMWA scale (minutes); controls how smooth the smoothed curve is",
+    )
+    parser.add_argument(
+        "--trigger_threshold",
+        type=float,
+        default=-0.75,
+        help="Thresholds for triggering candidate events at start of dis-equilibrium state",
+    )
+    parser.add_argument(
+        "--release_threshold",
+        type=float,
+        default=-0.7,
+        help="Threshold for triggering release into equilibrium state",
     )
     parser.add_argument(
         "--limit",

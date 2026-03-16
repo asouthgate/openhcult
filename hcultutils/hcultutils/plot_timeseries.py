@@ -40,6 +40,6 @@ def main(args) -> int:
         times = np.array([t for t, _ in points])
         values = np.array([v for _, v in points], dtype=float)
         times_map[name] = times
-        ded = SegmentDetector(times, values, args.emwa_tau_minutes)
+        ded = SegmentDetector(times, values, args.emwa_tau_minutes, args.trigger_threshold, args.release_threshold)
         ded.debug_plot()
 
