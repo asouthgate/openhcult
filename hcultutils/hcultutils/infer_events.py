@@ -48,18 +48,11 @@ def _has_close_neighbors(sensor, event_time, prev_sensor_times, merge_distance_s
     Checks if any other sensor has already logged an event within the merge distance.
     """
     
-    for other_sensor, logged_times in prev_sensor_times:
-        # print(sensor, other_sensor)
-        if other_sensor != sensor:
-            continue
+    for prev_time in prev_sensor_times:
             
-        for prev_time in logged_times:
-            # Check if the time difference is within our threshold
-            if abs(event_time - prev_time).seconds <= merge_distance_sec:
-                print("Detected duplicate")
-                return True
-            else:
-                print("No duplicate", abs(event_time - prev_time).seconds)
+        # Check if the time difference is within our threshold
+        if abs(event_time - prev_time) <= merge_distance_sec:
+            return True
                 
     return False
 
@@ -74,7 +67,7 @@ def _get_non_duplicate_events(series, prev_sensor_times, merge_distance_sec, emw
         ded = SegmentDetector(times, values, emwa_tau_minutes, trigger_threshold, release_threshold)
         ded.debug_plot()
         events = ded.get_watering_events()
-        sensor_event_times = [event.start for event in events]
+        sensor_event_times = [event.get_model_active_interval()[0] for event in events]
 
         for event_time in sensor_event_times:
 
@@ -109,7 +102,7 @@ def run(args: argparse.Namespace) -> int:
         return 0
 
     prev_sensor_times = sorted(
-        (sensor, obs_time) for sensor, obs_time, note in observations if note.startswith("AUTO:")
+        obs_time for sensor, obs_time, note in observations if note.startswith("AUTO")
     )
 
     print(prev_sensor_times)

@@ -43,9 +43,9 @@ class DynamicIntervalInfo:
     def _estimate_negative_lognormal(self, t, x):
         t_num = (t - t[0]).astype('timedelta64[ms]').astype(float) / 1000.0
     
-        def model(t_val, h, x_p, w):
-            t_shifted = t_val - (t_num[0] - 1.0) 
-            xp_shifted = x_p - (t_num[0] - 1.0)
+        def model(t_val, h, x_p, w, shift):
+            t_shifted = t_val - shift
+            xp_shifted = x_p 
             res = np.zeros_like(t_val)
             mask = t_shifted > 0
             exponent = -(np.log(t_shifted[mask] / xp_shifted)**2) / (2 * w**2)
@@ -58,14 +58,15 @@ class DynamicIntervalInfo:
 
         max_t = t_num[-1]
         peak_t = t_num[np.argmin(x)]
+        duration = t_num[-1] - t_num[0]
 
-        lower_bounds = [min_val * 2.0, 0, 0.2]
-        upper_bounds = [0, max_t, 2.0]
+        lower_bounds = [min_val * 2.0, 0, 0.2, 0.0]
+        upper_bounds = [0, max_t, 2.0, duration]
 
         try:
             popt, _ = curve_fit(
                 model, t_num, x, 
-                p0=[min_val, peak_t, 0.5],
+                p0=[min_val, peak_t, 0.5, 0.0],
                 bounds=(lower_bounds, upper_bounds)
             )
         except:
@@ -75,8 +76,8 @@ class DynamicIntervalInfo:
             t_in = (t_input - t[0]).astype('timedelta64[ms]').astype(float) / 1000.0
             return model(t_in, *popt)
         
-        h_fit, xp_fit, w_fit = popt
-        return fit_func, {"h": h_fit, "xp:": xp_fit, "w": w_fit}
+        h_fit, xp_fit, w_fit, shift_fit = popt
+        return fit_func, {"h": h_fit, "xp:": xp_fit, "w": w_fit, "shift": shift_fit}
     
     def _cal_goodness_of_fit(self, t, x):
         """
