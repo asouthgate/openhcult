@@ -57,16 +57,27 @@ A hierarchical approach was taken to segmentation with coarse and fine steps. Fo
 \tilde{X}_t = \exp^{-\Delta t/\tau} \tilde{X}_{i-1} + (1-\exp^{-\Delta t/\tau}) X_i
 \]
 
-After smoothing, the data was resampled and derivatives were approximated by finite differences (second order) \cite{griffiths2006numerical}. Two thresholds were defined for identification of high-velocity state regions: a trigger threshold $v_{trigger}$ and a release threshold $v_{release}$ (see relay with hysteresis \cite{khalil2002nonlinear}). Once the trigger is passed at a high instantaneous velocity, it must decrease beyond the release to return to the `low-velocity` state. Given that sensor data decreases with moisture content, only negative velocity regions were taken.\\
-
-It is possible in operation that several watering events will happen in rapid succession before system equilibriation. So, given an initial segmented sequence of data into `negative-velocity' (non-equilibrium) and `low-velocity' (close to equilibrium) regions, a within-block fine-grained step was undertaken. In the high-velocity state, a second relay with hysteresis was applied to the second derivative. In this case, adaptive thresholding was used. Given that the sensor response curve has variable sensitivity to input, sensor values were used for adaptive filtering, with thresholds decreasing with sensor values:
+After smoothing, the data was resampled and derivatives were approximated by finite differences (second order) \cite{griffiths2006numerical}. Two thresholds were defined for identification of high-velocity state regions: a trigger threshold $v_{trigger}$ and a release threshold $v_{release}$ (see relay with hysteresis \cite{khalil2002nonlinear}). Once the trigger is passed at a high instantaneous velocity, it must decrease beyond the release to return to the `low-velocity` state. Given that sensor data decreases with moisture content, only negative velocity regions were taken. Given that the sensor response curve has variable sensitivity to input, sensor values were used for adaptive filtering, with thresholds decreasing with sensor values:
 
 \[
 a_{trigger,j} = \frac{a_{high} - a_{low}}{x_{max}-x_{min}}(X_j-x_{min}) + a_{low}
 \]
 
+For extracted regions identified as `high-velocity', a log-normal was fit to the data by least squares and normalized root mean square error (RMSE) captured for downstream classification. Matched filtering \cite{smith1997scientist} is common for identifying signals. Log-normal fits were used for simplicity and flexibility. \hl{See theoretical justifications; hydraulic conductivity, multi-paths and Gibrat's law, Richards equation, find citations}.\\
+
 See Appendix \ref{fig:myfigure} for an example of segmentation for a single segment of raw sensor data.
 
+\section{Results}
+
+\subsection{Segmentation}
+
+\subsubsection{Sensitivity and specificity}
+
+\subsubsection{Log-normal fit}
+
+\subsection{Calibration}
+
+\section{Discussion}
 
 \section{Appendix}
 

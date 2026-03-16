@@ -35,13 +35,11 @@ def main(args) -> int:
 
     times_map = {}
 
-    emwa_tau_minutes = 60
-
     for idx, name in enumerate(sensor_names):
         points = series[name]
         times = np.array([t for t, _ in points])
         values = np.array([v for _, v in points], dtype=float)
         times_map[name] = times
-        ded = SegmentDetector(times, values, emwa_tau_minutes)
+        ded = SegmentDetector(times, values, args.emwa_tau_minutes)
         ded.debug_plot()
 

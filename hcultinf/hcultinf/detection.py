@@ -30,10 +30,11 @@ class DynamicIntervalInfo:
             self.m, self.c = np.polyfit(t_numeric, x_values, 1)
         except np.linalg.LinAlgError as e:
             print(e)
-        self.v_pred = None
+        self.pred_func, self.pred_params_d, self.gof_d = None, None, None
         if not at_equilibrium:
             try:
-                self.v_pred = self._estimate_negative_lognormal(t_values, vel)
+                self.pred_func, self.pred_params_d = self._estimate_negative_lognormal(t_values, vel)
+                self.gof_d = self._cal_goodness_of_fit(t_values, x_values)
             except RuntimeError as e:
                 print(e)
             except ValueError as e:
@@ -42,34 +43,24 @@ class DynamicIntervalInfo:
     def _estimate_negative_lognormal(self, t, x):
         t_num = (t - t[0]).astype('timedelta64[ms]').astype(float) / 1000.0
     
-        # x_p: peak time, h: peak height, w: width/skew factor
         def model(t_val, h, x_p, w):
-            # We use a localized log-normal shape
-            # This is more stable: exp(- (ln(t/xp)/w)^2 )
-            # Shift t so that the start of the window isn't 0 (log(0) is bad)
             t_shifted = t_val - (t_num[0] - 1.0) 
             xp_shifted = x_p - (t_num[0] - 1.0)
-            
-            # Guard against t <= 0 for log
             res = np.zeros_like(t_val)
             mask = t_shifted > 0
-            
             exponent = -(np.log(t_shifted[mask] / xp_shifted)**2) / (2 * w**2)
             res[mask] = h * np.exp(np.clip(exponent, -700, 0))
             return res
 
         min_val = np.min(x)
         if min_val >= 0:
-            return lambda t_inp: np.zeros_like(t_inp).astype(float)
+            return lambda t_inp: np.zeros_like(t_inp).astype(float), {}
 
         max_t = t_num[-1]
         peak_t = t_num[np.argmin(x)]
 
-        # Bounds: 
-        # h: [depth, 0], x_p: [window], w: [min_width, max_width]
-        # Increasing the lower bound of 'w' (width) prevents the "skinny" spike.
-        lower_bounds = [min_val * 2.0, 0, 0.2] # w=0.2 is the "anti-skinny" floor
-        upper_bounds = [0, max_t, 2.0]        # w=2.0 is very fat/lazy
+        lower_bounds = [min_val * 2.0, 0, 0.2]
+        upper_bounds = [0, max_t, 2.0]
 
         try:
             popt, _ = curve_fit(
@@ -78,13 +69,37 @@ class DynamicIntervalInfo:
                 bounds=(lower_bounds, upper_bounds)
             )
         except:
-            return lambda t_inp: np.zeros_like(t_inp).astype(float)
+            return lambda t_inp: np.zeros_like(t_inp).astype(float), {}
 
         def fit_func(t_input):
             t_in = (t_input - t[0]).astype('timedelta64[ms]').astype(float) / 1000.0
             return model(t_in, *popt)
+        
+        h_fit, xp_fit, w_fit = popt
+        return fit_func, {"h": h_fit, "xp:": xp_fit, "w": w_fit}
+    
+    def _cal_goodness_of_fit(self, t, x):
+        """
+        Calculates error metrics for a candidate fit.
+        """
+        if self.pred_func is None:
+            return {"rmse": np.inf, "nrmse": np.inf}
 
-        return fit_func
+        y_pred = self.pred_func(t)
+        residuals = x - y_pred
+        
+        rmse = np.sqrt(np.mean(residuals**2))
+        
+        # Range-normalized RMSE
+        data_range = np.max(x) - np.min(x)
+        nrmse = rmse / data_range if data_range != 0 else np.inf
+        
+        return {
+            "rmse": rmse,
+            "nrmse": nrmse,
+            "max_residual": np.max(np.abs(residuals))
+        }
+    
 class SegmentDetector:
     """Takes sensor data and identifies regions in (dis)equilibrium."""
     def __init__(
@@ -265,8 +280,8 @@ class SegmentDetector:
                 
                 x2 = (duration_ms * deqr.m) + deqr.c
                 ax1.plot([deqr.start, deqr.end], [x1, x2], color='red', linewidth=2)
-            if deqr.v_pred is not None:
-                vpred = deqr.v_pred(self._resampled_times)
+            if deqr.pred_func is not None:
+                vpred = deqr.pred_func(self._resampled_times)
                 ax2.plot(self._resampled_times, vpred/max(self._resampled_vel_smoothed), color='black', linestyle='dotted')
 
         acc_regions = self.get_neg_acceleration_intervals()
@@ -297,42 +312,6 @@ class SegmentDetector:
         fig.tight_layout()
         plt.show()
 
-
-def find_regions_with_hysteresis(times, vel, trigger=-0.015, release=-0.005, direction=-1):
-    """ Use a two-threshold trigger and release to determine ON and OFF states
-
-    Parameters
-    ----------
-        times: array of time values
-        vel: array of values (e.g. velocity)
-        trigger: threshold for trigger
-        release: threshold for release
-        direction: -1 up toward zero, 1 down toward zero; -1 corresponds to negative velocity increase
-    
-    """
-
-    if direction == -1:
-        assert release < 0
-        assert trigger < 0
-
-    regions = []
-    active = False
-    start_ind = None
-    
-    for j, tv in enumerate(zip(times, vel)):
-        t, v = tv
-        if active and direction * v < direction * release:
-            active = False
-            regions.append((start_ind, j))
-        if not active and direction * v > direction * trigger:
-            active = True
-            start_ind = j
-            
-    # Handle event still active at end of data
-    if active:
-        regions.append((start_ind, len(times) - 1))
-        
-    return regions
 
 def merge_intervals(interval_lists):
 
