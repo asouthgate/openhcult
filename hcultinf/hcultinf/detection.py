@@ -100,6 +100,38 @@ class DynamicIntervalInfo:
             "max_residual": np.max(np.abs(residuals))
         }
     
+    def get_model_active_interval(self, threshold_pct=0.01):
+        if self.pred_func is None:
+            return self.start, self.end
+
+        seg_dur_sec = self.duration / np.timedelta64(1, 's')
+        search_start_num = -seg_dur_sec * 5 
+        search_end_num = seg_dur_sec * 5
+        
+        num_points = 5000
+        t_grid_num = np.linspace(search_start_num, search_end_num, num_points)
+        t_grid_dt = self.start + (t_grid_num * 1e3).astype('timedelta64[ms]')
+        
+        y_values = self.pred_func(t_grid_dt)
+        dy = np.abs(np.gradient(y_values, t_grid_num))
+        
+        max_slope = np.max(dy)
+        if max_slope == 0:
+            return self.start, self.end
+            
+        active_indices = np.where(dy > (max_slope * threshold_pct))[0]
+        
+        if len(active_indices) == 0:
+            return self.start, self.end
+
+        t_start_active = t_grid_num[active_indices[0]]
+        t_end_active = t_grid_num[active_indices[-1]]
+        
+        t0_estimate = self.start + np.timedelta64(int(t_start_active * 1000), 'ms')
+        tend_estimate = self.start + np.timedelta64(int(t_end_active * 1000), 'ms')
+        
+        return t0_estimate, tend_estimate
+    
 class SegmentDetector:
     """Takes sensor data and identifies regions in (dis)equilibrium."""
     def __init__(
@@ -237,6 +269,13 @@ class SegmentDetector:
             assert all_segments[si + 1].at_equilibrium
             yield (all_segments[si - 1], all_segments[si], all_segments[si + 1])
 
+    def get_watering_events(self, nmrse_max=40) -> DynamicIntervalInfo:
+        for deqr in self.get_disequilibrium_intervals():
+            if deqr.gof_d:
+                nmrse = deqr.gof_d['nrmse']
+                if nmrse < nmrse_max:
+                    yield deqr
+
     def debug_plot(self):
         fig, ax1 = plt.subplots(figsize=(12, 6))
 
@@ -265,29 +304,30 @@ class SegmentDetector:
 
         eq_triples = list(self.get_segment_data_triples())
         eq_segments = [eqs for eqtriple in eq_triples for eqs in eqtriple]
+        nmrse_max = 0
+
+        for deqr in deq_regions:
+            if deqr.gof_d:
+                nmrse = deqr.gof_d['nrmse']
+                nmrse_max = max(nmrse, nmrse_max)
         for deqr in eq_segments:
             if deqr.at_equilibrium:
                 color = 'grey'
             else:
                 color = 'orange'
-            ax2.axvspan(deqr.start, deqr.end, color=color, alpha=0.15)
+            ax2.axvspan(deqr.start, deqr.end, color=color, alpha=0.05)
 
             if deqr.m is not None and deqr.at_equilibrium:
                 x1 = deqr.c 
-                
-                # Force [ms] here too to match the slope 'm'
                 duration_ms = (deqr.end - deqr.start).astype('timedelta64[ms]').astype('int64')
-                
                 x2 = (duration_ms * deqr.m) + deqr.c
                 ax1.plot([deqr.start, deqr.end], [x1, x2], color='red', linewidth=2)
             if deqr.pred_func is not None:
                 vpred = deqr.pred_func(self._resampled_times)
                 ax2.plot(self._resampled_times, vpred/max(self._resampled_vel_smoothed), color='black', linestyle='dotted')
-
-        acc_regions = self.get_neg_acceleration_intervals()
-        for deqr in acc_regions:
-            ax2.axvspan(deqr.start, deqr.end, color='orange', alpha=0.15)
-
+                model_start, model_end = deqr.get_model_active_interval()
+                ax2.axvspan(model_start, model_end, color="blue", alpha=0.15)
+                ax2.axvline(x = model_start, ymax = deqr.gof_d['nrmse'] / nmrse_max, color='black')
 
         trigger, release = self.get_acc_thresholds()
         ax2.axhline(0, color='tab:blue', linestyle='--', alpha=0.3) # Zero baseline
@@ -298,14 +338,12 @@ class SegmentDetector:
         ax2.plot(self._resampled_times, trigger / max(self._resampled_vel_smoothed), color='red', linestyle='--')
         ax2.plot(self._resampled_times, release / max(self._resampled_vel_smoothed), color='red', linestyle='--')
 
-
         ax2.set_ylabel('Normalized values (derivatives)', color='tab:red')
         ax2.tick_params(axis='y', labelcolor='tab:red')
 
         lines_1, labels_1 = ax1.get_legend_handles_labels()
         lines_2, labels_2 = ax2.get_legend_handles_labels()
 
-        # 2. Combine them and call legend on just one of the axes
         ax1.legend(lines_1 + lines_2, labels_1 + labels_2, loc='upper left')
         plt.title('Moisture Levels vs. Smoothed Velocity')
         plt.savefig("segmentation.png")
@@ -316,7 +354,6 @@ class SegmentDetector:
 def merge_intervals(interval_lists):
 
     assert len(interval_lists) > 1, "Expected to merge more than one list"
-    
 
     intervals = []
     for il in interval_lists:
