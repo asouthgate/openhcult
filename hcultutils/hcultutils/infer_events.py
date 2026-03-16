@@ -60,12 +60,10 @@ def _has_close_neighbors(sensor, event_time, prev_sensor_times, merge_distance_s
 def _get_non_duplicate_events(series, prev_sensor_times, merge_distance_sec, emwa_tau_minutes, trigger_threshold, release_threshold):
 
     result = []
-    print(prev_sensor_times)
     for sensor, points in series.items():
         times = np.array([t for t, _ in points])
         values = np.array([v for _, v in points], dtype=float)
         ded = SegmentDetector(times, values, emwa_tau_minutes, trigger_threshold, release_threshold)
-        ded.debug_plot()
         events = ded.get_watering_events()
         sensor_event_times = [event.get_model_active_interval()[0] for event in events]
 
@@ -84,7 +82,6 @@ def _get_non_duplicate_events(series, prev_sensor_times, merge_distance_sec, emw
 
 def run(args: argparse.Namespace) -> int:
     ctrl_url = args.ctrl_url or "http://127.0.0.1:8000"
-    print(args)
     if args.start_utc or args.end_utc:
         end = _parse_utc(args.end_utc) if args.end_utc else datetime.now(timezone.utc)
         start = _parse_utc(args.start_utc) if args.start_utc else end - timedelta(hours=args.hours)
@@ -102,10 +99,8 @@ def run(args: argparse.Namespace) -> int:
         return 0
 
     prev_sensor_times = sorted(
-        obs_time for sensor, obs_time, note in observations if note.startswith("AUTO")
+        obs_time for _, obs_time, note in observations if note.startswith("AUTO")
     )
-
-    print(prev_sensor_times)
 
     events = _get_non_duplicate_events(
         series,

@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd 
 from scipy.optimize import curve_fit
+from scipy.integrate import quad
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG) # Lowest level to capture everything
@@ -34,6 +35,7 @@ class DynamicIntervalInfo:
         if not at_equilibrium:
             try:
                 self.pred_func, self.pred_params_d = self._estimate_negative_lognormal(t_values, vel)
+                self.integral, _ = quad(self.pred_func, t_numeric[0], t_numeric[-1])
                 self.gof_d = self._cal_goodness_of_fit(t_values, vel)
             except RuntimeError as e:
                 print(e)
@@ -73,7 +75,11 @@ class DynamicIntervalInfo:
             return lambda t_inp: np.zeros_like(t_inp).astype(float), {}
 
         def fit_func(t_input):
-            t_in = (t_input - t[0]).astype('timedelta64[ms]').astype(float) / 1000.0
+            # print(t_input[0])
+            if isinstance(t_input, float):
+                t_in = t_input
+            else:
+                t_in = (t_input - t[0]).astype('timedelta64[ms]').astype(float) / 1000.0
             return model(t_in, *popt)
         
         h_fit, xp_fit, w_fit, shift_fit = popt
@@ -177,8 +183,8 @@ class SegmentDetector:
             1000,
             self._trigger_thresh_acc,
             self._release_thresh_acc,
-            self._trigger_thresh_acc / 4.0,
-            self._release_thresh_acc / 4.0
+            self._trigger_thresh_acc / 2.0,
+            self._release_thresh_acc / 2.0
         )
 
         self._vel_trigger_arr, self._vel_release_arr = lerp_thresholds(
@@ -187,8 +193,8 @@ class SegmentDetector:
             1000,
             self._trigger_thresh,
             self._release_thresh,
-            self._trigger_thresh / 4.0,
-            self._release_thresh / 4.0
+            self._trigger_thresh / 2.0,
+            self._release_thresh / 2.0
         )
         
         # Indices for regions with velocity ON
@@ -318,7 +324,7 @@ class SegmentDetector:
                 ax2.plot(self._resampled_times, vpred/max(self._resampled_vel_smoothed), color='black', linestyle='dotted')
                 model_start, model_end = deqr.get_model_active_interval()
                 ax2.axvspan(model_start, model_end, color="blue", alpha=0.15)
-                print(deqr.gof_d['nrmse'])
+                print(deqr.gof_d['nrmse'], deqr.integral, deqr.pred_params_d)
                 ax2.axvline(x = model_start, ymax = deqr.gof_d['nrmse'] / nmrse_max, color='black')
         print()
         trigger, release = self.get_acc_thresholds()
