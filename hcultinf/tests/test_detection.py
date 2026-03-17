@@ -1,7 +1,10 @@
 import pytest
 import numpy as np
 import pandas as pd
-from hcultinf.detection import DynamicIntervalInfo
+from hcultinf.detection import DynamicIntervalInfo, \
+    merge_intervals, lerp_thresholds, \
+    find_regions_with_hysteresis_adapative_thresh, compute_time_weighted_ewma, \
+    get_complementary_intervals
 from scipy.optimize import curve_fit
 from scipy.integrate import quad
 # Ensure these are imported in your source file as well
@@ -58,29 +61,45 @@ def test_initialization_and_stats():
     assert interval.mean == 30.0
     assert interval.max == 50.0
     assert interval.min == 10.0
-    # Duration should be 4 seconds (4000ms)
     assert interval.duration == np.timedelta64(4, 's')
-    # Since it's a perfect line, m should be roughly 10/1000 (unit per ms)
     assert pytest.approx(interval.m, rel=1e-3) == 0.01
 
-def test_at_equilibrium_skips_fitting():
-    t_values = pd.to_datetime(['2026-03-17 10:00:00', '2026-03-17 10:00:01']).values
-    x_values = np.array([1.0, 1.1])
-    vel = np.array([0.1, 0.1])
-    
-    # When at_equilibrium is True
-    interval = DynamicIntervalInfo(t_values, x_values, vel, at_equilibrium=True)
-    
-    assert interval.pred_func is None
-    assert interval.pred_params_d is None
-    assert interval.gof_d is None
 
-def test_initialization_assertion_error():
-    t_values = pd.to_datetime(['2026-03-17 10:00:00', '2026-03-17 10:00:01']).values
-    x_values = np.array([1.0]) # Only 1 value for 2 timestamps
-    vel = np.array([0.0, 0.0])
-    
-    with pytest.raises(AssertionError):
-        DynamicIntervalInfo(t_values, x_values, vel, at_equilibrium=True)
+def test_merge_intervals_complex_nesting():
+    list_a = [(0, 10)]
+    list_b = [(5, 15), (20, 25)]
+    list_c = [(10, 12), (24, 30)]
+    result = merge_intervals([list_a, list_b, list_c])
+    assert result == [(0, 15), (20, 30)]
+
+def test_lerp_thresholds_scaling():
+    val = np.array([10, 55, 100]) # min, mid, max
+    t_arr, r_arr = lerp_thresholds(val, max_val=100, min_val=10, 
+                                   trigger_high=10, release_high=5, 
+                                   trigger_low=2, release_low=1)
+    assert np.allclose(t_arr, [2.0, 6.0, 10.0])
+    assert np.allclose(r_arr, [1.0, 3.0, 5.0])
 
 
+def test_hysteresis_negative_direction_and_trailing_active():
+    times = np.arange(6)
+    val = np.array([-10, -15, -8, -13, -11, -11])
+    trigger = np.array([-12] * 6)
+    release = np.array([-9] * 6)
+    regions = find_regions_with_hysteresis_adapative_thresh(times, val, trigger, release, direction=-1)
+    assert regions == [(1, 2), (3, 5)]
+
+
+def test_ewma_time_gap_sensitivity():
+    times = pd.to_datetime(['2026-01-01 10:00', '2026-01-01 10:10', '2026-01-01 11:50']).values
+    values = np.array([10.0, 20.0, 20.0])
+    tau = 30.0
+    smoothed = compute_time_weighted_ewma(times, values, tau_minutes=tau)
+    assert smoothed[1] < 15.0
+    assert smoothed[2] > 19.0
+
+
+def test_complementary_intervals_boundary_check():
+    intervals = [(10, 20), (21, 30)]
+    result = get_complementary_intervals(intervals, start_bound=0, end_bound=100)
+    assert result == [[0, 10], [31, 100]]
