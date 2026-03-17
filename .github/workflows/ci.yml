@@ -22,6 +22,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install numpy pandas scipy pytest matplotlib
+          pip install ./hcultinf
 
       - name: Run Detection Logic Tests
         # This covers the DynamicIntervalInfo and SegmentDetector logic
