@@ -4,7 +4,7 @@ import pandas as pd
 from hcultinf.detection import DynamicIntervalInfo, \
     merge_intervals, lerp_thresholds, \
     find_regions_with_hysteresis_adapative_thresh, compute_time_weighted_ewma, \
-    get_complementary_intervals
+    get_complementary_intervals, SegmentDetector
 from scipy.optimize import curve_fit
 from scipy.integrate import quad
 # Ensure these are imported in your source file as well
@@ -39,7 +39,6 @@ def test_lognormal_fit_and_active_interval():
     
     t0_active, tend_active = interval.get_model_active_interval(threshold_pct=0.05)
     
-    # Convert back to relative seconds for easy comparison
     start_offset = (t0_active - t_start) / np.timedelta64(1, 's')
     end_offset = (tend_active - t_start) / np.timedelta64(1, 's')
     
@@ -48,7 +47,6 @@ def test_lognormal_fit_and_active_interval():
     assert end_offset > start_offset
 
 def test_initialization_and_stats():
-    # Setup: 5 samples, 1 second apart
     t_values = pd.to_datetime(['2026-03-17 10:00:00', '2026-03-17 10:00:01', 
                                '2026-03-17 10:00:02', '2026-03-17 10:00:03', 
                                '2026-03-17 10:00:04']).values
@@ -103,3 +101,45 @@ def test_complementary_intervals_boundary_check():
     intervals = [(10, 20), (21, 30)]
     result = get_complementary_intervals(intervals, start_bound=0, end_bound=100)
     assert result == [[0, 10], [31, 100]]
+
+def test_segment_detector_integration_flow():
+    """
+    Integration test: Verifies that a sharp drop in values triggers a 
+    disequilibrium interval and that the resulting interval is 
+    correctly classified as a 'watering event'.
+    """
+    times = pd.date_range("2026-03-17 10:00:00", periods=120, freq="1min").values
+    
+    values = np.concatenate([
+        np.full(40, 3000.0),
+        np.linspace(3000, 1000, 20),
+        np.full(60, 1000.0)
+    ])
+
+    detector = SegmentDetector(
+        time_arr=times,
+        values_arr=values,
+        emwa_tau_minutes=5,
+        trigger_thresh=-5.0,
+        release_thresh=-1.0
+    )
+
+    detector.debug_plot()
+
+    diseq_intervals = detector.get_disequilibrium_intervals()
+    eq_intervals = detector.get_equilibrium_intervals()
+
+    assert len(diseq_intervals) > 0
+    assert len(eq_intervals) >= 2
+
+    watering_events = list(detector.get_watering_events(nmrse_max=0.5))
+    
+    assert len(watering_events) > 0
+
+    event = watering_events[0]
+    event_start_time = pd.Timestamp(event.start)
+    assert event_start_time.hour == 10
+    assert event_start_time.minute >= 35
+
+    v_trigger, _ = detector.get_vel_thresholds()
+    assert v_trigger[0] < v_trigger[-1]

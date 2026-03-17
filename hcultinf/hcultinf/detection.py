@@ -153,7 +153,10 @@ class SegmentDetector:
             release_thresh = -0.70,
             trigger_thresh_acc = -0.015,
             release_thresh_acc = -0.0075,
+            max_x_value = 3000,
+            min_x_value = 1000
         ):
+
         self._time_arr = time_arr
         self._values_arr = values_arr
         self._emwa_tau_minutes = emwa_tau_minutes
@@ -179,8 +182,8 @@ class SegmentDetector:
 
         self._acc_trigger_arr, self._acc_release_arr = lerp_thresholds(
             self._resampled_emwa,
-            3000,
-            1000,
+            max_x_value,
+            min_x_value,
             self._trigger_thresh_acc,
             self._release_thresh_acc,
             self._trigger_thresh_acc / 2.0,
@@ -189,8 +192,8 @@ class SegmentDetector:
 
         self._vel_trigger_arr, self._vel_release_arr = lerp_thresholds(
             self._resampled_emwa,
-            3000,
-            1000,
+            max_x_value,
+            min_x_value,
             self._trigger_thresh,
             self._release_thresh,
             self._trigger_thresh / 2.0,
@@ -289,7 +292,7 @@ class SegmentDetector:
             color='#ad444f', label='Smoothed velocity (EWMA)', linewidth=1
         )
         ax2.plot(
-            self._resampled_times-self._emwa_tau_minutes,
+            self._resampled_times-np.timedelta64(int(self._emwa_tau_minutes), 'm'),
             self._resampled_acc_smoothed/max(self._resampled_acc_smoothed),
             color='purple',
             label='Smoothed acceleration (EWMA)',
@@ -300,7 +303,6 @@ class SegmentDetector:
         for deqr in deq_regions:
             ax2.axvspan(deqr.start, deqr.end, color='green', alpha=0.15)
 
-        # eq_segments = [eqs for eqtriple in eq_triples for eqs in eqtriple]
         nmrse_max = 0
 
         for deqr in deq_regions:
