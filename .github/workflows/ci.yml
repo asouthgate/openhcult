@@ -25,7 +25,7 @@ jobs:
 
       - name: Run Detection Logic Tests
         # This covers the DynamicIntervalInfo and SegmentDetector logic
-        run: pytest tests/test_detection.py
+        run: bash tests/run_unit_tests.sh
 
   # Job 2: Integration and Infrastructure (Docker)
   smoke-test:
@@ -39,11 +39,10 @@ jobs:
 
       - name: Run Smoke Test Script
         env:
-          # Match your script's expected variables
           OPENHCULT_COMPOSE_CMD: "docker compose"
           OPENHCULT_BASE_URL: "http://127.0.0.1:8000"
           OPENHCULT_SMOKE_TIMEOUT_S: "120"
-          # DB_URL matches the service name in your compose file
+          # CICD dummy user/pass
           OPENHCULT_SMOKE_DB_URL: "postgresql://hcult:hcult@postgres:5432/hcult"
         run: |
           chmod +x tests/run_docker_smoke_tests.py
