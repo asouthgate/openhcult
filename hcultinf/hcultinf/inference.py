@@ -1,8 +1,7 @@
-"""Inference helpers for sensor time series."""
-
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd 
 
 from scipy.stats import norm
 from scipy.integrate import cumulative_trapezoid
@@ -13,101 +12,6 @@ from scipy.optimize import minimize
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, ConstantKernel
 
-
-def compute_diff(values: np.ndarray, lag_arr: int) -> np.ndarray:
-    out = np.full(values.shape, np.nan, dtype=float)
-    for idx in range(values.size):
-        lag_idx = idx - lag_arr[idx]
-        if lag_idx < 0:
-            continue
-        if not np.isfinite(values[idx]) or not np.isfinite(values[lag_idx]):
-            continue
-        out[idx] = values[idx] - values[lag_idx]
-    return out
-
-
-def rolling_mad(values: np.ndarray, window_arr: int) -> np.ndarray:
-    out = np.full(values.shape, np.nan, dtype=float)
-    for idx in range(values.size):
-        start = max(0, idx - window_arr[idx] + 1)
-        window_slice = values[start : idx + 1]
-        window_slice = window_slice[np.isfinite(window_slice)]
-        if window_slice.size == 0:
-            continue
-        median = np.median(window_slice)
-        mad = np.median(np.abs(window_slice - median))
-        out[idx] = mad
-    return out
-
-
-def compute_zscore(values: np.ndarray, *, lag_arr: int, mad_window_arr: int, c: float) -> np.ndarray:
-    diffs = compute_diff(values, lag_arr)
-    mads = rolling_mad(diffs, mad_window_arr) + 1e-5  # Avoid division by zero
-    sigma = c * mads
-    z = np.full(values.shape, np.nan, dtype=float)
-    valid = np.isfinite(diffs) & np.isfinite(sigma) & (sigma > 0)
-    z[valid] = diffs[valid] / sigma[valid]
-    return z
-
-
-def run_lengths_at_starts(arr):
-    arr = np.asarray(arr, dtype=bool)
-    n = arr.size
-    if n == 0:
-        return np.array([], dtype=int)
-
-    # run starts (True at the first index of each constant segment)
-    run_start = np.r_[True, arr[1:] != arr[:-1]]
-    starts = np.flatnonzero(run_start)
-
-    # run lengths
-    run_len = np.diff(np.r_[starts, n])
-
-    out = np.zeros(n, dtype=int)
-    out[starts] = run_len
-    return out
-
-
-def classify_events(times: np.ndarray, values: np.ndarray, lag_ms: np.int64, mad_window_ms: np.int64, c: float, pthresh: float) -> np.ndarray:
-    """ Classify events in a time series based on z-scores of differences.
-
-    Returns:
-    - triggers: Boolean array indicating where events are triggered.
-    - run_lengths: Array of the same shape as values, where each element is the length of the run of consecutive triggers starting at that index (0 if not a trigger).
-    - starts: Boolean array indicating the start of runs of triggers that are at least as long as the lag.
-    """
-    # For each value point, we need to map lag_ms to lag and mad_window_ms to mad_window based on times.
-    lag_arr = []
-    mad_window_arr = []
-
-    for idx in range(times.size):
-        current_time = times[idx]
-        lag_time = current_time - np.timedelta64(lag_ms, 'ms')
-        mad_window_time = current_time - np.timedelta64(mad_window_ms, 'ms')
-
-        # Find the indices of the lag and mad window
-        lag_idx = np.searchsorted(times[:idx], lag_time, side='right') - 1
-        mad_window_idx = np.searchsorted(times[:idx], mad_window_time, side='right') - 1
-
-        lag_arr.append(idx - lag_idx if lag_idx >= 0 else 0)
-        mad_window_arr.append(idx - mad_window_idx if mad_window_idx >= 0 else 0)
-
-    lag_arr = np.array(lag_arr, dtype=int)
-    mad_window_arr = np.array(mad_window_arr, dtype=int)
-    lag_arr = np.ones(len(lag_arr), dtype=int) * 5
-    mad_window_arr = np.ones(len(mad_window_arr), dtype=int) * 100
-    zscores = compute_zscore(values, lag_arr=lag_arr, mad_window_arr=mad_window_arr, c=c)
-    pvalues = zscore_pvalues(zscores)
-    triggers = pvalues < pthresh
-    run_lengths = run_lengths_at_starts(triggers)
-    start_lengths = run_lengths * triggers
-    starts = start_lengths >= lag_arr
-    return triggers, run_lengths, starts
-
-
-def zscore_pvalues(zscores: np.ndarray) -> np.ndarray:
-    pvals = 2 * (1 - norm.cdf(np.abs(zscores)))
-    return pvals
 
 def fit_monotonic_spline(x, y, inner_knots, k=3):
     # Sort for the spline engine
@@ -147,14 +51,14 @@ def fit_parametric_monotonic_spline(x_anchors, z_anchors, x_der, dz_dx, knots=10
     s_der = (x_der - x_min) / (x_max - x_min)
     s_anc = (x_anchors - x_min) / (x_max - x_min)
     
-    if type(knots) is int:
-        n_int = knots
-        inner = np.linspace(0, 1, n_int + 2)[1:-1]
-        t = np.concatenate(([0.0]*(k+1), inner, [1.0]*(k+1)))
-    else:
-        # Assume n_int is already the inner knots
-        inner = np.asarray(knots)
-        t = np.concatenate(([0.0]*(k+1), inner, [1.0]*(k+1)))  
+    # if type(knots) is int:
+    n_int = knots
+    inner = np.linspace(0, 1, n_int + 2)[1:-1]
+    t = np.concatenate(([0.0]*(k+1), inner, [1.0]*(k+1)))
+    # else:
+    #     # Assume n_int is already the inner knots
+    #     inner = np.asarray(knots)
+    #     t = np.concatenate(([0.0]*(k+1), inner, [1.0]*(k+1)))  
     n_c = len(t) - k - 1
     
     # Initial guess
@@ -256,5 +160,127 @@ def compute_lookup_table_from_bootstrap(boot_splines, x_min, x_max, n_points=100
     z_mean = np.mean(z_grid, axis=0)
     z_lower = np.percentile(z_grid, 2.5, axis=0)
     z_upper = np.percentile(z_grid, 97.5, axis=0)
+    z_std = np.std(z_grid, axis=0)
+
+    lookup_df = pd.DataFrame({
+        "x": x_grid,
+        "swc": z_mean,
+        "swc_std": z_std,
+        "swc_upper_95%": z_upper,
+        "swc_lower_95%": z_lower,
+    })
+
     
-    return x_grid, z_mean, z_lower, z_upper
+    return lookup_df
+
+def compute_lookup_table_parametric_forward(boot_mod_splines, s_min=0, s_max=1, n_points=1000):
+    # 1. Create a master s_grid to evaluate the 'Average' curve
+    s_grid = np.linspace(s_min, s_max, n_points)
+    
+    # We need to collect X and Z for every bootstrap sample
+    x_samples = []
+    z_samples = []
+    
+    for sx, sz in boot_mod_splines:
+        x_samples.append(sx(s_grid))
+        z_samples.append(sz(s_grid))
+        
+    x_samples = np.array(x_samples)
+    z_samples = np.array(z_samples)
+    
+    # 2. Compute means
+    # Note: These are 'Mean X' and 'Mean Z' for a given 's'
+    x_mean = np.mean(x_samples, axis=0)
+    z_mean = np.mean(z_samples, axis=0)
+    
+    # 3. Compute Standard Deviation of the SWC (z)
+    z_std = np.std(z_samples, axis=0)
+
+    lookup_df = pd.DataFrame({
+        "s": s_grid,
+        "sensor_val": x_mean,         # This is your Sensor Reading
+        "swc": z_mean,       # This is your moisture
+        "swc_std": z_std
+    })
+    
+    return lookup_df
+
+
+def compute_mrt(times, vals):
+    """
+    Computes the Mean Residence Time (MRT) of the sensor transition.
+    Handles datetime64/timedelta64 and is direction-agnostic.
+    
+    Returns:
+        float: MRT in seconds (the 'delta T' of the transition).
+    """
+    # 1. Convert time to numeric seconds
+    if np.issubdtype(times.dtype, np.datetime64) or np.issubdtype(times.dtype, np.timedelta64):
+        t_numeric = (times - times[0]) / np.timedelta64(1, 's')
+    else:
+        t_numeric = times - times[0]
+
+    # 2. Extract boundaries with median filtering for noise robustness
+    v_start = np.median(vals[:5])
+    v_end = np.median(vals[-5:])
+    
+    # If the sensor didn't move, MRT is undefined/zero
+    if np.isclose(v_start, v_end, atol=1e-7):
+        return [], 0.0 
+    
+    # 3. Normalize Values to [0, 1]
+    # This 'flips' the curve so that for both wetting and drying, 
+    # the 'target' is 1 and the 'start' is 0.
+    v_norm = np.clip((vals - v_start) / (v_end - v_start), 0, 1)
+    
+    # 4. Calculate MRT via Integration
+    # MRT = Integral from 0 to T of (1 - v_norm) dt
+    try:
+        # Use trapezoid for NumPy 2.0+, fallback to trapz for older versions
+        auc = np.trapezoid(v_norm, t_numeric)
+    except AttributeError:
+        auc = np.trapz(v_norm, t_numeric)
+        
+    # The MRT is the 'Area Above the Curve'
+    total_duration = t_numeric[-1]
+    mrt = total_duration - auc
+    
+    return vals, mrt
+
+
+def fit_parametric_spline_with_residuals(x, y, xmid, dydx, n_inner_knots, k_spline, w_der, n_boots):
+    """Compute a parametric spline using both x,y data as well as xmid (x_i+1/2) and derivative at midpoint data.
+    
+    Params:
+        x, y, xmid, ydx: arrays
+        n_inner_knots: int spline knots
+        k_spline: int order of spline
+        w_der: weight of derivative samples
+        n_boots: number of bootstrap samples
+    """
+
+    spline_mod_x, spline_mod_y = fit_parametric_monotonic_spline(
+        x, y, xmid, dydx, n_inner_knots, k_spline, w_der
+    )
+
+    boot_mod_splines = bootstrap_parametric_spline(
+        x, y, xmid, dydx, n_inner_knots, k_spline, w_der, n_boots=n_boots)
+
+    # After fitting the parametric splines, we now have to invert from x -> s so that we can calculate y(x)
+    s_fine = np.linspace(0, 1, 1000)
+    x_fine = spline_mod_x(s_fine)
+    x_to_s_map = interp1d(x_fine, s_fine, bounds_error=False, fill_value="extrapolate")
+    s_data = x_to_s_map(x)
+    y_pred = spline_mod_y(s_data)
+    abs_residuals = np.abs(y - y_pred)
+
+    inner_knots = ( np.linspace(0, 1, n_inner_knots)**2 * (x.max() - x.min()) + x.min() ) [1:]
+    inner_knots[-1] = (inner_knots[-1] + inner_knots[-2]) / 2
+
+    residual_spline_mod = fit_monotonic_spline(
+        x,
+        abs_residuals,
+        inner_knots=inner_knots,
+        k=k_spline,
+    )
+    return spline_mod_x, spline_mod_y, boot_mod_splines, residual_spline_mod

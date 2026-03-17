@@ -68,40 +68,34 @@ def _add_plotter_args(parser):
 
 def _add_infer_args(parser):
     parser.add_argument(
-        "--z-pvalue",
+        "--merge_distance_seconds",
+        type=int,
+        default=10,
+        help="Events this close together are considered duplicates",
+    )
+    parser.add_argument(
+        "--emwa_tau_minutes",
+        type=int,
+        default=30,
+        help="EMWA scale (minutes); controls how smooth the smoothed curve is",
+    )
+    parser.add_argument(
+        "--trigger_threshold",
         type=float,
-        default=0.000000001,
-        help="Two-sided p-value threshold for z(t) triggers",
+        default=-0.75,
+        help="Thresholds for triggering candidate events at start of dis-equilibrium state",
+    )
+    parser.add_argument(
+        "--release_threshold",
+        type=float,
+        default=-0.7,
+        help="Threshold for triggering release into equilibrium state",
     )
     parser.add_argument(
         "--limit",
         type=int,
         default=100000,
         help="Limit number of rows when querying hcultctrl",
-    )
-    parser.add_argument(
-        "--diff-lag-ms",
-        type=int,
-        default=5000 * 60 * 4,
-        help="Lag (in samples) for d(t) = s(t) - s(t-h)",
-    )
-    parser.add_argument(
-        "--mad-window-ms",
-        type=int,
-        default=5000 * 60 * 20,
-        help="Window size (in samples) for rolling MAD",
-    )
-    parser.add_argument(
-        "--mad-scale",
-        type=float,
-        default=1.4826,
-        help="Scale factor for MAD -> sigma",
-    )
-    parser.add_argument(
-        "--merge_distance_sec",
-        type=int,
-        default=600,
-        help="Merge nearby inferred events within this distance (in seconds)",
     )
 
 

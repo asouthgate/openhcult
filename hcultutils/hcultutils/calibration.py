@@ -7,9 +7,8 @@ def _submit_calibration_data(base_url, csv_file, version, created_at) -> int:
 
     data = {
         "swc": list(dataframe["swc"]),
-        "predicted_sensor_val": list(dataframe["predicted_sensor_val"]),
-        "ci_lower": list(dataframe["ci_lower"]),
-        "ci_upper": list(dataframe["ci_upper"]),
+        "sensor_val": list(dataframe["sensor_val"]),
+        "swc_std": list(dataframe["swc_std"]),
         "version": version,
         "created_at": created_at
     }

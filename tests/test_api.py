@@ -167,9 +167,8 @@ def test_calibration_smoke_flow():
 
     data = {
         "swc": [0.0, 0.1, 0.5, 1.0],
-        "predicted_sensor_val": [100, 200, 300, 500],
-        "ci_lower": [50, 100, 150, 250],
-        "ci_upper": [150, 200, 250, 350],
+        "sensor_val": [100, 200, 300, 500],
+        "swc_std": [0.0, 0.1, 0.5, 1.0],
         "version": "bazbar",
         "created_at": "2026-01-01T11:20:23Z"
     }
