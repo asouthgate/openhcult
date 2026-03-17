@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone, timedelta
+import os
 import sys
 
 from hcultutils import infer_events, plot_timeseries, fetch_data
@@ -32,8 +33,8 @@ def _add_base_args(parser):
     )
     parser.add_argument(
         "--ctrl-url",
-        default=None,
-        help="Query data from hcultctrl instead of SQLite (e.g. http://127.0.0.1:8000)",
+        default=os.environ.get("HCULT_CTRL_URL", None),
+        help="URL for the CTRL node",
     )
     parser.add_argument(
         "--hours",
@@ -309,6 +310,8 @@ def _apply_hours_args(args):
 
 
 def _dispatch_command(args) -> int:
+    if not args.ctrl_url:
+        raise ValueError("Must specify --ctrl-url or define HCULT_CTRL_URL")
     if args.command == 'plot_timeseries':
         plot_timeseries.main(args)
         return 0
