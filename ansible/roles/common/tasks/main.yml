@@ -21,12 +21,12 @@
   ansible.builtin.user:
     name: "{{ openhcult_user }}"
     group: "{{ openhcult_group }}"
-    home: "{{ openhcult_install_dir }}"
+    home: "/home/{{ openhcult_user }}"
     shell: "{{ openhcult_user_shell }}"
-    system: true
     state: present
     groups: bluetooth
     append: true
+    move_home: false
 
 - name: Ensure install directory exists
   ansible.builtin.file:
@@ -164,8 +164,9 @@
     hour: "*"
     job: >
       {{ openhcult_install_dir }}/.venv/bin/hcultutils
+      infer_events
       --ctrl-url http://192.168.0.117:8000
-      infer_events --hours 48
+      --hours 48
 
 - name: Install logrotate config
   ansible.builtin.template:
