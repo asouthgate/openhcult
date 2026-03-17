@@ -1,0 +1,54 @@
+name: OpenHCult CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  # Job 1: Math and Logic (Fast, no Docker overhead)
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install numpy pandas scipy pytest matplotlib
+
+      - name: Run Detection Logic Tests
+        # This covers the DynamicIntervalInfo and SegmentDetector logic
+        run: pytest tests/test_detection.py
+
+  # Job 2: Integration and Infrastructure (Docker)
+  smoke-test:
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Run Smoke Test Script
+        env:
+          # Match your script's expected variables
+          OPENHCULT_COMPOSE_CMD: "docker compose"
+          OPENHCULT_BASE_URL: "http://127.0.0.1:8000"
+          OPENHCULT_SMOKE_TIMEOUT_S: "120"
+          # DB_URL matches the service name in your compose file
+          OPENHCULT_SMOKE_DB_URL: "postgresql://hcult:hcult@postgres:5432/hcult"
+        run: |
+          chmod +x tests/run_docker_smoke_tests.py
+          python3 tests/run_docker_smoke_tests.py
+
+      - name: Cleanup on Failure
+        if: failure()
+        run: docker compose down -v --remove-orphans
