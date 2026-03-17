@@ -5,47 +5,6 @@ import urllib.request as request
 from datetime import datetime, timezone
 
 
-def format_observed_at(value):
-    if value is None:
-        return None
-    try:
-        return datetime.fromtimestamp(int(value) / 1000.0, tz=timezone.utc).isoformat()
-    except (TypeError, ValueError):
-        return value
-
-
-def pretty_print(value, indent=0):
-    spacer = " " * indent
-    if isinstance(value, dict):
-        print(f"{spacer}{{")
-        items = list(value.items())
-        for idx, (key, val) in enumerate(items):
-            key_str = json.dumps(str(key))
-            print(f"{spacer}  {key_str}: ", end="")
-            pretty_print(val, indent + 2)
-            if idx < len(items) - 1:
-                print(",")
-            else:
-                print()
-        print(f"{spacer}}}", end="")
-        return
-    if isinstance(value, list):
-        print(f"{spacer}[")
-        for idx, item in enumerate(value):
-            pretty_print(item, indent + 2)
-            if idx < len(value) - 1:
-                print(",")
-            else:
-                print()
-        print(f"{spacer}]", end="")
-        return
-    if isinstance(value, str):
-        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
-        print(f"\"{escaped}\"", end="")
-        return
-    print(json.dumps(value), end="")
-
-
 def request_ctrl(method: str, url: str, payload: dict | None = None):
     data = None
     headers = {"Accept": "application/json"}
