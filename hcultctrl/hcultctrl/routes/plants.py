@@ -30,6 +30,7 @@ class PlantUpdate(BaseModel):
     tag: Optional[str] = None
     metadata: Optional[dict] = None
 
+
 class PlantSensorAssign(BaseModel):
     device: str
     sensor: str
@@ -41,13 +42,26 @@ class PlantStatusAssign(BaseModel):
     observed_at: Optional[str] = None
 
 
-
 @router.get("/plants")
-def list_plants(limit: int = Query(default=1000, ge=1, le=100000), conn=Depends(get_db_conn)):
-    logger.info("GET /plants limit=%s", limit)
-    rows = database.fetch_plants(conn, limit=limit)
-    data = [
-        {
+def list_plants(
+    limit: int = Query(default=1000, ge=1, le=100000),
+    include: str | None = Query(
+        default=None,
+        description="Comma-separated list of relations to include (e.g. 'sensors')",
+    ),
+    conn=Depends(get_db_conn),
+):
+    logger.info("GET /plants limit=%s include=%s", limit, include)
+
+    # Parse the include string
+    include_list = include.split(",") if include else []
+    include_sensors = "sensors" in include_list
+
+    rows = database.fetch_plants(conn, limit=limit, include_sensors=include_sensors)
+
+    data = []
+    for row in rows:
+        plant = {
             "id": row["id"],
             "plant_name": row["plant_name"],
             "species_id": row["species_id"],
@@ -55,8 +69,12 @@ def list_plants(limit: int = Query(default=1000, ge=1, le=100000), conn=Depends(
             "tag": row["tag"],
             "metadata": normalize_metadata(row["metadata"]),
         }
-        for row in rows
-    ]
+        # Only add the key if it was requested
+        if include_sensors:
+            plant["sensors"] = row["sensors"]
+
+        data.append(plant)
+
     return {"count": len(data), "data": data}
 
 
@@ -269,9 +287,7 @@ def _build_health_payload(conn, plant: dict) -> dict:
     recent = list(
         database.fetch_observations_for_plant(conn, plant_id=plant["id"], limit=10)
     )
-    statuses = list(
-        database.fetch_plant_statuses(conn, plant_id=plant["id"], limit=50)
-    )
+    statuses = list(database.fetch_plant_statuses(conn, plant_id=plant["id"], limit=50))
     return {
         "plant_name": plant["plant_name"],
         "recent_observations": recent,

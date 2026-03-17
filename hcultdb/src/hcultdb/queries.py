@@ -399,19 +399,37 @@ def fetch_species_id(conn, *, name: str) -> int | None:
 
 
 def fetch_plants(
-    conn,
-    *,
-    limit: int = 1000,
+    conn, *, limit: int = 1000, include_sensors: bool = False
 ) -> Iterable[dict]:
-    """Return plant rows ordered by id."""
     placeholder = placeholder_for(conn)
-    query = f"""
-        SELECT p.id, p.plant_name, p.species_id, s.name AS species_name, p.tag, p.metadata
-        FROM plants p
-        LEFT JOIN species s ON s.id = p.species_id
-        ORDER BY p.id ASC
-        LIMIT {placeholder}
-    """
+
+    # We use a LEFT JOIN + JSON_AGG so we don't lose plants that have 0 sensors
+    if include_sensors:
+        query = f"""
+            SELECT 
+                p.id, p.plant_name, p.species_id, s.name AS species_name, p.tag, p.metadata,
+                COALESCE(json_agg(json_build_object(
+                    'id', ps.id,
+                    'device_address', d.address,
+                    'sensor', ps.sensor
+                )) FILTER (WHERE ps.id IS NOT NULL), '[]') AS sensors
+            FROM plants p
+            LEFT JOIN species s ON s.id = p.species_id
+            LEFT JOIN plant_sensors ps ON ps.plant_id = p.id
+            LEFT JOIN devices d ON ps.device_id = d.id
+            GROUP BY p.id, s.name
+            ORDER BY p.id ASC
+            LIMIT {placeholder}
+        """
+    else:
+        query = f"""
+            SELECT p.id, p.plant_name, p.species_id, s.name AS species_name, p.tag, p.metadata
+            FROM plants p
+            LEFT JOIN species s ON s.id = p.species_id
+            ORDER BY p.id ASC
+            LIMIT {placeholder}
+        """
+
     cursor = conn.cursor()
     cursor.execute(query, [limit])
     return fetchall_dicts(cursor)
