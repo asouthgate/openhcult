@@ -124,8 +124,6 @@ def test_segment_detector_integration_flow():
         release_thresh=-1.0
     )
 
-    detector.debug_plot()
-
     diseq_intervals = detector.get_disequilibrium_intervals()
     eq_intervals = detector.get_equilibrium_intervals()
 
