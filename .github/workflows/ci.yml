@@ -37,7 +37,7 @@ jobs:
 
       - name: Install pytest
         run: |
-          pip install pytest
+          pip install pytest psycopg
 
       - name: Run Smoke Test Script
         env:
