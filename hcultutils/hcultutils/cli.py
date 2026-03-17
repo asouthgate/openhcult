@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone, timedelta
+import os
 import sys
 
 from hcultutils import infer_events, plot_timeseries, fetch_data
@@ -32,8 +33,8 @@ def _add_base_args(parser):
     )
     parser.add_argument(
         "--ctrl-url",
-        default=None,
-        help="Query data from hcultctrl instead of SQLite (e.g. http://127.0.0.1:8000)",
+        default=os.environ.get("HCULT_CTRL_URL", None),
+        help="URL for the CTRL node",
     )
     parser.add_argument(
         "--hours",
@@ -111,10 +112,6 @@ def _add_fetch_data_command(subparsers):
     fetch_data_parsers = subparsers.add_parser(
         "fetch_data",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
-            "  hcultutils fetch_data --sensor sensor1 --device AA:BB:CC:DD:EE:FF --start-utc 2026-01-16T12:00:00Z --end-utc 2026-01-16T13:00:00Z\n"
-        ),
     )
     _add_base_args(fetch_data_parsers)
     _add_plotter_args(fetch_data_parsers)
@@ -124,12 +121,6 @@ def _add_plot_timeseries_command(subparsers):
     plot_timeseries_parser = subparsers.add_parser(
         "plot_timeseries",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
-            "  hcultutils plot_timeseries --sensor sensor1 --device AA:BB:CC:DD:EE:FF --start-utc 2026-01-16T12:00:00Z --end-utc 2026-01-16T13:00:00Z\n"
-            "  hcultutils --ctrl-url http://127.0.0.1:8000 plot_timeseries --plant-name kitchen-herb --sensor sensor1\n"
-            "  hcultutils --ctrl-url http://127.0.0.1:8000 plot_timeseries --sensor sensor1 --limit 5000\n"
-        ),
     )
     _add_base_args(plot_timeseries_parser)
     _add_plotter_args(plot_timeseries_parser)
@@ -140,11 +131,6 @@ def _add_infer_events_command(subparsers):
     infer_events_parser = subparsers.add_parser(
         "infer_events",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
-            "  hcultutils infer_events --hours 6\n"
-            "  hcultutils --ctrl-url http://127.0.0.1:8000 infer_events --hours 12 --z-pvalue 0.0001\n"
-        ),
     )
     _add_base_args(infer_events_parser)
     _add_infer_args(infer_events_parser)
@@ -154,26 +140,19 @@ def _add_species_command(subparsers):
     species_parser = subparsers.add_parser(
         "species",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
-            "  hcultutils species ls\n"
-            "  hcultutils species add pothos --common-name \"Golden Pothos\"\n"
-            "  hcultutils species update 1 --name pothos\n"
-            "  hcultutils species rm pothos\n"
-        ),
     )
-    species_sub = species_parser.add_subparsers(dest='action')
+    species_sub = species_parser.add_subparsers(dest="action")
     species_sub.required = True
-    species_add = species_sub.add_parser('add')
+    species_add = species_sub.add_parser("add")
     species_add.add_argument("name")
     species_add.add_argument("--common_name", default=None)
     _add_metadata_arg(species_add)
-    species_sub.add_parser('ls')
-    species_update = species_sub.add_parser('update')
+    species_sub.add_parser("ls")
+    species_update = species_sub.add_parser("update")
     species_update.add_argument("name")
     species_update.add_argument("--common_name", default=None)
     _add_metadata_arg(species_update)
-    species_rm = species_sub.add_parser('rm')
+    species_rm = species_sub.add_parser("rm")
     species_rm.add_argument("species_name", type=str)
 
 
@@ -181,32 +160,22 @@ def _add_plants_command(subparsers):
     plants_parser = subparsers.add_parser(
         "plants",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
-            "  hcultutils plants ls\n"
-            "  hcultutils plants add kitchen-herb --species_name pothos\n"
-            "  hcultutils plants update 1 --tag windowsill\n"
-            "  hcultutils plants rm kitchen-herb\n"
-            "  hcultutils plants health kitchen-herb\n"
-            "  hcultutils plants assign kitchen-herb AA:BB:CC:DD:EE:FF sensor1\n"
-            "  hcultutils plants set-status kitchen-herb DROOPING_LEAVES\n"
-            "  hcultutils plants status ls kitchen-herb\n"
-        ),
     )
-    plants_sub = plants_parser.add_subparsers(dest='action')
+    plants_sub = plants_parser.add_subparsers(dest="action")
     plants_sub.required = True
-    plants_add = plants_sub.add_parser('add')
+    plants_add = plants_sub.add_parser("add")
     plants_add.add_argument("plant_name", type=str)
     plants_add.add_argument("--species_name", type=str)
     plants_add.add_argument("--tag", default=None)
     _add_metadata_arg(plants_add)
-    plants_sub.add_parser('ls')
-    plants_update = plants_sub.add_parser('update')
+    plants_sub.add_parser("ls")
+    plants_sub.add_parser("sensors")
+    plants_update = plants_sub.add_parser("update")
     plants_update.add_argument("id", type=str)
     plants_update.add_argument("--species-id", type=int, default=None)
     plants_update.add_argument("--tag", default=None)
     _add_metadata_arg(plants_update)
-    plants_rm = plants_sub.add_parser('rm')
+    plants_rm = plants_sub.add_parser("rm")
     plants_rm.add_argument("plant_name", type=str)
 
     plants_assign = plants_sub.add_parser("assign")
@@ -237,31 +206,23 @@ def _add_devices_command(subparsers):
     devices_parser = subparsers.add_parser(
         "devices",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
-            "  hcultutils devices ls\n"
-            "  hcultutils devices name AA:BB:CC:DD:EE:FF \"My Device\"\n"
-        ),
     )
-    devices_sub = devices_parser.add_subparsers(dest='action')
+    devices_sub = devices_parser.add_subparsers(dest="action")
     devices_sub.required = True
-    devices_sub.add_parser('ls')
-    devices_name = devices_sub.add_parser('name')
+    devices_sub.add_parser("ls")
+    devices_name = devices_sub.add_parser("name")
     devices_name.add_argument("address", type=str)
     devices_name.add_argument("name", type=str)
+
 
 def _add_calibration_command(subparsers):
     devices_parser = subparsers.add_parser(
         "calibration",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
-            "  hcultutils calibration submit_response_curve\n"
-        ),
     )
-    cal_sub = devices_parser.add_subparsers(dest='action')
+    cal_sub = devices_parser.add_subparsers(dest="action")
     cal_sub.required = True
-    submit_parser = cal_sub.add_parser('submit_response_curve')
+    submit_parser = cal_sub.add_parser("submit_response_curve")
     submit_parser.add_argument("--csv", type=str)
     submit_parser.add_argument("--version", type=str)
     submit_parser.add_argument("--created_at", type=str)
@@ -271,15 +232,6 @@ def _build_parser() -> HcultArgumentParser:
     parser = HcultArgumentParser(
         prog="hcultutils",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
-            "  hcultutils --ctrl-url http://127.0.0.1:8000 devices ls\n"
-            "  hcultutils --ctrl-url http://127.0.0.1:8000 devices name AA:BB:CC:DD:EE:FF \"My Device\"\n"
-            "  hcultutils plot_timeseries --sensor sensor1 --device AA:BB:CC:DD:EE:FF --start-utc 2026-01-16T12:00:00Z --end-utc 2026-01-16T13:00:00Z\n"
-            "  hcultutils infer_events --hours 6\n"
-            "  hcultutils species add pothos --common-name \"Golden Pothos\"\n"
-            "  hcultutils plants add kitchen-herb --species_name pothos\n"
-        ),
     )
     _add_base_args(parser)
     subparsers = parser.add_subparsers(
@@ -309,23 +261,25 @@ def _apply_hours_args(args):
 
 
 def _dispatch_command(args) -> int:
-    if args.command == 'plot_timeseries':
+    if not args.ctrl_url:
+        raise ValueError("Must specify --ctrl-url or define HCULT_CTRL_URL")
+    if args.command == "plot_timeseries":
         plot_timeseries.main(args)
         return 0
-    if args.command == 'fetch_data':
+    if args.command == "fetch_data":
         fetch_data.main(args)
         return 0
-    if args.command == 'infer_events':
+    if args.command == "infer_events":
         return infer_events.run(args)
-    if args.command == 'species':
+    if args.command == "species":
         return species_via_ctrl(args.ctrl_url, args.action, args)
-    if args.command == 'plants':
+    if args.command == "plants":
         return plants_via_ctrl(args.ctrl_url, args.action, args)
     if args.command == "plant":
         return plants_via_ctrl(args.ctrl_url, args.action, args)
-    if args.command == 'devices':
+    if args.command == "devices":
         return devices_via_ctrl(args.ctrl_url, args.action, args)
-    if args.command == 'calibration':
+    if args.command == "calibration":
         return calibration_main(args.ctrl_url, args.action, args)
     return 1
 

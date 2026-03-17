@@ -15,7 +15,6 @@ from .connection import (
 logger = logging.getLogger(__name__)
 
 
-
 def register_device(conn, name, address):
     """Insert or update a device row and return its device_id."""
     logger.debug("Registering or updating device %s at %s", name, address)
@@ -125,7 +124,9 @@ def fetch_timeseries(
         clauses.append(f"sensor_readings.sensor = {placeholder}")
         params.append(sensor)
     if device:
-        clauses.append(f"(devices.name = {placeholder} OR devices.address = {placeholder})")
+        clauses.append(
+            f"(devices.name = {placeholder} OR devices.address = {placeholder})"
+        )
         params.extend([device, device])
     if plant:
         clauses.append(f"plants.plant_name = {placeholder}")
@@ -385,6 +386,7 @@ def delete_species_by_name(conn, *, name: str) -> None:
     if cursor.rowcount == 0:
         raise ValueError("Species not found")
 
+
 def fetch_species_id(conn, *, name: str) -> int | None:
     """Return a species id for a given name."""
     placeholder = placeholder_for(conn)
@@ -397,19 +399,37 @@ def fetch_species_id(conn, *, name: str) -> int | None:
 
 
 def fetch_plants(
-    conn,
-    *,
-    limit: int = 1000,
+    conn, *, limit: int = 1000, include_sensors: bool = False
 ) -> Iterable[dict]:
-    """Return plant rows ordered by id."""
     placeholder = placeholder_for(conn)
-    query = f"""
-        SELECT p.id, p.plant_name, p.species_id, s.name AS species_name, p.tag, p.metadata
-        FROM plants p
-        LEFT JOIN species s ON s.id = p.species_id
-        ORDER BY p.id ASC
-        LIMIT {placeholder}
-    """
+
+    # We use a LEFT JOIN + JSON_AGG so we don't lose plants that have 0 sensors
+    if include_sensors:
+        query = f"""
+            SELECT 
+                p.id, p.plant_name, p.species_id, s.name AS species_name, p.tag, p.metadata,
+                COALESCE(json_agg(json_build_object(
+                    'id', ps.id,
+                    'device_address', d.address,
+                    'sensor', ps.sensor
+                )) FILTER (WHERE ps.id IS NOT NULL), '[]') AS sensors
+            FROM plants p
+            LEFT JOIN species s ON s.id = p.species_id
+            LEFT JOIN plant_sensors ps ON ps.plant_id = p.id
+            LEFT JOIN devices d ON ps.device_id = d.id
+            GROUP BY p.id, s.name
+            ORDER BY p.id ASC
+            LIMIT {placeholder}
+        """
+    else:
+        query = f"""
+            SELECT p.id, p.plant_name, p.species_id, s.name AS species_name, p.tag, p.metadata
+            FROM plants p
+            LEFT JOIN species s ON s.id = p.species_id
+            ORDER BY p.id ASC
+            LIMIT {placeholder}
+        """
+
     cursor = conn.cursor()
     cursor.execute(query, [limit])
     return fetchall_dicts(cursor)
@@ -465,7 +485,12 @@ def fetch_device_by_name_or_address(conn, *, device: str) -> dict | None:
 
 
 def insert_plant(
-    conn, *, plant_name: str, species_id: int | None, tag: str | None, metadata: str | None
+    conn,
+    *,
+    plant_name: str,
+    species_id: int | None,
+    tag: str | None,
+    metadata: str | None,
 ) -> int:
     """Insert a plant and return its id."""
     cursor = conn.cursor()
@@ -524,7 +549,9 @@ def delete_plant_by_name(conn, *, plant_name: int) -> None:
     """Delete a plant row."""
     placeholder = placeholder_for(conn)
     cursor = conn.cursor()
-    cursor.execute(f"DELETE FROM plants WHERE plant_name = {placeholder}", (plant_name,))
+    cursor.execute(
+        f"DELETE FROM plants WHERE plant_name = {placeholder}", (plant_name,)
+    )
     conn.commit()
     if cursor.rowcount == 0:
         raise ValueError("Plant not found")
@@ -541,6 +568,30 @@ def assign_plant_sensor(conn, *, plant_id: int, device_id: int, sensor: str) -> 
     )
     cursor.execute(query, (plant_id, device_id, sensor))
     conn.commit()
+
+
+def fetch_plant_sensors(
+    conn,
+    *,
+    limit: int = 1000,
+) -> Iterable[dict]:
+    """Return plant sensor mappings with resolved plant names and device addresses."""
+    placeholder = placeholder_for(conn)
+    query = f"""
+        SELECT 
+            ps.id, 
+            p.plant_name, 
+            d.address AS device_address, 
+            ps.sensor
+        FROM plant_sensors ps
+        JOIN plants p ON ps.plant_id = p.id
+        JOIN devices d ON ps.device_id = d.id
+        ORDER BY ps.id ASC
+        LIMIT {placeholder}
+    """
+    cursor = conn.cursor()
+    cursor.execute(query, [limit])
+    return fetchall_dicts(cursor)
 
 
 def insert_plant_status(
@@ -590,7 +641,7 @@ def fetch_plant_statuses(conn, *, plant_id: int, limit: int = 100) -> Iterable[d
 
 def insert_response_curve_lookup(
     conn,
-    swc, 
+    swc,
     sensor_vals,
     swc_std,
     version,
@@ -598,14 +649,14 @@ def insert_response_curve_lookup(
 ):
     cursor = conn.cursor()
     last_id = None
-    
+
     for j in range(len(swc)):
         cursor.execute(
             """INSERT INTO response_curve_lookup 
                (swc, sensor_val, swc_std, version, created_at) 
                VALUES (%s, %s, %s, %s, %s) 
                RETURNING id""",
-            (swc[j], sensor_vals[j], swc_std[j], version, created_at)
+            (swc[j], sensor_vals[j], swc_std[j], version, created_at),
         )
         last_id = cursor.fetchone()[0]
 

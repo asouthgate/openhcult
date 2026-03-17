@@ -1,7 +1,13 @@
 import json
 from urllib.parse import quote
 
-from hcultutils.query import pretty_print, request_ctrl, format_observed_at
+from hcultutils.query import request_ctrl
+from hcultutils.formatting import (
+    format_datetime_string,
+    format_table,
+    pretty_print,
+    format_observed_at,
+)
 
 
 def _render_health_payload(payload):
@@ -43,11 +49,44 @@ def _render_health_payload(payload):
 
 
 def _list_plants(base_url: str) -> int:
-    payload = request_ctrl("GET", f"{base_url}/plants")
-    for row in payload.get("data", []):
-        print(
-            f"{row.get('id')}\t{row.get('plant_name')}\t{row.get('species_id') or ''}\t{row.get('species_name') or ''}\t{row.get('tag') or ''}\t{row.get('metadata') or ''}"
-        )
+    payload = request_ctrl("GET", f"{base_url}/plants?include=sensors")
+    data = payload.get("data", [])
+    headers = ["plant_name", "species_name", "metadata", "sensors"]
+    rows = [
+        [
+            d.get("plant_name"),
+            d.get("species_name"),
+            d.get("metadata"),
+            ",".join(
+                [
+                    f"{sensd["device_address"]}/{sensd["sensor"]}"
+                    for sensd in d.get("sensors")
+                ]
+            ),
+        ]
+        for d in data
+    ]
+
+    table_output = format_table(headers, rows)
+    print(table_output)
+    return 0
+
+
+def _list_plant_sensor_mapping(base_url: str) -> int:
+    payload = request_ctrl("GET", f"{base_url}/plant_sensors")
+    data = payload.get("data", [])
+    headers = ["plant_name", "device_address", "sensor"]
+    rows = [
+        [
+            d.get("plant_name"),
+            d.get("device_address"),
+            d.get("sensor"),
+        ]
+        for d in data
+    ]
+
+    table_output = format_table(headers, rows)
+    print(table_output)
     return 0
 
 
@@ -141,7 +180,9 @@ def _get_status(base_url, status_action, status_code, note) -> int:
         payload = {"status_code": status_code}
         if note:
             payload["note"] = note
-        created = request_ctrl("POST", f"{base_url}/plants/{plant_name}/status", payload)
+        created = request_ctrl(
+            "POST", f"{base_url}/plants/{plant_name}/status", payload
+        )
         print(
             "Added status {status} to {plant_name}".format(
                 status=created.get("status_code") or status_code,
@@ -149,16 +190,22 @@ def _get_status(base_url, status_action, status_code, note) -> int:
             )
         )
         return 0
-    
+
 
 def plants_via_ctrl(ctrl_url: str, action: str, args) -> int:
     base = ctrl_url.rstrip("/")
     if action == "ls":
         return _list_plants(base)
+    if action == "sensors":
+        return _list_plant_sensor_mapping(base)
     if action == "add":
-        return _add_plant(base, args.plant_name, args.species_name, args.tag, args.metadata)
+        return _add_plant(
+            base, args.plant_name, args.species_name, args.tag, args.metadata
+        )
     if action == "update":
-        return _update_plant(base, args.species_id, args.tag, args.metadata, args.plant_id)
+        return _update_plant(
+            base, args.species_id, args.tag, args.metadata, args.plant_id
+        )
     if action == "rm":
         return _delete_plant(base, args.plant_name)
     if action == "health":

@@ -1,12 +1,25 @@
-
 import json
 
 from hcultutils.query import request_ctrl
+from hcultutils.formatting import format_table
+
 
 def _list_species(base_url) -> int:
     payload = request_ctrl("GET", f"{base_url}/species")
-    for row in payload.get("data", []):
-        print(row)
+
+    headers = ["Name", "Common Name"]
+    rows = [
+        [
+            d.get("name"),
+            d.get("common_name"),
+        ]
+        for d in payload.get("data", [])
+    ]
+
+    # Get the string and print it
+    table_output = format_table(headers, rows)
+    print(table_output)
+
     return 0
 
 
@@ -43,11 +56,10 @@ def _delete_species(base_url: str, species_name) -> int:
 def species_via_ctrl(ctrl_url: str, action: str, args) -> int:
     base = ctrl_url.rstrip("/")
     if action == "ls":
-        _list_species(base)
+        return _list_species(base)
     if action == "add":
-        _add_species(base, args.name, args.common_name, args.metadata)
+        return _add_species(base, args.name, args.common_name, args.metadata)
     if action == "update":
-        _update_species(base, args.name, args.common_name, args.metadata)
+        return _update_species(base, args.name, args.common_name, args.metadata)
     if action == "rm":
-        _delete_species(base, args.name)
-    return 1
+        return _delete_species(base, args.name)

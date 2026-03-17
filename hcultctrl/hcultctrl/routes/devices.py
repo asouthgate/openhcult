@@ -14,11 +14,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-
 class DeviceNameUpdate(BaseModel):
     name: Optional[str] = None
+
+
 @router.get("/devices")
-def list_devices(limit: int = Query(default=1000, ge=1, le=100000), conn=Depends(get_db_conn)):
+def list_devices(
+    limit: int = Query(default=1000, ge=1, le=100000), conn=Depends(get_db_conn)
+):
     logger.info("GET /devices limit=%s", limit)
     rows = database.fetch_devices(conn, limit=limit)
     data = [
@@ -33,8 +36,12 @@ def list_devices(limit: int = Query(default=1000, ge=1, le=100000), conn=Depends
         for row in rows
     ]
     return {"count": len(data), "data": data}
+
+
 @router.patch("/devices/{device_address}")
-def update_device(device_address: str, payload: DeviceNameUpdate, conn=Depends(get_db_conn)):
+def update_device(
+    device_address: str, payload: DeviceNameUpdate, conn=Depends(get_db_conn)
+):
     logger.info(
         "PATCH /devices/%s name_set=%s name_value=%s",
         device_address,
@@ -51,4 +58,3 @@ def update_device(device_address: str, payload: DeviceNameUpdate, conn=Depends(g
     except ValueError:
         raise HTTPException(status_code=404, detail="Device not found")
     return {"address": device_address, "name": name}
-

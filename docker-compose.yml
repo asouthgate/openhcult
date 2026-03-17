@@ -57,14 +57,11 @@ services:
       ["python", "-m", "hcultmon", "-c", "/config/openhcult.conf"]
     environment:
       PYTHONPATH: /app/hcultctrl:/app/hcultmon:/app/hcultdb/src
-      DBUS_SYSTEM_BUS_ADDRESS: unix:path=/var/run/dbus/system_bus_socket
     volumes:
       - .:/app
       - ./docker/openhcult.conf:/config/openhcult.conf:ro
       - /var/run/dbus:/var/run/dbus
       - hcult_data:/data
-    devices:
-      - /dev/bus/usb:/dev/bus/usb
     privileged: true
     depends_on:
       - postgres
