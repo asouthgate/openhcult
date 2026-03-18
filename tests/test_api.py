@@ -1,8 +1,7 @@
 import json
 import os
 import uuid
-from urllib import parse, request
-
+from urllib import parse, request, error
 
 BASE_URL = os.environ.get("OPENHCULT_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
 SEED_DSN = os.environ.get(
@@ -109,7 +108,9 @@ def test_species_smoke_flow():
 def test_plants_smoke_flow():
     species_name = f"pytest-species-{uuid.uuid4().hex[:8]}"
     plant_name = f"pytest-plant-{uuid.uuid4().hex[:8]}"
-    created_species = _request_json("/species", method="POST", payload={"name": species_name})
+    created_species = _request_json(
+        "/species", method="POST", payload={"name": species_name}
+    )
     assert created_species["name"] == species_name
     print(species_name)
     created_plant = _request_json(
@@ -163,6 +164,14 @@ def test_devices_smoke_flow():
     assert address in addresses
 
 
+from test_observations import (
+    test_observation_without_plant,
+    test_observation_with_plant,
+    test_observation_unknown_plant_returns_404,
+    test_patch_observation_plant_name,
+)
+
+
 def test_calibration_smoke_flow():
 
     data = {
@@ -170,7 +179,7 @@ def test_calibration_smoke_flow():
         "sensor_val": [100, 200, 300, 500],
         "swc_std": [0.0, 0.1, 0.5, 1.0],
         "version": "bazbar",
-        "created_at": "2026-01-01T11:20:23Z"
+        "created_at": "2026-01-01T11:20:23Z",
     }
 
     inserted_id = _request_json(

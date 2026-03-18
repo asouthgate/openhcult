@@ -241,7 +241,7 @@ def _add_observations_command(subparsers):
     record_parser = obs_sub.add_parser("record", help="Record a new observation")
 
     record_parser.add_argument(
-        "--plant-id", type=int, default=None, help="ID of the plant (optional)"
+        "--plant-name", type=str, default=None, help="Name of the plant (optional)"
     )
     record_parser.add_argument(
         "--note", required=True, help="The observation text (must be non-empty)"
