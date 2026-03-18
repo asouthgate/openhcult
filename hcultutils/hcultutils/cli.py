@@ -12,6 +12,7 @@ from hcultutils.plants import plants_via_ctrl
 from hcultutils.species import species_via_ctrl
 from hcultutils.devices import devices_via_ctrl
 from hcultutils.calibration import calibration_main
+from hcultutils.observations import observations_main
 
 
 class HcultArgumentParser(argparse.ArgumentParser):
@@ -228,6 +229,30 @@ def _add_calibration_command(subparsers):
     submit_parser.add_argument("--created_at", type=str)
 
 
+def _add_observations_command(subparsers):
+    obs_parser = subparsers.add_parser(
+        "observations",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        help="Manage plant observations",
+    )
+    obs_sub = obs_parser.add_subparsers(dest="action")
+    obs_sub.required = True
+
+    record_parser = obs_sub.add_parser("record", help="Record a new observation")
+
+    record_parser.add_argument(
+        "--plant-id", type=int, default=None, help="ID of the plant (optional)"
+    )
+    record_parser.add_argument(
+        "--note", required=True, help="The observation text (must be non-empty)"
+    )
+    record_parser.add_argument(
+        "--observed-at",
+        default=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        help="ISO 8601 timestamp. If omitted, server uses current time.",
+    )
+
+
 def _build_parser() -> HcultArgumentParser:
     parser = HcultArgumentParser(
         prog="hcultutils",
@@ -248,7 +273,7 @@ def _build_parser() -> HcultArgumentParser:
     _add_plants_command(subparsers)
     _add_devices_command(subparsers)
     _add_calibration_command(subparsers)
-
+    _add_observations_command(subparsers)
     return parser
 
 
@@ -281,6 +306,8 @@ def _dispatch_command(args) -> int:
         return devices_via_ctrl(args.ctrl_url, args.action, args)
     if args.command == "calibration":
         return calibration_main(args.ctrl_url, args.action, args)
+    if args.command == "observations":
+        return observations_main(args.ctrl_url, args.action, args)
     return 1
 
 
