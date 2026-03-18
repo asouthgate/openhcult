@@ -1,16 +1,16 @@
-
 from __future__ import annotations
 
 import logging
 from collections import deque
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd 
+import pandas as pd
 from scipy.optimize import curve_fit
 from scipy.integrate import quad
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG) # Lowest level to capture everything
+logger.setLevel(logging.DEBUG)  # Lowest level to capture everything
+
 
 class DynamicIntervalInfo:
     def __init__(self, t_values, x_values, vel, at_equilibrium):
@@ -25,7 +25,7 @@ class DynamicIntervalInfo:
         self.var = np.var(x_values)
         self.mean = np.mean(x_values)
         self.duration = self.end - self.start
-        t_numeric = (t_values - self.start).astype('timedelta64[ms]').astype('int64')
+        t_numeric = (t_values - self.start).astype("timedelta64[ms]").astype("int64")
         self.m, self.c = None, None
         try:
             self.m, self.c = np.polyfit(t_numeric, x_values, 1)
@@ -34,23 +34,25 @@ class DynamicIntervalInfo:
         self.pred_func, self.pred_params_d, self.gof_d = None, None, None
         if not at_equilibrium:
             try:
-                self.pred_func, self.pred_params_d = self._estimate_negative_lognormal(t_values, vel)
+                self.pred_func, self.pred_params_d = self._estimate_negative_lognormal(
+                    t_values, vel
+                )
                 self.integral, _ = quad(self.pred_func, t_numeric[0], t_numeric[-1])
                 self.gof_d = self._cal_goodness_of_fit(t_values, vel)
             except RuntimeError as e:
                 print(e)
             except ValueError as e:
                 print(e)
-    
+
     def _estimate_negative_lognormal(self, t, x):
-        t_num = (t - t[0]).astype('timedelta64[ms]').astype(float) / 1000.0
-    
+        t_num = (t - t[0]).astype("timedelta64[ms]").astype(float) / 1000.0
+
         def model(t_val, h, x_p, w, shift):
             t_shifted = t_val - shift
-            xp_shifted = x_p 
+            xp_shifted = x_p
             res = np.zeros_like(t_val)
             mask = t_shifted > 0
-            exponent = -(np.log(t_shifted[mask] / xp_shifted)**2) / (2 * w**2)
+            exponent = -(np.log(t_shifted[mask] / xp_shifted) ** 2) / (2 * w**2)
             res[mask] = h * np.exp(np.clip(exponent, -700, 0))
             return res
 
@@ -67,9 +69,11 @@ class DynamicIntervalInfo:
 
         try:
             popt, _ = curve_fit(
-                model, t_num, x, 
+                model,
+                t_num,
+                x,
                 p0=[min_val, peak_t, 0.5, 0.0],
-                bounds=(lower_bounds, upper_bounds)
+                bounds=(lower_bounds, upper_bounds),
             )
         except:
             return lambda t_inp: np.zeros_like(t_inp).astype(float), {}
@@ -79,83 +83,78 @@ class DynamicIntervalInfo:
             if isinstance(t_input, float):
                 t_in = t_input
             else:
-                t_in = (t_input - t[0]).astype('timedelta64[ms]').astype(float) / 1000.0
+                t_in = (t_input - t[0]).astype("timedelta64[ms]").astype(float) / 1000.0
             return model(t_in, *popt)
-        
+
         h_fit, xp_fit, w_fit, shift_fit = popt
         return fit_func, {"h": h_fit, "xp:": xp_fit, "w": w_fit, "shift": shift_fit}
-    
+
     def _cal_goodness_of_fit(self, t, x):
         """
         Calculates error metrics for a candidate fit.
         """
         if self.pred_func is None:
             return {"rmse": np.inf, "nrmse": np.inf}
-        
+
         # t_num = (t - t[0]).astype('timedelta64[ms]').astype(float) / 1000.0
 
         y_pred = self.pred_func(t)
         residuals = x - y_pred
 
-        
         rmse = np.sqrt(np.mean(residuals**2))
-        
+
         # Range-normalized RMSE
         data_range = np.max(x) - np.min(x)
         nrmse = rmse / data_range if data_range != 0 else np.inf
-        
-        return {
-            "rmse": rmse,
-            "nrmse": nrmse,
-            "max_residual": np.max(np.abs(residuals))
-        }
-    
+
+        return {"rmse": rmse, "nrmse": nrmse, "max_residual": np.max(np.abs(residuals))}
+
     def get_model_active_interval(self, threshold_pct=0.01):
         if self.pred_func is None:
             return self.start, self.end
 
-        seg_dur_sec = self.duration / np.timedelta64(1, 's')
-        search_start_num = -seg_dur_sec * 5 
+        seg_dur_sec = self.duration / np.timedelta64(1, "s")
+        search_start_num = -seg_dur_sec * 5
         search_end_num = seg_dur_sec * 5
-        
+
         num_points = 5000
         t_grid_num = np.linspace(search_start_num, search_end_num, num_points)
-        t_grid_dt = self.start + (t_grid_num * 1e3).astype('timedelta64[ms]')
-        
+        t_grid_dt = self.start + (t_grid_num * 1e3).astype("timedelta64[ms]")
+
         y_values = self.pred_func(t_grid_dt)
         dy = np.abs(np.gradient(y_values, t_grid_num))
-        
+
         max_slope = np.max(dy)
         if max_slope == 0:
             return self.start, self.end
-            
+
         active_indices = np.where(dy > (max_slope * threshold_pct))[0]
-        
+
         if len(active_indices) == 0:
             return self.start, self.end
 
         t_start_active = t_grid_num[active_indices[0]]
         t_end_active = t_grid_num[active_indices[-1]]
-        
-        t0_estimate = self.start + np.timedelta64(int(t_start_active * 1000), 'ms')
-        tend_estimate = self.start + np.timedelta64(int(t_end_active * 1000), 'ms')
-        
+
+        t0_estimate = self.start + np.timedelta64(int(t_start_active * 1000), "ms")
+        tend_estimate = self.start + np.timedelta64(int(t_end_active * 1000), "ms")
+
         return t0_estimate, tend_estimate
-    
+
+
 class SegmentDetector:
     """Takes sensor data and identifies regions in (dis)equilibrium."""
+
     def __init__(
-            self,
-            time_arr,
-            values_arr,
-            emwa_tau_minutes=30,
-            trigger_thresh=-0.75,
-            release_thresh = -0.70,
-            trigger_thresh_acc = -0.015,
-            release_thresh_acc = -0.0075,
-            max_x_value = 3000,
-            min_x_value = 1000
-        ):
+        self,
+        time_arr,
+        values_arr,
+        emwa_tau_minutes=30,
+        trigger_thresh=-0.75,
+        release_thresh=-0.70,
+        max_x_value=3000,
+        min_x_value=1000,
+    ):
 
         self._time_arr = time_arr
         self._values_arr = values_arr
@@ -163,31 +162,23 @@ class SegmentDetector:
         self._trigger_thresh = trigger_thresh
         self._release_thresh = release_thresh
 
-        self._trigger_thresh_acc = trigger_thresh_acc
-        self._release_thresh_acc = release_thresh_acc
+        self._time_diff_minutes = (time_arr[1:] - time_arr[:-1]) / np.timedelta64(
+            1, "m"
+        )
+        self._values_diff = values_arr[1:] - values_arr[:-1]
 
-        self._time_diff_minutes = (time_arr[1:] - time_arr[:-1]) / np.timedelta64(1, 'm')
-        self._values_diff = (values_arr[1:] - values_arr[:-1])
-
-        self._values_emwa = compute_time_weighted_ewma(time_arr, values_arr, emwa_tau_minutes)
+        self._values_emwa = compute_time_weighted_ewma(
+            time_arr, values_arr, emwa_tau_minutes
+        )
         tmp_emwa_series = pd.Series(self._values_emwa, index=pd.to_datetime(time_arr))
-        self._resampled_emwa = tmp_emwa_series.resample('1min').mean().interpolate(method='linear')
+        self._resampled_emwa = (
+            tmp_emwa_series.resample("1min").mean().interpolate(method="linear")
+        )
         self._resampled_vel = self._resampled_emwa.diff().fillna(0)
-        
+
         self._resampled_times = self._resampled_emwa.index.to_numpy()
-        self._resampled_vel_smoothed = compute_time_weighted_ewma(self._resampled_times, self._resampled_vel.values, emwa_tau_minutes)
-        self._resampled_acc = np.diff(self._resampled_vel_smoothed, prepend=0)
-        self._resampled_acc_smoothed = compute_time_weighted_ewma(self._resampled_times, self._resampled_acc, emwa_tau_minutes / 4.0)
-
-
-        self._acc_trigger_arr, self._acc_release_arr = lerp_thresholds(
-            self._resampled_emwa,
-            max_x_value,
-            min_x_value,
-            self._trigger_thresh_acc,
-            self._release_thresh_acc,
-            self._trigger_thresh_acc / 2.0,
-            self._release_thresh_acc / 2.0
+        self._resampled_vel_smoothed = compute_time_weighted_ewma(
+            self._resampled_times, self._resampled_vel.values, emwa_tau_minutes
         )
 
         self._vel_trigger_arr, self._vel_release_arr = lerp_thresholds(
@@ -197,46 +188,28 @@ class SegmentDetector:
             self._trigger_thresh,
             self._release_thresh,
             self._trigger_thresh / 2.0,
-            self._release_thresh / 2.0
+            self._release_thresh / 2.0,
         )
-        
+
         # Indices for regions with velocity ON
         self._vel_inds = find_regions_with_hysteresis_adapative_thresh(
             self._resampled_times,
             self._resampled_vel_smoothed,
             self._vel_trigger_arr,
-            self._vel_release_arr
+            self._vel_release_arr,
         )
 
-        # Indices for regions with acceleration ON
-        self._neg_acc_inds = find_regions_with_hysteresis_adapative_thresh(
-            self._resampled_times,
-            self._resampled_acc_smoothed,
-            self._acc_trigger_arr,
-            self._acc_release_arr
-        )
-
-        self._pos_acc_inds = find_regions_with_hysteresis_adapative_thresh(
-            self._resampled_times,
-            self._resampled_acc_smoothed,
-            - self._acc_trigger_arr,
-            - self._acc_release_arr,
-            1
-        )
-
-        # Indices for regions with velocity ON ^ acceleration ON
-        self._neg_diseq_inds = merge_intervals([self._vel_inds, self._neg_acc_inds])
+        self._neg_diseq_inds = self._vel_inds
         self._diseq_inds = self._vel_inds
-        self._acc_inds = merge_intervals([self._pos_acc_inds, self._neg_acc_inds])
 
         # Indices for regions with both OFF
         self._eq_inds = get_complementary_intervals(
-            self._diseq_inds,
-            0,
-            len(self._resampled_times)
+            self._diseq_inds, 0, len(self._resampled_times)
         )
 
-        self._diseq_regions = self._ind_pairs_to_dynamic_interval(self._diseq_inds, False)
+        self._diseq_regions = self._ind_pairs_to_dynamic_interval(
+            self._diseq_inds, False
+        )
         self._eq_regions = self._ind_pairs_to_dynamic_interval(self._eq_inds, True)
 
     def _ind_pairs_to_dynamic_interval(self, ind_pairs, at_equilibrium):
@@ -247,105 +220,118 @@ class SegmentDetector:
                     self._resampled_times[start:end],
                     self._resampled_emwa[start:end],
                     self._resampled_vel_smoothed[start:end],
-                    at_equilibrium
+                    at_equilibrium,
                 )
             )
         return dis
 
     def get_disequilibrium_intervals(self):
         return self._diseq_regions
-    
+
     def get_equilibrium_intervals(self):
         return self._eq_regions
-    
-    def get_neg_acceleration_intervals(self):
-        return self._ind_pairs_to_dynamic_interval(self._neg_acc_inds, False)
-    
-    def get_pos_acceleration_intervals(self):
-        return self._ind_pairs_to_dynamic_interval(self._pos_acc_inds, False)
 
-    def get_acc_thresholds(self):
-        return self._acc_trigger_arr, self._acc_release_arr
-    
     def get_vel_thresholds(self):
         return self._vel_trigger_arr, self._vel_release_arr
-    
+
     def get_watering_events(self, nmrse_max=0.5) -> DynamicIntervalInfo:
         for deqr in self.get_disequilibrium_intervals():
             if deqr.gof_d:
-                nmrse = deqr.gof_d['nrmse']
+                nmrse = deqr.gof_d["nrmse"]
                 if nmrse < nmrse_max:
                     yield deqr
 
     def debug_plot(self):
         fig, ax1 = plt.subplots(figsize=(12, 6))
 
-        ax1.scatter(self._time_arr, self._values_arr, color='tab:blue', label='Sensor values', alpha=0.5, marker='x')
-        ax1.plot(self._resampled_times, self._resampled_emwa, color='tab:blue', label='Smoothed values (EWMA)', alpha=1.0, linewidth=1)
-        ax1.set_ylabel('Sensor reading', color='tab:blue')
-        ax1.tick_params(axis='y', labelcolor='tab:blue')
+        ax1.scatter(
+            self._time_arr,
+            self._values_arr,
+            color="tab:blue",
+            label="Sensor values",
+            alpha=0.5,
+            marker="x",
+        )
+        ax1.plot(
+            self._resampled_times,
+            self._resampled_emwa,
+            color="tab:blue",
+            label="Smoothed values (EWMA)",
+            alpha=1.0,
+            linewidth=1,
+        )
+        ax1.set_ylabel("Sensor reading", color="tab:blue")
+        ax1.tick_params(axis="y", labelcolor="tab:blue")
 
         ax2 = ax1.twinx()
         ax2.plot(
             self._resampled_times,
-            self._resampled_vel_smoothed/max(self._resampled_vel_smoothed),
-            color='#ad444f', label='Smoothed velocity (EWMA)', linewidth=1
-        )
-        ax2.plot(
-            self._resampled_times-np.timedelta64(int(self._emwa_tau_minutes), 'm'),
-            self._resampled_acc_smoothed/max(self._resampled_acc_smoothed),
-            color='purple',
-            label='Smoothed acceleration (EWMA)',
-            linewidth=1
+            self._resampled_vel_smoothed / max(self._resampled_vel_smoothed),
+            color="#ad444f",
+            label="Smoothed velocity (EWMA)",
+            linewidth=1,
         )
 
         deq_regions = self.get_disequilibrium_intervals()
         for deqr in deq_regions:
-            ax2.axvspan(deqr.start, deqr.end, color='green', alpha=0.15)
+            ax2.axvspan(deqr.start, deqr.end, color="green", alpha=0.15)
 
         nmrse_max = 0
 
         for deqr in deq_regions:
-            if deqr.gof_d and not np.isinf(deqr.gof_d['nrmse']):
-                nmrse = deqr.gof_d['nrmse']
+            if deqr.gof_d and not np.isinf(deqr.gof_d["nrmse"]):
+                nmrse = deqr.gof_d["nrmse"]
                 nmrse_max = max(nmrse, nmrse_max)
         for deqr in deq_regions:
             if deqr.at_equilibrium:
-                color = 'grey'
+                color = "grey"
             else:
-                color = 'orange'
+                color = "orange"
             ax2.axvspan(deqr.start, deqr.end, color=color, alpha=0.05)
 
             if deqr.m is not None and deqr.at_equilibrium:
-                x1 = deqr.c 
-                duration_ms = (deqr.end - deqr.start).astype('timedelta64[ms]').astype('int64')
+                x1 = deqr.c
+                duration_ms = (
+                    (deqr.end - deqr.start).astype("timedelta64[ms]").astype("int64")
+                )
                 x2 = (duration_ms * deqr.m) + deqr.c
-                ax1.plot([deqr.start, deqr.end], [x1, x2], color='red', linewidth=2)
+                ax1.plot([deqr.start, deqr.end], [x1, x2], color="red", linewidth=2)
             if deqr.pred_func is not None:
                 vpred = deqr.pred_func(self._resampled_times)
-                ax2.plot(self._resampled_times, vpred/max(self._resampled_vel_smoothed), color='black', linestyle='dotted')
+                ax2.plot(
+                    self._resampled_times,
+                    vpred / max(self._resampled_vel_smoothed),
+                    color="black",
+                    linestyle="dotted",
+                )
                 model_start, model_end = deqr.get_model_active_interval()
                 ax2.axvspan(model_start, model_end, color="blue", alpha=0.15)
-                print(deqr.gof_d['nrmse'], deqr.integral, deqr.pred_params_d)
-                ax2.axvline(x = model_start, ymax = deqr.gof_d['nrmse'] / nmrse_max, color='black')
-        print()
-        trigger, release = self.get_acc_thresholds()
-        ax2.axhline(0, color='tab:blue', linestyle='--', alpha=0.3) # Zero baseline
-        ax2.plot(self._resampled_times, trigger / max(self._resampled_acc_smoothed), color='purple', linestyle='--')
-        ax2.plot(self._resampled_times, release / max(self._resampled_acc_smoothed), color='purple', linestyle='--')
+                ax2.axvline(
+                    x=model_start, ymax=deqr.gof_d["nrmse"] / nmrse_max, color="black"
+                )
 
         trigger, release = self.get_vel_thresholds()
-        ax2.plot(self._resampled_times, trigger / max(self._resampled_vel_smoothed), color='red', linestyle='--')
-        ax2.plot(self._resampled_times, release / max(self._resampled_vel_smoothed), color='red', linestyle='--')
+        ax2.plot(
+            self._resampled_times,
+            trigger / max(self._resampled_vel_smoothed),
+            color="red",
+            linestyle="--",
+        )
+        ax2.plot(
+            self._resampled_times,
+            release / max(self._resampled_vel_smoothed),
+            color="red",
+            linestyle="--",
+        )
 
-        ax2.set_ylabel('Normalized values (derivatives)', color='tab:red')
-        ax2.tick_params(axis='y', labelcolor='tab:red')
+        ax2.set_ylabel("Normalized values (derivatives)", color="tab:red")
+        ax2.tick_params(axis="y", labelcolor="tab:red")
 
         lines_1, labels_1 = ax1.get_legend_handles_labels()
         lines_2, labels_2 = ax2.get_legend_handles_labels()
 
-        ax1.legend(lines_1 + lines_2, labels_1 + labels_2, loc='upper left')
-        plt.title('Moisture Levels vs. Smoothed Velocity')
+        ax1.legend(lines_1 + lines_2, labels_1 + labels_2, loc="upper left")
+        plt.title("Moisture Levels vs. Smoothed Velocity")
         plt.savefig("segmentation.png")
         fig.tight_layout()
         plt.show()
@@ -382,7 +368,9 @@ def merge_intervals(interval_lists):
     return [tuple(i) for i in merged]
 
 
-def lerp_thresholds(val, max_val, min_val, trigger_high, release_high, trigger_low, release_low):
+def lerp_thresholds(
+    val, max_val, min_val, trigger_high, release_high, trigger_low, release_low
+):
 
     # Linear interp thresholds
     maxx = max_val
@@ -402,15 +390,17 @@ def lerp_thresholds(val, max_val, min_val, trigger_high, release_high, trigger_l
     release_arr = np.zeros(len(val))
 
     for i, v in enumerate(val):
-        trigger = m_trigger * (v-minxx) + c_trigger
-        release = m_release * (v-minxx) + c_release
+        trigger = m_trigger * (v - minxx) + c_trigger
+        release = m_release * (v - minxx) + c_release
         trigger_arr[i] = trigger
         release_arr[i] = release
-            
+
     return trigger_arr, release_arr
 
 
-def find_regions_with_hysteresis_adapative_thresh(times, val, trigger_arr, release_arr, direction=-1):
+def find_regions_with_hysteresis_adapative_thresh(
+    times, val, trigger_arr, release_arr, direction=-1
+):
 
     if direction == -1:
         assert all(trigger_arr < 0)
@@ -428,29 +418,29 @@ def find_regions_with_hysteresis_adapative_thresh(times, val, trigger_arr, relea
         if not active and direction * v > direction * trigger_arr[ti]:
             active = True
             start_ind = ti
-            
+
     # Handle event still active at end of data
     if active:
-        regions.append((start_ind, len(times) - 1 ))
-        
+        regions.append((start_ind, len(times) - 1))
+
     return regions
 
 
 def compute_time_weighted_ewma(times, values, tau_minutes=30.0):
     """
-    tau_minutes: The 'memory' of the filter. 
+    tau_minutes: The 'memory' of the filter.
     Larger tau = smoother, but stays 'stuck' longer after gaps.
     """
     # Convert times to float minutes
-    t_min = times.astype('datetime64[m]').astype(float)
+    t_min = times.astype("datetime64[m]").astype(float)
     n = len(values)
     smoothed = np.zeros(n)
-    smoothed[0] = values[0] # Initialize
+    smoothed[0] = values[0]  # Initialize
     for i in range(1, n):
-        delta_t = t_min[i] - t_min[i-1]
+        delta_t = t_min[i] - t_min[i - 1]
         # Calculate dynamic alpha based on time gap
-        alpha = 1 - np.exp(- delta_t / tau_minutes)
-        smoothed[i] = (1 - alpha) * smoothed[i-1] + alpha * values[i]
+        alpha = 1 - np.exp(-delta_t / tau_minutes)
+        smoothed[i] = (1 - alpha) * smoothed[i - 1] + alpha * values[i]
     return smoothed
 
 
@@ -467,7 +457,7 @@ def get_complementary_intervals(intervals, start_bound, end_bound):
         # If there is space between the current position and the next interval
         if start > current_pos:
             complementary.append([current_pos, start])
-        
+
         # Move the cursor to just after the current interval
         assert current_pos != end + 1
         current_pos = max(current_pos, end + 1)
