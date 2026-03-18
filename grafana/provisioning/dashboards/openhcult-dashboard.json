@@ -3,7 +3,7 @@
   "title": "OpenHCult Sensors",
   "timezone": "browser",
   "schemaVersion": 38,
-  "version": 2,
+  "version": 3,
   "refresh": "30s",
   "time": {
     "from": "now-6h",
@@ -52,12 +52,12 @@
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT to_timestamp(sr.adjusted_time_ms / 1000.0) AS time, sr.measurement AS value, concat(COALESCE(d.tag, d.name, d.address, 'device'), ' ', sr.sensor) AS metric FROM sensor_readings sr JOIN devices d ON d.id = sr.device_id LEFT JOIN plant_sensors ps ON ps.device_id = d.id AND ps.sensor = sr.sensor LEFT JOIN plants p ON p.id = ps.plant_id WHERE $__unixEpochFilter(sr.adjusted_time_ms / 1000.0) AND ('${plant_name}' = '%' OR p.plant_name LIKE '${plant_name}') AND '${view_mode}' IN ('individual', 'both') ORDER BY 1",
+          "rawSql": "SELECT to_timestamp(sr.adjusted_time_ms / 1000.0) AS time, sr.measurement AS value, concat(COALESCE(p.plant_name, 'No Plant'), ' (', d.address, ') ', sr.sensor) AS metric FROM sensor_readings sr JOIN devices d ON d.id = sr.device_id LEFT JOIN plant_sensors ps ON ps.device_id = d.id AND ps.sensor = sr.sensor LEFT JOIN plants p ON p.id = ps.plant_id WHERE $__unixEpochFilter(sr.adjusted_time_ms / 1000.0) AND ('${plant_name}' = '%' OR p.plant_name LIKE '${plant_name}') AND '${view_mode}' IN ('individual', 'both') ORDER BY 1",
           "refId": "A"
         },
         {
           "format": "time_series",
-          "rawSql": "SELECT to_timestamp(floor(sr.adjusted_time_ms / ${__interval_ms}) * ${__interval_ms} / 1000.0) AS time, AVG(sr.measurement) AS value, concat(COALESCE(d.tag, d.name, d.address, 'device'), ' avg') AS metric FROM sensor_readings sr JOIN devices d ON d.id = sr.device_id LEFT JOIN plant_sensors ps ON ps.device_id = d.id AND ps.sensor = sr.sensor LEFT JOIN plants p ON p.id = ps.plant_id WHERE $__unixEpochFilter(sr.adjusted_time_ms / 1000.0) AND ('${plant_name}' = '%' OR p.plant_name LIKE '${plant_name}') AND '${view_mode}' IN ('average', 'both') GROUP BY time, d.id, d.tag, d.name, d.address ORDER BY 1",
+          "rawSql": "SELECT to_timestamp(floor(sr.adjusted_time_ms / ${__interval_ms}) * ${__interval_ms} / 1000.0) AS time, AVG(sr.measurement) AS value, concat(COALESCE(p.plant_name, 'No Plant'), ' (', d.address, ') avg') AS metric FROM sensor_readings sr JOIN devices d ON d.id = sr.device_id LEFT JOIN plant_sensors ps ON ps.device_id = d.id AND ps.sensor = sr.sensor LEFT JOIN plants p ON p.id = ps.plant_id WHERE $__unixEpochFilter(sr.adjusted_time_ms / 1000.0) AND ('${plant_name}' = '%' OR p.plant_name LIKE '${plant_name}') AND '${view_mode}' IN ('average', 'both') GROUP BY time, p.plant_name, d.address ORDER BY 1",
           "refId": "B"
         }
       ],
