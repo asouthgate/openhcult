@@ -19,11 +19,18 @@ source ~/esp/esp-idf/export.sh
 . $IDF_PATH/export.sh
 ```
 
-2) Configure and build:
+2) Configure and build, passing the target board:
 
+**FireBeetle ESP32-E:**
 ```bash
 idf.py set-target esp32
-idf.py build
+idf.py -DBOARD=FIREBEETLE_ESP32E build
+```
+
+**FireBeetle 2 ESP32-C5:**
+```bash
+idf.py set-target esp32c5
+idf.py -DBOARD=FIREBEETLE2_ESP32C5 build
 ```
 
 3) Flash and monitor:
@@ -61,12 +68,7 @@ idf.py -p /dev/ttyUSB0 flash
 
 ## Notes
 
-- ADC pins:
-  - Sensor 1: GPIO34 (ADC1_CHANNEL_6)
-  - Sensor 2: GPIO35 (ADC1_CHANNEL_7)
-- Power pins:
-  - Sensor power: GPIO5 and GPIO18
-- Status LED: GPIO4
+- Pin assignments are board-specific; see `main/pins.h`.
 - Advertising window and sleep interval are set in `openhcult.conf`.
 
 ## Glossary

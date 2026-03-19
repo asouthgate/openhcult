@@ -35,3 +35,9 @@ idf_component_register(
         "state.cpp"
     INCLUDE_DIRS "${CMAKE_CURRENT_BINARY_DIR}"
 )
+
+if(DEFINED BOARD)
+    target_compile_definitions(${COMPONENT_LIB} PUBLIC BOARD_${BOARD})
+else()
+    message(FATAL_ERROR "No BOARD defined. Use -DBOARD=FIREBEETLE_ESP32E or -DBOARD=FIREBEETLE2_ESP32C5")
+endif()

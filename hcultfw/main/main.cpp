@@ -7,11 +7,10 @@
 #include "esp_log.h"
 #include "esp_sleep.h"
 #include "esp_timer.h"
-#include "esp_adc/adc_oneshot.h" // For ADC readings
 #include "esp_system.h"
+#include "esp_random.h"
 #include "nvs_flash.h"
 #include "esp_bt.h"
-#include "esp_pm.h"
 #include "esp_wifi.h"
 
 // Bluetooth includes
@@ -23,30 +22,6 @@
 #include "state.h"
 
 static const char *TAG = "hcultfw"; // Tag for logging
-
-static adc_channel_t adc_channel_for_gpio(gpio_num_t gpio) {
-  switch (gpio) {
-    case GPIO_NUM_36:
-      return ADC_CHANNEL_0;
-    case GPIO_NUM_37:
-      return ADC_CHANNEL_1;
-    case GPIO_NUM_38:
-      return ADC_CHANNEL_2;
-    case GPIO_NUM_39:
-      return ADC_CHANNEL_3;
-    case GPIO_NUM_32:
-      return ADC_CHANNEL_4;
-    case GPIO_NUM_33:
-      return ADC_CHANNEL_5;
-    case GPIO_NUM_34:
-      return ADC_CHANNEL_6;
-    case GPIO_NUM_35:
-      return ADC_CHANNEL_7;
-    default:
-      ESP_LOGE(TAG, "Unsupported ADC GPIO: %d", static_cast<int>(gpio));
-      return ADC_CHANNEL_0;
-  }
-}
 
 // Configure LED and sensor power GPIOs as outputs and set safe defaults.
 static void init_power_pins() {
@@ -78,17 +53,6 @@ static void disable_unused_radios() {
   err = esp_wifi_deinit();
   if (err != ESP_OK && err != ESP_ERR_WIFI_NOT_INIT) {
     ESP_LOGW(TAG, "Failed to deinit Wi-Fi: %d", err);
-  }
-}
-
-static void reduce_cpu_peak_draw() {
-  esp_pm_config_esp32_t cfg = {};
-  cfg.max_freq_mhz = 80;
-  cfg.min_freq_mhz = 40;
-  cfg.light_sleep_enable = true;
-  esp_err_t err = esp_pm_configure(&cfg);
-  if (err != ESP_OK) {
-    ESP_LOGW(TAG, "Failed to configure power management: %d", err);
   }
 }
 
@@ -133,8 +97,8 @@ static void take_sensor_readings(FirmwareState &state) {
   chan_cfg.atten = ADC_ATTEN_DB_12;
   chan_cfg.bitwidth = ADC_BITWIDTH_12;
   const adc_channel_t sensor_channels[kSensorCount] = {
-      adc_channel_for_gpio(SENSOR_PIN_1),
-      adc_channel_for_gpio(SENSOR_PIN_2),
+      SENSOR_CHANNEL_1,
+      SENSOR_CHANNEL_2,
   };
   ESP_ERROR_CHECK(
       adc_oneshot_config_channel(state.adc_handle, sensor_channels[0], &chan_cfg));
@@ -189,7 +153,6 @@ extern "C" void app_main(void) {
 
   init_nvs_storage();
   disable_unused_radios();
-  reduce_cpu_peak_draw();
   init_power_pins();
   gpio_set_level(static_cast<gpio_num_t>(LED_PIN), 1);
   vTaskDelay(pdMS_TO_TICKS(5));
