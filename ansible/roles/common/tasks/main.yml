@@ -5,6 +5,8 @@
       - dbus
       - git
       - logrotate
+      - nodejs
+      - npm
       - python3
       - python3-pip
       - python3-venv
@@ -113,6 +115,20 @@
   ansible.builtin.fail:
     msg: "OpenHCult frontend not found at {{ openhcult_install_dir }}/hcultctrl/hcultctrl/frontend. Update the repo or provide frontend assets."
   when: not openhcult_frontend_stat.stat.exists
+
+- name: Install frontend npm dependencies
+  ansible.builtin.command:
+    cmd: npm install
+    chdir: "{{ openhcult_install_dir }}"
+  become_user: "{{ openhcult_user }}"
+  changed_when: true
+
+- name: Build React frontend
+  ansible.builtin.command:
+    cmd: npm run build
+    chdir: "{{ openhcult_install_dir }}"
+  become_user: "{{ openhcult_user }}"
+  changed_when: true
 
 - name: Ensure virtualenv exists
   ansible.builtin.command:
