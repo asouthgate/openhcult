@@ -198,6 +198,26 @@ select {
   background: #3a6155;
 }
 
+.home-nav {
+  display: flex;
+  gap: 16px;
+  padding-top: 8px;
+}
+
+.home-nav a {
+  color: var(--accent-2);
+  text-decoration: none;
+  font-size: 1.1rem;
+  padding: 8px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.home-nav a:hover {
+  background: #2b242d;
+  color: var(--ink);
+}
+
 .loading, .empty {
   padding: 60px 0;
   text-align: center;

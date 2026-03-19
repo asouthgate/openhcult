@@ -1,153 +1,24 @@
-import { useState, useEffect } from 'react'
-import { TimeseriesChart, PALETTE } from './TimeseriesChart'
+import { HashRouter, Routes, Route, Link } from 'react-router-dom'
+import Sensors from './Sensors'
 
-const TIME_RANGES = [
-  { label: '6h', hours: 6 },
-  { label: '24h', hours: 24 },
-  { label: '7d', hours: 24 * 7 },
-]
-
-function toUtc(d) {
-  return d.toISOString()
+function Home() {
+  return (
+    <div className="app">
+      <div className="app-header"><h1>HCult</h1></div>
+      <nav className="home-nav">
+        <Link to="/sensors">Sensors</Link>
+      </nav>
+    </div>
+  )
 }
 
 export default function App() {
-  const [rangeHours, setRangeHours] = useState(48)
-  const [plantFilter, setPlantFilter] = useState('')
-  const [plants, setPlants] = useState([])
-  const [series, setSeries] = useState([])
-  const [observations, setObservations] = useState([])
-  const [pendingTime, setPendingTime] = useState(null)
-  const [pendingPlant, setPendingPlant] = useState('')
-  const [loading, setLoading] = useState(false)
-
-  useEffect(() => {
-    fetch('/plants?limit=1000')
-      .then(r => r.json())
-      .then(d => setPlants(d.data ?? []))
-  }, [])
-
-  useEffect(() => {
-    const end = new Date()
-    const start = new Date(end - rangeHours * 3600 * 1000)
-    const params = new URLSearchParams({
-      start_utc: toUtc(start),
-      end_utc: toUtc(end),
-      limit: '50000',
-    })
-    if (plantFilter) params.set('plant', plantFilter)
-
-    setLoading(true)
-    setPendingTime(null)
-
-    Promise.all([
-      fetch(`/timeseries?${params}`).then(r => r.json()),
-      fetch('/plant_sensors?limit=1000').then(r => r.json()),
-      fetch(`/observations?${new URLSearchParams({ start_utc: toUtc(start), end_utc: toUtc(end), limit: '10000' })}`).then(r => r.json()),
-    ])
-      .then(([ts, ps, obs]) => {
-        const labelMap = {}
-        for (const row of ps.data ?? []) {
-          labelMap[`${row.device_address}:${row.sensor}`] = `${row.plant_name} / ${row.sensor}`
-        }
-
-        const grouped = {}
-        for (const row of ts.data ?? []) {
-          const key = `${row.device_address}:${row.sensor}`
-          if (!grouped[key]) grouped[key] = { label: labelMap[key] ?? key, points: [] }
-          grouped[key].points.push({ t: row.adjusted_time_ms, v: row.measurement })
-        }
-
-        setSeries(
-          Object.entries(grouped).map(([, s], i) => ({
-            ...s,
-            color: PALETTE[i % PALETTE.length],
-          }))
-        )
-        setObservations(obs.data ?? [])
-      })
-      .finally(() => setLoading(false))
-  }, [rangeHours, plantFilter])
-
-  const handleTimePick = t => {
-    setPendingTime(t)
-    setPendingPlant(plantFilter || '')
-  }
-
-  const submitWatering = () => {
-    const payload = {
-      note: 'WATER manual',
-      observed_at: new Date(pendingTime).toISOString(),
-    }
-    if (pendingPlant) payload.plant_name = pendingPlant
-    fetch('/observations', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-      .then(r => r.json())
-      .then(created => {
-        setObservations(prev => [...prev, created])
-        setPendingTime(null)
-      })
-  }
-
   return (
-    <div className="app">
-      <div className="app-header">
-        <h1>HCult</h1>
-        <div className="controls">
-          <div className="range-btns">
-            {TIME_RANGES.map(r => (
-              <button
-                key={r.hours}
-                className={rangeHours === r.hours ? 'active' : ''}
-                onClick={() => setRangeHours(r.hours)}
-              >
-                {r.label}
-              </button>
-            ))}
-          </div>
-          <select value={plantFilter} onChange={e => setPlantFilter(e.target.value)}>
-            <option value="">All plants</option>
-            {plants.map(p => (
-              <option key={p.plant_name} value={p.plant_name}>
-                {p.plant_name}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      {loading && <div className="loading">Loading…</div>}
-
-      {!loading && series.length === 0 && (
-        <div className="empty">No sensor data in this time range.</div>
-      )}
-
-      {series.length > 0 && (
-        <TimeseriesChart
-          series={series}
-          observations={observations}
-          rangeMs={rangeHours * 3600 * 1000}
-          onTimePick={handleTimePick}
-          pendingTime={pendingTime}
-        />
-      )}
-
-      {pendingTime != null && (
-        <div className="event-panel">
-          <span>Watering at <strong>{new Date(pendingTime).toLocaleString()}</strong></span>
-          <select value={pendingPlant} onChange={e => setPendingPlant(e.target.value)}>
-            <option value="">No plant</option>
-            {plants.map(p => (
-              <option key={p.plant_name} value={p.plant_name}>{p.plant_name}</option>
-            ))}
-          </select>
-          <button className="submit-btn" onClick={submitWatering}>Record</button>
-          <button onClick={() => setPendingTime(null)}>Dismiss</button>
-        </div>
-      )}
-    </div>
+    <HashRouter>
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/sensors" element={<Sensors />} />
+      </Routes>
+    </HashRouter>
   )
 }
