@@ -13,6 +13,7 @@ from hcultutils.species import species_via_ctrl
 from hcultutils.devices import devices_via_ctrl
 from hcultutils.calibration import calibration_main
 from hcultutils.observations import observations_main
+from hcultutils.inference_train import inference_train_main
 
 
 class HcultArgumentParser(argparse.ArgumentParser):
@@ -253,6 +254,13 @@ def _add_observations_command(subparsers):
     )
 
 
+def _add_inference_train_command(subparsers):
+    parser = subparsers.add_parser("inference_train")
+    _add_base_args(parser)
+    parser.add_argument("--plant-name", default=None, help="Filter to a specific plant")
+    parser.add_argument("--limit", type=int, default=100000)
+
+
 def _build_parser() -> HcultArgumentParser:
     parser = HcultArgumentParser(
         prog="hcultutils",
@@ -274,6 +282,7 @@ def _build_parser() -> HcultArgumentParser:
     _add_devices_command(subparsers)
     _add_calibration_command(subparsers)
     _add_observations_command(subparsers)
+    _add_inference_train_command(subparsers)
     return parser
 
 
@@ -308,6 +317,8 @@ def _dispatch_command(args) -> int:
         return calibration_main(args.ctrl_url, args.action, args)
     if args.command == "observations":
         return observations_main(args.ctrl_url, args.action, args)
+    if args.command == "inference_train":
+        return inference_train_main(args.ctrl_url, args)
     return 1
 
 
