@@ -119,14 +119,14 @@
 - name: Install frontend npm dependencies
   ansible.builtin.command:
     cmd: npm install
-    chdir: "{{ openhcult_install_dir }}"
+    chdir: "{{ openhcult_install_dir }}/frontend"
   become_user: "{{ openhcult_user }}"
   changed_when: true
 
 - name: Build React frontend
   ansible.builtin.command:
     cmd: npm run build
-    chdir: "{{ openhcult_install_dir }}"
+    chdir: "{{ openhcult_install_dir }}/frontend"
   become_user: "{{ openhcult_user }}"
   changed_when: true
 
