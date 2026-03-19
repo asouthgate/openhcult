@@ -18,13 +18,13 @@ router = APIRouter()
 class ObservationIn(BaseModel):
     note: str
     observed_at: Optional[str] = None
-    plant_id: Optional[int] = None
+    plant_name: Optional[str] = None
 
 
 class ObservationUpdate(BaseModel):
     note: Optional[str] = None
     observed_at: Optional[str] = None
-    plant_id: Optional[int] = None
+    plant_name: Optional[str] = None
 
 
 @router.post("/observations")
@@ -42,17 +42,20 @@ def create_observation(payload: ObservationIn, conn=Depends(get_db_conn)):
         if payload.observed_at
         else int(time.time() * 1000)
     )
-    obs_id = database.insert_observation(
-        conn,
-        note=note,
-        observed_at_ms=observed_at_ms,
-        plant_id=payload.plant_id,
-    )
+    try:
+        obs_id = database.insert_observation(
+            conn,
+            note=note,
+            observed_at_ms=observed_at_ms,
+            plant_name=payload.plant_name,
+        )
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Plant not found")
     return {
         "id": obs_id,
         "observed_at": observed_at_ms,
         "note": note,
-        "plant_id": payload.plant_id,
+        "plant_name": payload.plant_name,
     }
 
 
@@ -74,7 +77,9 @@ def list_observations(
         limit,
     )
     if start_utc and start_ms is not None:
-        raise HTTPException(status_code=400, detail="Use start_ms or start_utc, not both")
+        raise HTTPException(
+            status_code=400, detail="Use start_ms or start_utc, not both"
+        )
     if end_utc and end_ms is not None:
         raise HTTPException(status_code=400, detail="Use end_ms or end_utc, not both")
 
@@ -86,13 +91,15 @@ def list_observations(
     if start_ms is not None and end_ms is not None and start_ms > end_ms:
         raise HTTPException(status_code=400, detail="start_ms must be <= end_ms")
 
-    rows = database.fetch_observations(conn, start_ms=start_ms, end_ms=end_ms, limit=limit)
+    rows = database.fetch_observations(
+        conn, start_ms=start_ms, end_ms=end_ms, limit=limit
+    )
     data = [
         {
             "id": row["id"],
             "observed_at": row["observed_at"],
             "note": row["note"],
-            "plant_id": row.get("plant_id"),
+            "plant_name": row.get("plant_name"),
         }
         for row in rows
     ]
@@ -100,7 +107,9 @@ def list_observations(
 
 
 @router.patch("/observations/{obs_id}")
-def update_observation(obs_id: int, payload: ObservationUpdate, conn=Depends(get_db_conn)):
+def update_observation(
+    obs_id: int, payload: ObservationUpdate, conn=Depends(get_db_conn)
+):
     logger.info(
         "PATCH /observations/%s observed_at=%s note_set=%s",
         obs_id,
@@ -121,13 +130,13 @@ def update_observation(obs_id: int, payload: ObservationUpdate, conn=Depends(get
             obs_id=obs_id,
             observed_at_ms=observed_at_ms,
             note=note,
-            plant_id=payload.plant_id,
+            plant_name=payload.plant_name,
         )
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Observation not found")
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     return {
         "id": obs_id,
         "observed_at": observed_at_ms,
         "note": note,
-        "plant_id": payload.plant_id,
+        "plant_name": payload.plant_name,
     }

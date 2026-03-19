@@ -1,10 +1,17 @@
 import json
 import os
 import uuid
-from urllib import parse, request
+from urllib import parse, error
 
+from test_observations import (
+    test_observation_without_plant,
+    test_observation_with_plant,
+    test_observation_unknown_plant_returns_404,
+    test_patch_observation_plant_name,
+)
 
-BASE_URL = os.environ.get("OPENHCULT_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
+from test_utils import request_json
+
 SEED_DSN = os.environ.get(
     "OPENHCULT_SEED_DSN",
     "postgresql://hcult:hcult@127.0.0.1:5432/hcult",
@@ -42,28 +49,15 @@ def _seed_postgres():
         conn.commit()
 
 
-def _request_json(path, method="GET", payload=None):
-    url = f"{BASE_URL}{path}"
-    data = None
-    headers = {"Accept": "application/json"}
-    if payload is not None:
-        data = json.dumps(payload).encode("utf-8")
-        headers["Content-Type"] = "application/json"
-    req = request.Request(url, data=data, method=method, headers=headers)
-    with request.urlopen(req, timeout=10) as resp:
-        body = resp.read().decode("utf-8")
-    return json.loads(body)
-
-
 def test_root_ok():
     _seed_postgres()
-    payload = _request_json("/")
+    payload = request_json("/")
     assert payload["service"] == "hcultctrl"
     assert payload["status"] == "ok"
 
 
 def test_timeseries_limit():
-    payload = _request_json("/timeseries?limit=5")
+    payload = request_json("/timeseries?limit=5")
     assert "count" in payload
     assert "data" in payload
     assert isinstance(payload["data"], list)
@@ -71,11 +65,11 @@ def test_timeseries_limit():
 
 def test_create_and_list_observations():
     note = "pytest observation"
-    created = _request_json("/observations", method="POST", payload={"note": note})
+    created = request_json("/observations", method="POST", payload={"note": note})
     assert "id" in created
     assert created["note"] == note
 
-    listed = _request_json("/observations?limit=10")
+    listed = request_json("/observations?limit=10")
     notes = [item["note"] for item in listed.get("data", [])]
     assert note in notes
 
@@ -95,31 +89,33 @@ def test_postgres_sensor_readings_seeded():
 
 def test_species_smoke_flow():
     name = f"pytest-species-{uuid.uuid4().hex[:8]}"
-    created = _request_json("/species", method="POST", payload={"name": name})
+    created = request_json("/species", method="POST", payload={"name": name})
     assert created["name"] == name
 
-    listed = _request_json("/species?limit=10000")
+    listed = request_json("/species?limit=10000")
     names = [item["name"] for item in listed.get("data", [])]
     assert name in names
 
-    deleted = _request_json(f"/species/{name}", method="DELETE")
+    deleted = request_json(f"/species/{name}", method="DELETE")
     assert deleted["id"] == name
 
 
 def test_plants_smoke_flow():
     species_name = f"pytest-species-{uuid.uuid4().hex[:8]}"
     plant_name = f"pytest-plant-{uuid.uuid4().hex[:8]}"
-    created_species = _request_json("/species", method="POST", payload={"name": species_name})
+    created_species = request_json(
+        "/species", method="POST", payload={"name": species_name}
+    )
     assert created_species["name"] == species_name
     print(species_name)
-    created_plant = _request_json(
+    created_plant = request_json(
         "/plants",
         method="POST",
         payload={"plant_name": plant_name, "species_name": species_name},
     )
     plant_id = created_plant["id"]
 
-    status_payload = _request_json(
+    status_payload = request_json(
         f"/plants/{plant_name}/status",
         method="POST",
         payload={"status_code": "DROOPING_LEAVES", "note": "pytest"},
@@ -127,18 +123,18 @@ def test_plants_smoke_flow():
     assert status_payload["plant_name"] == plant_name
     assert status_payload["status_code"] == "DROOPING_LEAVES"
 
-    listed_statuses = _request_json(f"/plants/{plant_name}/status?limit=10")
+    listed_statuses = request_json(f"/plants/{plant_name}/status?limit=10")
     codes = [item["status_code"] for item in listed_statuses.get("data", [])]
     assert "DROOPING_LEAVES" in codes
 
-    listed = _request_json("/plants?limit=10000")
+    listed = request_json("/plants?limit=10000")
     names = [item["plant_name"] for item in listed.get("data", [])]
     assert plant_name in names
 
-    deleted = _request_json(f"/plants/{plant_name}", method="DELETE")
+    deleted = request_json(f"/plants/{plant_name}", method="DELETE")
     assert deleted["plant_name"] == plant_name
 
-    _request_json(f"/species/{species_name}", method="DELETE")
+    request_json(f"/species/{species_name}", method="DELETE")
 
 
 def test_devices_smoke_flow():
@@ -158,7 +154,7 @@ def test_devices_smoke_flow():
             )
         conn.commit()
 
-    listed = _request_json("/devices?limit=10000")
+    listed = request_json("/devices?limit=10000")
     addresses = [item["address"] for item in listed.get("data", [])]
     assert address in addresses
 
@@ -170,10 +166,10 @@ def test_calibration_smoke_flow():
         "sensor_val": [100, 200, 300, 500],
         "swc_std": [0.0, 0.1, 0.5, 1.0],
         "version": "bazbar",
-        "created_at": "2026-01-01T11:20:23Z"
+        "created_at": "2026-01-01T11:20:23Z",
     }
 
-    inserted_id = _request_json(
+    inserted_id = request_json(
         "/calibration/response_curve_lookup",
         method="POST",
         payload=data,

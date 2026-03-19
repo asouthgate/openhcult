@@ -59,7 +59,7 @@ def _list_plants(base_url: str) -> int:
             d.get("metadata"),
             ",".join(
                 [
-                    f"{sensd["device_address"]}/{sensd["sensor"]}"
+                    f"{sensd['device_address']}/{sensd['sensor']}"
                     for sensd in d.get("sensors")
                 ]
             ),

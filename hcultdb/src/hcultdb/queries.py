@@ -173,9 +173,15 @@ def fetch_timeseries(
 
 
 def insert_observation(
-    conn, *, note: str, observed_at_ms: int, plant_id: int | None
+    conn, *, note: str, observed_at_ms: int, plant_name: str | None
 ) -> int:
     """Insert an observation and return its id."""
+    plant_id = None
+    if plant_name is not None:
+        plant = fetch_plant_by_name(conn, plant_name=plant_name)
+        if plant is None:
+            raise ValueError(f"Plant not found: {plant_name}")
+        plant_id = plant["id"]
     cursor = conn.cursor()
     cursor.execute(
         "INSERT INTO observations (observed_at, note, plant_id) VALUES (%s, %s, %s) RETURNING id",
@@ -207,10 +213,11 @@ def fetch_observations(
     if clauses:
         where = "WHERE " + " AND ".join(clauses)
     query = f"""
-        SELECT id, observed_at, note, plant_id
-        FROM observations
+        SELECT o.id, o.observed_at, o.note, p.plant_name
+        FROM observations o
+        LEFT JOIN plants p ON p.id = o.plant_id
         {where}
-        ORDER BY observed_at ASC, id ASC
+        ORDER BY o.observed_at ASC, o.id ASC
         LIMIT {placeholder}
     """
     params.append(limit)
@@ -222,20 +229,21 @@ def fetch_observations(
 def fetch_observations_for_plant(
     conn,
     *,
-    plant_id: int,
+    plant_name: str,
     limit: int = 100,
 ) -> Iterable[dict]:
     """Return recent observations for a plant, newest first."""
     placeholder = placeholder_for(conn)
     query = f"""
-        SELECT id, observed_at, note, plant_id
-        FROM observations
-        WHERE plant_id = {placeholder}
-        ORDER BY observed_at DESC, id DESC
+        SELECT o.id, o.observed_at, o.note, p.plant_name
+        FROM observations o
+        JOIN plants p ON p.id = o.plant_id
+        WHERE p.plant_name = {placeholder}
+        ORDER BY o.observed_at DESC, o.id DESC
         LIMIT {placeholder}
     """
     cursor = conn.cursor()
-    cursor.execute(query, [plant_id, limit])
+    cursor.execute(query, [plant_name, limit])
     return fetchall_dicts(cursor)
 
 
@@ -263,7 +271,7 @@ def update_observation(
     obs_id: int,
     observed_at_ms: int | None,
     note: str | None,
-    plant_id: int | None,
+    plant_name: str | None,
 ) -> None:
     """Update an observation in place."""
     fields = []
@@ -275,9 +283,12 @@ def update_observation(
     if note is not None:
         fields.append(f"note = {placeholder}")
         params.append(note)
-    if plant_id is not None:
+    if plant_name is not None:
+        plant = fetch_plant_by_name(conn, plant_name=plant_name)
+        if plant is None:
+            raise ValueError(f"Plant not found: {plant_name}")
         fields.append(f"plant_id = {placeholder}")
-        params.append(plant_id)
+        params.append(plant["id"])
     if not fields:
         return
     params.append(obs_id)

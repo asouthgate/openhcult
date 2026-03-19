@@ -5,6 +5,8 @@
       - dbus
       - git
       - logrotate
+      - nodejs
+      - npm
       - python3
       - python3-pip
       - python3-venv
@@ -21,12 +23,12 @@
   ansible.builtin.user:
     name: "{{ openhcult_user }}"
     group: "{{ openhcult_group }}"
-    home: "{{ openhcult_install_dir }}"
+    home: "/home/{{ openhcult_user }}"
     shell: "{{ openhcult_user_shell }}"
-    system: true
     state: present
     groups: bluetooth
     append: true
+    move_home: false
 
 - name: Ensure install directory exists
   ansible.builtin.file:
@@ -114,6 +116,20 @@
     msg: "OpenHCult frontend not found at {{ openhcult_install_dir }}/hcultctrl/hcultctrl/frontend. Update the repo or provide frontend assets."
   when: not openhcult_frontend_stat.stat.exists
 
+- name: Install frontend npm dependencies
+  ansible.builtin.command:
+    cmd: npm install
+    chdir: "{{ openhcult_install_dir }}/frontend"
+  become_user: "{{ openhcult_user }}"
+  changed_when: true
+
+- name: Build React frontend
+  ansible.builtin.command:
+    cmd: npm run build
+    chdir: "{{ openhcult_install_dir }}/frontend"
+  become_user: "{{ openhcult_user }}"
+  changed_when: true
+
 - name: Ensure virtualenv exists
   ansible.builtin.command:
     cmd: python3 -m venv "{{ openhcult_install_dir }}/.venv"
@@ -164,8 +180,9 @@
     hour: "*"
     job: >
       {{ openhcult_install_dir }}/.venv/bin/hcultutils
+      infer_events
       --ctrl-url http://192.168.0.117:8000
-      infer_events --hours 48
+      --hours 48
 
 - name: Install logrotate config
   ansible.builtin.template:

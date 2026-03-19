@@ -5,7 +5,6 @@ import sys
 import time
 from urllib import request, error
 
-
 CTRL_URL = os.environ.get("OPENHCULT_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
 COMPOSE_CMD = os.environ.get("OPENHCULT_COMPOSE_CMD", "docker-compose")
 TIMEOUT_S = int(os.environ.get("OPENHCULT_SMOKE_TIMEOUT_S", "90"))
@@ -46,17 +45,24 @@ def _wait_for_postgres():
 
 
 def main() -> int:
+    interactive = "--interactive" in sys.argv or "-i" in sys.argv
     _run(f"{COMPOSE_CMD} down -v --remove-orphans")
     _run(f"{COMPOSE_CMD} up -d")
     try:
         _wait_for_postgres()
         _run(
             f"{COMPOSE_CMD} exec -T hcultctrl "
-            "python -c \"from hcultdb import setup; "
+            'python -c "from hcultdb import setup; '
             f"setup.setup_db('{DB_URL}')\""
         )
         _wait_for_ctrl()
-        return _run("pytest -q tests/test_api.py").returncode
+        result = _run(
+            "pytest -q tests/test_api.py tests/test_seed_visualisation.py"
+        ).returncode
+        if interactive:
+            print(f"\nStack is up. Frontend: {CTRL_URL}/frontend/app/")
+            input("Press Enter to tear down.\n")
+        return result
     except Exception:
         _run(f"{COMPOSE_CMD} logs --no-color hcultctrl", check=False)
         _run(f"{COMPOSE_CMD} logs --no-color postgres", check=False)

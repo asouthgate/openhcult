@@ -285,7 +285,9 @@ def plant_health_all_post(conn=Depends(get_db_conn)):
 
 def _build_health_payload(conn, plant: dict) -> dict:
     recent = list(
-        database.fetch_observations_for_plant(conn, plant_id=plant["id"], limit=10)
+        database.fetch_observations_for_plant(
+            conn, plant_name=plant["plant_name"], limit=10
+        )
     )
     statuses = list(database.fetch_plant_statuses(conn, plant_id=plant["id"], limit=50))
     return {
