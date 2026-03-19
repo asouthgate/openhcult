@@ -94,14 +94,22 @@ export function TimeseriesChart({ series, observations, rangeMs, onTimePick, pen
           />
         ))}
 
-        {(observations ?? []).filter(o => inRange(o.observed_at)).map(o => (
-          <line
-            key={o.id}
-            x1={x(o.observed_at)} x2={x(o.observed_at)}
-            y1={M.top} y2={M.top + IH}
-            stroke={OBS_COLOR} strokeWidth="1.5" strokeDasharray="4 3" opacity="0.8"
-          />
-        ))}
+        {(observations ?? []).filter(o => inRange(o.observed_at)).map(o => {
+          const confirmed = o.note?.includes('WATER') && !o.note?.includes('AUTO')
+          return (
+            <g key={o.id}>
+              <line
+                x1={x(o.observed_at)} x2={x(o.observed_at)}
+                y1={M.top} y2={M.top + IH}
+                stroke={OBS_COLOR} strokeWidth="1.5" strokeDasharray="4 3" opacity="0.8"
+              />
+              {confirmed && (
+                <text x={x(o.observed_at)} y={M.top - 4} textAnchor="middle"
+                  fontSize="13" fill={OBS_COLOR} opacity="0.9">★</text>
+              )}
+            </g>
+          )
+        })}
 
         <line x1={M.left} x2={VW - M.right} y1={M.top + IH} y2={M.top + IH} className="axis-line" />
         {xTicks.map(t => (

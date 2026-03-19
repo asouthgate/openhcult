@@ -253,6 +253,12 @@ def _add_observations_command(subparsers):
         help="ISO 8601 timestamp. If omitted, server uses current time.",
     )
 
+    ls_parser = obs_sub.add_parser("ls", help="List recent observations")
+    ls_parser.add_argument(
+        "--hours", type=int, default=24, help="Look-back window in hours"
+    )
+    ls_parser.add_argument("--limit", type=int, default=1000)
+
 
 def _add_inference_train_command(subparsers):
     parser = subparsers.add_parser("inference_train")

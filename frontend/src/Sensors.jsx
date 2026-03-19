@@ -20,6 +20,7 @@ export default function App() {
   const [pendingTime, setPendingTime] = useState(null)
   const [pendingPlant, setPendingPlant] = useState('')
   const [loading, setLoading] = useState(false)
+  const [showDuplicateModal, setShowDuplicateModal] = useState(false)
 
   useEffect(() => {
     fetch('/plants?limit=1000')
@@ -72,6 +73,7 @@ export default function App() {
   const handleTimePick = t => {
     setPendingTime(t)
     setPendingPlant(plantFilter || '')
+    setShowDuplicateModal(false)
   }
 
   const submitWatering = () => {
@@ -135,19 +137,47 @@ export default function App() {
         />
       )}
 
-      {pendingTime != null && (
-        <div className="event-panel">
-          <span>Watering at <strong>{new Date(pendingTime).toLocaleString()}</strong></span>
-          <select value={pendingPlant} onChange={e => setPendingPlant(e.target.value)}>
-            <option value="">No plant</option>
-            {plants.map(p => (
-              <option key={p.plant_name} value={p.plant_name}>{p.plant_name}</option>
-            ))}
-          </select>
-          <button className="submit-btn" onClick={submitWatering}>Record</button>
-          <button onClick={() => setPendingTime(null)}>Dismiss</button>
-        </div>
-      )}
+      {pendingTime != null && (() => {
+        const WARN_MS = 2 * 3600 * 1000
+        const nearby = observations.find(o =>
+          o.note?.includes('WATER') && !o.note?.includes('AUTO') &&
+          (!pendingPlant ? !o.plant_name : o.plant_name === pendingPlant) &&
+          Math.abs(o.observed_at - pendingTime) < WARN_MS
+        )
+        const handleRecord = () => nearby ? setShowDuplicateModal(true) : submitWatering()
+        return (
+          <>
+            {showDuplicateModal && (
+              <div className="modal-overlay">
+                <div className="modal">
+                  <p>A confirmed watering{nearby.plant_name ? <> for <strong>{nearby.plant_name}</strong></> : ''} already exists at <strong>{new Date(nearby.observed_at).toLocaleString()}</strong>.</p>
+                  <p>Record another event anyway?</p>
+                  <div className="modal-btns">
+                    <button className="submit-btn" onClick={() => { setShowDuplicateModal(false); submitWatering() }}>Record anyway</button>
+                    <button onClick={() => setShowDuplicateModal(false)}>Cancel</button>
+                  </div>
+                </div>
+              </div>
+            )}
+            <div className="event-panel">
+              <span>Watering at <strong>{new Date(pendingTime).toLocaleString()}</strong></span>
+              {nearby && (
+                <span className="event-warning">
+                  ⚠ confirmed watering{nearby.plant_name ? ` for ${nearby.plant_name}` : ''} already at {new Date(nearby.observed_at).toLocaleString()}
+                </span>
+              )}
+              <select value={pendingPlant} onChange={e => { setPendingPlant(e.target.value); setShowDuplicateModal(false) }}>
+                <option value="">No plant</option>
+                {plants.map(p => (
+                  <option key={p.plant_name} value={p.plant_name}>{p.plant_name}</option>
+                ))}
+              </select>
+              <button className="submit-btn" onClick={handleRecord}>Record</button>
+              <button onClick={() => setPendingTime(null)}>Dismiss</button>
+            </div>
+          </>
+        )
+      })()}
     </div>
   )
 }

@@ -173,6 +173,45 @@ select {
   font-size: 0.9rem;
 }
 
+.event-warning {
+  color: #d48a8a;
+  font-size: 0.82rem;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal {
+  background: var(--card);
+  border: 1px solid #5a2020;
+  border-radius: 12px;
+  padding: 24px;
+  max-width: 380px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  color: var(--ink);
+}
+
+.modal p {
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: #d48a8a;
+}
+
+.modal-btns {
+  display: flex;
+  gap: 10px;
+  margin-top: 4px;
+}
+
 .event-panel button {
   font-family: inherit;
   font-size: 0.85rem;
