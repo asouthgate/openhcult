@@ -30,13 +30,12 @@ static void init_power_pins() {
   io_conf.mode = GPIO_MODE_OUTPUT; // Set as output pins
   // pin_bit_mask specifies which pins this configuration struct applies to.
   io_conf.pin_bit_mask = (1ULL << LED_PIN) | (1ULL << SENSOR_POWER_PIN_1) |
-                         (1ULL << SENSOR_POWER_PIN_2) | (1ULL << RED_LED_PIN);
+                         (1ULL << SENSOR_POWER_PIN_2);
   io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
   io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
   ESP_ERROR_CHECK(gpio_config(&io_conf));
 
   gpio_set_level(static_cast<gpio_num_t>(LED_PIN), 0);
-  gpio_set_level(static_cast<gpio_num_t>(RED_LED_PIN), 0);
   gpio_set_level(static_cast<gpio_num_t>(SENSOR_POWER_PIN_1), 0);
   gpio_set_level(static_cast<gpio_num_t>(SENSOR_POWER_PIN_2), 0);
 }
@@ -96,22 +95,17 @@ static void take_sensor_readings(FirmwareState &state) {
   adc_oneshot_chan_cfg_t chan_cfg = {};
   chan_cfg.atten = ADC_ATTEN_DB_12;
   chan_cfg.bitwidth = ADC_BITWIDTH_12;
-  const adc_channel_t sensor_channels[kSensorCount] = {
-      SENSOR_CHANNEL_1,
-      SENSOR_CHANNEL_2,
-  };
+  const gpio_num_t sensor_gpios[kSensorCount] = {SENSOR_PIN_1, SENSOR_PIN_2};
+  adc_channel_t sensor_channels[kSensorCount];
+  for (size_t i = 0; i < kSensorCount; ++i) {
+    adc_unit_t unit;
+    ESP_ERROR_CHECK(adc_oneshot_io_to_channel(sensor_gpios[i], &unit, &sensor_channels[i]));
+  }
   ESP_ERROR_CHECK(
       adc_oneshot_config_channel(state.adc_handle, sensor_channels[0], &chan_cfg));
   ESP_ERROR_CHECK(
       adc_oneshot_config_channel(state.adc_handle, sensor_channels[1], &chan_cfg));
 
-  if (RED_LED_FLASH_MS > 0) {
-    // Enable the red pin for debugging purposes and to force power draw to prevent battery from
-    // going to sleep. Power banks sometimes cut power to the output if the draw is too low.
-    gpio_set_level(static_cast<gpio_num_t>(RED_LED_PIN), 1);
-    vTaskDelay(pdMS_TO_TICKS(RED_LED_FLASH_MS));
-    gpio_set_level(static_cast<gpio_num_t>(RED_LED_PIN), 0);
-  }
   const gpio_num_t sensor_power_pins[kSensorCount] = {
       static_cast<gpio_num_t>(SENSOR_POWER_PIN_1),
       static_cast<gpio_num_t>(SENSOR_POWER_PIN_2),
@@ -154,9 +148,11 @@ extern "C" void app_main(void) {
   init_nvs_storage();
   disable_unused_radios();
   init_power_pins();
-  gpio_set_level(static_cast<gpio_num_t>(LED_PIN), 1);
-  vTaskDelay(pdMS_TO_TICKS(5));
-  gpio_set_level(static_cast<gpio_num_t>(LED_PIN), 0);
+  if (RED_LED_FLASH_MS > 0) {
+    gpio_set_level(static_cast<gpio_num_t>(LED_PIN), 1);
+    vTaskDelay(pdMS_TO_TICKS(RED_LED_FLASH_MS));
+    gpio_set_level(static_cast<gpio_num_t>(LED_PIN), 0);
+  }
   take_sensor_readings(state);
 
   if (!init_ble_stack(state)) {

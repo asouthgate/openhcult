@@ -16,6 +16,7 @@ ADV_PAYLOAD_LEN = 12
 
 _last_adv_payload = {}
 
+
 def _parse_adv_payload(data):
     """Parse advertise-only payload: magic(2), version, count, values, nonce."""
     if len(data) < ADV_PAYLOAD_LEN:
@@ -41,6 +42,7 @@ def _parse_adv_payload(data):
     nonce = int.from_bytes(data[offset : offset + 4], byteorder="little")
     return {"sensor_count": sensor_count, "values": values, "nonce": nonce}
 
+
 def _handle_adv_payload(payload, dbcon, device):
     """Persist advertise-only payload readings."""
     collection_time_ms = int(time.time() * 1000)
@@ -56,7 +58,7 @@ def _handle_adv_payload(payload, dbcon, device):
             (
                 f"sensor{i}",
                 value,
-                payload["nonce"] * 1_000_000,
+                collection_time_ms * 1000,
                 collection_time_ms,
                 collection_time_ms,
             )
