@@ -5,6 +5,7 @@ const TIME_RANGES = [
   { label: '6h', hours: 6 },
   { label: '24h', hours: 24 },
   { label: '7d', hours: 24 * 7 },
+  { label: '30d', hours: 24 * 30 },
 ]
 
 function toUtc(d) {
@@ -49,7 +50,7 @@ export default function App() {
       .then(([ts, ps, obs]) => {
         const labelMap = {}
         for (const row of ps.data ?? []) {
-          labelMap[`${row.device_address}:${row.sensor}`] = `${row.plant_name} / ${row.sensor}`
+          labelMap[`${row.device_address}:${row.sensor}`] = `${row.plant_name} / ${row.device_address} / ${row.sensor}`
         }
 
         const grouped = {}

@@ -1,7 +1,6 @@
 import os
-import time
 import psycopg
-from test_utils import request_json, simulate_moisture
+from test_utils import request_json, simulate_moisture_multi
 
 SEED_DSN = os.environ.get(
     "OPENHCULT_SEED_DSN",
@@ -25,12 +24,11 @@ _PLANTS = [
     },
 ]
 
-_HOURS = 48
+_N_EVENTS = 100
+_DAYS_PER_CYCLE = 3
 
 
 def test_seed_visualisation_data():
-    n = _HOURS * 60
-
     for p in _PLANTS:
         request_json("/species", method="POST", payload={"name": p["species"]})
         request_json(
@@ -60,8 +58,11 @@ def test_seed_visualisation_data():
                     (plant_id, device_id, p["sensor"]),
                 )
 
-                readings = simulate_moisture(
-                    n, _HOURS, base=p["base"], noise_seed=hash(p["plant"]) % 1000
+                readings, watering_times = simulate_moisture_multi(
+                    _N_EVENTS,
+                    days_per_cycle=_DAYS_PER_CYCLE,
+                    base=p["base"],
+                    noise_seed=hash(p["plant"]) % 1000,
                 )
                 cur.executemany(
                     "INSERT INTO sensor_readings "
@@ -69,11 +70,9 @@ def test_seed_visualisation_data():
                     "VALUES (%s, %s, %s, %s, %s, %s)",
                     [(device_id, p["sensor"], v, t * 1000, t, t) for t, v in readings],
                 )
-
-                watering_t = readings[int(n * 0.55)][0]
-                cur.execute(
+                cur.executemany(
                     "INSERT INTO observations (observed_at, note, plant_id) VALUES (%s, %s, %s)",
-                    (watering_t, "WATER manual seed", plant_id),
+                    [(t, "WATER manual seed", plant_id) for t in watering_times],
                 )
 
         conn.commit()

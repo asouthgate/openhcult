@@ -51,7 +51,7 @@ def _seed_postgres():
 
 def test_root_ok():
     _seed_postgres()
-    payload = request_json("/")
+    payload = request_json("/status")
     assert payload["service"] == "hcultctrl"
     assert payload["status"] == "ok"
 
