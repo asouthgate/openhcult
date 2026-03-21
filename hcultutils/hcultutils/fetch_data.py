@@ -42,8 +42,8 @@ def fetch_series_from_ctrl(
     start_utc: str | None,
     end_utc: str | None,
     limit: int,
-) -> Dict[str, List[Tuple[np.datetime64, int]]]:
-    series: Dict[str, List[Tuple[np.datetime64, int]]] = {}
+) -> Dict[str, List[Tuple[np.datetime64, int, int | None]]]:
+    series: Dict[str, List[Tuple[np.datetime64, int, int | None]]] = {}
     params: Dict[str, str] = {"format": "json", "limit": str(limit)}
     if sensor:
         params["sensor"] = sensor
@@ -75,7 +75,14 @@ def fetch_series_from_ctrl(
         device_name = row.get("device_name") or row.get("device_address") or "unknown"
         sensor_name = row.get("sensor") or "sensor"
         key = f"{device_name}:{sensor_name}"
-        series.setdefault(key, []).append((timestamp, int(row.get("measurement", 0))))
+        voltage_mv = row.get("voltage_mv")
+        series.setdefault(key, []).append(
+            (
+                timestamp,
+                int(row.get("measurement", 0)),
+                int(voltage_mv) if voltage_mv is not None else None,
+            )
+        )
     return series
 
 
@@ -102,11 +109,22 @@ def _fetch_observations_from_ctrl(
         if observed_at is None:
             continue
         timestamp = np.datetime64(int(observed_at), "ms")
-        observations.append((int(row.get("id", 0)), timestamp, str(row.get("note", ""))))
+        observations.append(
+            (int(row.get("id", 0)), timestamp, str(row.get("note", "")))
+        )
     return observations
 
 
-def fetch_data(ctrl_url, start_utc, end_utc, *, sensor=None, device=None, plant_name=None, limit=1000):
+def fetch_data(
+    ctrl_url,
+    start_utc,
+    end_utc,
+    *,
+    sensor=None,
+    device=None,
+    plant_name=None,
+    limit=1000,
+):
     series = fetch_series_from_ctrl(
         ctrl_url,
         sensor=sensor,

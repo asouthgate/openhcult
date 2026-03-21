@@ -13,6 +13,7 @@ struct FirmwareState {
   adc_oneshot_unit_handle_t adc_handle;
   uint8_t ble_addr_type;
   volatile bool request_sleep;
-  float last_sensor_values[kSensorCount];
+  int last_sensor_values[kSensorCount];
+  uint16_t last_sensor_voltages_mv[kSensorCount];
   uint32_t last_timestamp_s;
 };

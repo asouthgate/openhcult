@@ -36,11 +36,11 @@ def _seed_postgres():
             cur.execute(
                 """
                 INSERT INTO sensor_readings
-                    (device_id, sensor, measurement, measurement_time_us, collection_time_ms, adjusted_time_ms)
+                    (device_id, sensor, measurement, voltage_mv, measurement_time_us, collection_time_ms, adjusted_time_ms)
                 VALUES
-                    (%s, %s, %s, %s, %s, %s)
+                    (%s, %s, %s, %s, %s, %s, %s)
                 """,
-                (device_id, "sensor1", 123, 0, 0, 0),
+                (device_id, "sensor1", 123, 117, 0, 0, 0),
             )
             cur.execute(
                 "INSERT INTO observations (observed_at, note) VALUES (%s, %s)",

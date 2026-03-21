@@ -156,6 +156,17 @@ def plot_roc(results):
     return best
 
 
+def plot_segmentation(timeseries, params):
+    """Run detector with given params and call debug_plot() for each sensor."""
+    for sensor, points in timeseries.items():
+        times = np.array([t for t, _ in points])
+        values = np.array([v for _, v in points], dtype=float)
+        if len(times) < 2:
+            continue
+        print(f"Plotting segmentation for {sensor}")
+        SegmentDetector(times, values, **params).debug_plot()
+
+
 def plot_debug_events(timeseries, params, confirmed_events, epsilon_ms=900_000):
     """Cycle through detected events showing the lognormal fit. Keys: ←/→ to navigate, q to quit."""
     import matplotlib.pyplot as plt

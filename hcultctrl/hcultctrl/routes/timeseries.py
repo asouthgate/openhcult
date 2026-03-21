@@ -14,7 +14,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-
 @router.get("/timeseries")
 def timeseries(
     sensor: Optional[str] = None,
@@ -41,7 +40,9 @@ def timeseries(
         format,
     )
     if start_utc and start_ms is not None:
-        raise HTTPException(status_code=400, detail="Use start_ms or start_utc, not both")
+        raise HTTPException(
+            status_code=400, detail="Use start_ms or start_utc, not both"
+        )
     if end_utc and end_ms is not None:
         raise HTTPException(status_code=400, detail="Use end_ms or end_utc, not both")
 
@@ -72,6 +73,7 @@ def timeseries(
                 "device_address",
                 "sensor",
                 "measurement",
+                "voltage_mv",
                 "measurement_time_us",
                 "adjusted_time_ms",
                 "collection_time_ms",
@@ -84,6 +86,7 @@ def timeseries(
                     row["device_address"],
                     row["sensor"],
                     row["measurement"],
+                    row["voltage_mv"],
                     row["measurement_time_us"],
                     row["adjusted_time_ms"],
                     row["collection_time_ms"],
@@ -97,6 +100,7 @@ def timeseries(
             "device_address": row["device_address"],
             "sensor": row["sensor"],
             "measurement": row["measurement"],
+            "voltage_mv": row["voltage_mv"],
             "measurement_time_us": row["measurement_time_us"],
             "adjusted_time_ms": row["adjusted_time_ms"],
             "collection_time_ms": row["collection_time_ms"],
@@ -104,4 +108,3 @@ def timeseries(
         for row in rows
     ]
     return {"count": len(data), "data": data}
-

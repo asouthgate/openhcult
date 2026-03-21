@@ -66,9 +66,12 @@ def test_seed_visualisation_data():
                 )
                 cur.executemany(
                     "INSERT INTO sensor_readings "
-                    "(device_id, sensor, measurement, measurement_time_us, collection_time_ms, adjusted_time_ms) "
-                    "VALUES (%s, %s, %s, %s, %s, %s)",
-                    [(device_id, p["sensor"], v, t * 1000, t, t) for t, v in readings],
+                    "(device_id, sensor, measurement, voltage_mv, measurement_time_us, collection_time_ms, adjusted_time_ms) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                    [
+                        (device_id, p["sensor"], v, mv, t * 1000, t, t)
+                        for t, v, mv in readings
+                    ],
                 )
                 cur.executemany(
                     "INSERT INTO observations (observed_at, note, plant_id) VALUES (%s, %s, %s)",

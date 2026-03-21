@@ -24,12 +24,13 @@ static void start_advertising_beacon(void);
 
 namespace {
 constexpr uint16_t kAdvCompanyId = 0xFFFF;
-constexpr uint8_t kAdvPayloadVersion = 1;
+constexpr uint8_t kAdvPayloadVersion = 2;
 // Future: rotate sensor types (e.g., moisture/temp/light) across 5s windows and
 // encode the type in a payload flag to keep the advertisement compact.
 constexpr uint8_t kAdvPayloadMagic0 = 'H';
 constexpr uint8_t kAdvPayloadMagic1 = 'C';
-constexpr size_t kAdvPayloadSize = 12; // Magic(2) + version + count + values(4) + timestamp(4).
+// Magic(2) + version + count + per_sensor(raw_u16 + voltage_mv_u16) * count + nonce(4).
+constexpr size_t kAdvPayloadSize = 4 + kSensorCount * 4 + 4;
 constexpr size_t kAdvMfgDataSize = 2 + kAdvPayloadSize; // Company ID + payload.
 } // namespace
 
@@ -41,11 +42,6 @@ static bool build_adv_mfg_data(
   if (out_capacity < kAdvMfgDataSize) {
     return false;
   }
-  float values[kSensorCount] = {};
-  for (size_t i = 0; i < kSensorCount; ++i) {
-    values[i] = s_state->last_sensor_values[i];
-  }
-
   out[0] = static_cast<uint8_t>(kAdvCompanyId & 0xFF);
   out[1] = static_cast<uint8_t>((kAdvCompanyId >> 8) & 0xFF);
   out[2] = kAdvPayloadMagic0;
@@ -53,18 +49,21 @@ static bool build_adv_mfg_data(
   out[4] = kAdvPayloadVersion;
   out[5] = static_cast<uint8_t>(kSensorCount & 0xFF);
 
-  uint16_t sensor0 = static_cast<uint16_t>(values[0]);
-  uint16_t sensor1 = static_cast<uint16_t>(values[1]);
-  out[6] = static_cast<uint8_t>(sensor0 & 0xFF);
-  out[7] = static_cast<uint8_t>((sensor0 >> 8) & 0xFF);
-  out[8] = static_cast<uint8_t>(sensor1 & 0xFF);
-  out[9] = static_cast<uint8_t>((sensor1 >> 8) & 0xFF);
+  size_t offset = 6;
+  for (size_t i = 0; i < kSensorCount; ++i) {
+    uint16_t raw = static_cast<uint16_t>(s_state->last_sensor_values[i]);
+    uint16_t mv = s_state->last_sensor_voltages_mv[i];
+    out[offset++] = static_cast<uint8_t>(raw & 0xFF);
+    out[offset++] = static_cast<uint8_t>((raw >> 8) & 0xFF);
+    out[offset++] = static_cast<uint8_t>(mv & 0xFF);
+    out[offset++] = static_cast<uint8_t>((mv >> 8) & 0xFF);
+  }
 
   uint32_t timestamp_s = s_state->last_timestamp_s;
-  out[10] = static_cast<uint8_t>(timestamp_s & 0xFF);
-  out[11] = static_cast<uint8_t>((timestamp_s >> 8) & 0xFF);
-  out[12] = static_cast<uint8_t>((timestamp_s >> 16) & 0xFF);
-  out[13] = static_cast<uint8_t>((timestamp_s >> 24) & 0xFF);
+  out[offset++] = static_cast<uint8_t>(timestamp_s & 0xFF);
+  out[offset++] = static_cast<uint8_t>((timestamp_s >> 8) & 0xFF);
+  out[offset++] = static_cast<uint8_t>((timestamp_s >> 16) & 0xFF);
+  out[offset++] = static_cast<uint8_t>((timestamp_s >> 24) & 0xFF);
 
   *out_len = kAdvMfgDataSize;
   return true;

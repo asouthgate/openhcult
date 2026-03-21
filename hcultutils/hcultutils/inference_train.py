@@ -7,6 +7,7 @@ from hcultinf.training import (
     filter_confirmed_watering_events,
     grid_search,
     plot_roc,
+    plot_segmentation,
     plot_debug_events,
 )
 
@@ -54,9 +55,8 @@ def inference_train_main(ctrl_url: str, args) -> int:
     best = plot_roc(results)
 
     if args.debug:
-        print(
-            f"\nDebug mode: showing detected events for best params (F1={best['f1']:.3f})"
-        )
+        print(f"\nDebug mode: best params F1={best['f1']:.3f}")
+        plot_segmentation(series, best["params"])
         plot_debug_events(series, best["params"], confirmed)
 
     return 0

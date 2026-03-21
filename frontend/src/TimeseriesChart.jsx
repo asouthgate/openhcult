@@ -34,7 +34,7 @@ function fmtTime(ms, rangeMs) {
   return d.toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
-export function TimeseriesChart({ series, observations, rangeMs, onTimePick, pendingTime }) {
+export function TimeseriesChart({ series, observations, rangeMs, onTimePick, pendingTime, yLabel }) {
   const [cursor, setCursor] = useState(null)
 
   const allT = series.flatMap(s => s.points.map(p => p.t))
@@ -122,6 +122,16 @@ export function TimeseriesChart({ series, observations, rangeMs, onTimePick, pen
         ))}
 
         <line x1={M.left} x2={M.left} y1={M.top} y2={M.top + IH} className="axis-line" />
+        {yLabel && (
+          <text
+            x={14} y={M.top + IH / 2}
+            className="axis-label"
+            textAnchor="middle"
+            transform={`rotate(-90, 14, ${M.top + IH / 2})`}
+          >
+            {yLabel}
+          </text>
+        )}
         {yTicks.map(v => (
           <g key={v}>
             <line x1={M.left - 5} x2={M.left} y1={y(v)} y2={y(v)} className="axis-line" />

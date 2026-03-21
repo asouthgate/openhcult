@@ -31,8 +31,8 @@ static void init_power_pins() {
   // pin_bit_mask specifies which pins this configuration struct applies to.
   io_conf.pin_bit_mask = (1ULL << LED_PIN) | (1ULL << SENSOR_POWER_PIN_1) |
                          (1ULL << SENSOR_POWER_PIN_2);
-  io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
-  io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
+  io_conf.pull_down_en = GPIO_PULLDOWN_ENABLE;
+  io_conf.pull_up_en = GPIO_PULLUP_ENABLE;
   ESP_ERROR_CHECK(gpio_config(&io_conf));
 
   gpio_set_level(static_cast<gpio_num_t>(LED_PIN), 0);
@@ -71,19 +71,38 @@ static void power_sensor(gpio_num_t pin, bool on) {
   gpio_set_level(pin, on ? 1 : 0);
 }
 
-// Read a sensor value from the specified ADC channel.
-static float read_sensor_with_power(
+// // Read a sensor value from the specified ADC channel.
+// static float read_sensor_with_power(
+//   FirmwareState &state,
+//   gpio_num_t power_pin,
+//   adc_channel_t channel
+// ) {
+//   // We power on the sensor, wait briefly for it to stabilize, read the value, then power it off.
+//   // This reduces artifacts in the readings.
+//   power_sensor(power_pin, true);
+//   vTaskDelay(pdMS_TO_TICKS(100));
+//   int value = read_sensor(state, channel);
+//   power_sensor(power_pin, false);
+//   return static_cast<float>(value);
+// }
+
+static SensorReading read_sensor_with_power(
   FirmwareState &state,
   gpio_num_t power_pin,
   adc_channel_t channel
 ) {
-  // We power on the sensor, wait briefly for it to stabilize, read the value, then power it off.
-  // This reduces artifacts in the readings.
+  adc_oneshot_chan_cfg_t chan_cfg = {};
+  chan_cfg.atten = ADC_ATTEN_DB_12;
+  chan_cfg.bitwidth = ADC_BITWIDTH_12;
+  ESP_ERROR_CHECK(adc_oneshot_config_channel(state.adc_handle, channel, &chan_cfg));
+
   power_sensor(power_pin, true);
   vTaskDelay(pdMS_TO_TICKS(100));
-  int value = read_sensor(state, channel);
+  SensorReading reading = read_sensor(state, channel);
   power_sensor(power_pin, false);
-  return static_cast<float>(value);
+
+  vTaskDelay(pdMS_TO_TICKS(500));
+  return reading;
 }
 
 // Take readings from all sensors and log the values.
@@ -101,18 +120,18 @@ static void take_sensor_readings(FirmwareState &state) {
     adc_unit_t unit;
     ESP_ERROR_CHECK(adc_oneshot_io_to_channel(sensor_gpios[i], &unit, &sensor_channels[i]));
   }
-  ESP_ERROR_CHECK(
-      adc_oneshot_config_channel(state.adc_handle, sensor_channels[0], &chan_cfg));
-  ESP_ERROR_CHECK(
-      adc_oneshot_config_channel(state.adc_handle, sensor_channels[1], &chan_cfg));
+  // ESP_ERROR_CHECK(
+  //     adc_oneshot_config_channel(state.adc_handle, sensor_channels[0], &chan_cfg));
+  // ESP_ERROR_CHECK(
+  //     adc_oneshot_config_channel(state.adc_handle, sensor_channels[1], &chan_cfg));
 
   const gpio_num_t sensor_power_pins[kSensorCount] = {
       static_cast<gpio_num_t>(SENSOR_POWER_PIN_1),
       static_cast<gpio_num_t>(SENSOR_POWER_PIN_2),
   };
-  float sensor_values[kSensorCount];
+  SensorReading sensor_readings[kSensorCount];
   for (size_t i = 0; i < kSensorCount; ++i) {
-    sensor_values[i] = read_sensor_with_power(
+    sensor_readings[i] = read_sensor_with_power(
       state,
       sensor_power_pins[i],
       sensor_channels[i]
@@ -120,13 +139,13 @@ static void take_sensor_readings(FirmwareState &state) {
     vTaskDelay(pdMS_TO_TICKS(1000));
   }
   for (size_t i = 0; i < kSensorCount; ++i) {
-    state.last_sensor_values[i] = sensor_values[i];
+    state.last_sensor_values[i] = sensor_readings[i].raw;
+    state.last_sensor_voltages_mv[i] = sensor_readings[i].voltage_mv;
   }
-  // Use a random nonce instead of a timestamp for deduplication.
   state.last_timestamp_s = esp_random();
 
-  ESP_LOGI(TAG, "Sensor value 1: %.2f", sensor_values[0]);
-  ESP_LOGI(TAG, "Sensor value 2: %.2f", sensor_values[1]);
+  ESP_LOGI(TAG, "Sensor 1: raw=%d voltage=%umV", sensor_readings[0].raw, sensor_readings[0].voltage_mv);
+  ESP_LOGI(TAG, "Sensor 2: raw=%d voltage=%umV", sensor_readings[1].raw, sensor_readings[1].voltage_mv);
   ESP_LOGI(TAG, "Sensor nonce: %u", state.last_timestamp_s);
 }
 

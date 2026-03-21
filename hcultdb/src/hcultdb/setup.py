@@ -1,4 +1,5 @@
 """Database setup helpers."""
+
 from pathlib import Path
 
 from .connection import connect, is_postgres, placeholder as placeholder_for
@@ -7,55 +8,45 @@ from .connection import connect, is_postgres, placeholder as placeholder_for
 def _connect(db_url: str):
     return connect(db_url)
 
+
 def _setup_inference_tables(cursor):
 
-    cursor.execute(
-        """
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS observations (
             id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
             observed_at BIGINT NOT NULL,
             note TEXT NOT NULL,
             plant_id INTEGER REFERENCES plants(id)
         )
-        """
-    )
-    cursor.execute(
-        """
+        """)
+    cursor.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS observations_unique
         ON observations (observed_at, note, COALESCE(plant_id, -1))
-        """
-    )
-    cursor.execute(
-        """
+        """)
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS observation_types (
             id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
             code TEXT NOT NULL UNIQUE,
             label TEXT NOT NULL,
             description TEXT
         )
-        """
-    )
-    cursor.execute(
-        """
+        """)
+    cursor.execute("""
         ALTER TABLE observations
         ADD COLUMN IF NOT EXISTS observation_type_id INTEGER
         REFERENCES observation_types(id)
-        """
-    )
+        """)
 
-    cursor.execute(
-        """
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS moisture_calibrations (
             id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
             observed_at BIGINT NOT NULL,
             sensor_value INTEGER NOT NULL,
             meter_value DOUBLE PRECISION NOT NULL
         )
-        """
-    )
+        """)
 
-    cursor.execute(
-        """
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS response_curve_lookup (
             id SERIAL PRIMARY KEY,
             swc DOUBLE PRECISION,
@@ -66,12 +57,11 @@ def _setup_inference_tables(cursor):
         );
 
         CREATE INDEX IF NOT EXISTS idx_swc_lookup ON response_curve_lookup(swc);        
-        """
-    )
+        """)
+
 
 def _setup_devices_tables(cursor):
-    cursor.execute(
-        """
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS devices (
             id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
             name TEXT,
@@ -80,28 +70,30 @@ def _setup_devices_tables(cursor):
             first_seen TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
             last_seen TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
         )
-        """
-    )
+        """)
+
 
 def _setup_readings_tables(cursor):
-        cursor.execute(
-        """
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS sensor_readings (
             id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
             device_id INTEGER NOT NULL,
             sensor TEXT NOT NULL,
             measurement INTEGER NOT NULL,
+            voltage_mv INTEGER,
             measurement_time_us BIGINT,
             collection_time_ms BIGINT,
             adjusted_time_ms BIGINT,
             FOREIGN KEY (device_id) REFERENCES devices(id)
         )
-        """
-    )
-        
+        """)
+    cursor.execute("""
+        ALTER TABLE sensor_readings ADD COLUMN IF NOT EXISTS voltage_mv INTEGER
+        """)
+
+
 def _setup_plant_tables(cursor):
-    cursor.execute(
-        """
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS plants (
             id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
             plant_name TEXT NOT NULL,
@@ -109,20 +101,16 @@ def _setup_plant_tables(cursor):
             tag TEXT,
             metadata JSONB
         )
-        """
-    )
-    cursor.execute(
-        """
+        """)
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS status_types (
             id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
             code TEXT NOT NULL UNIQUE,
             label TEXT NOT NULL,
             description TEXT
         )
-        """
-    )
-    cursor.execute(
-        """
+        """)
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS plant_statuses (
             id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
             plant_id INTEGER NOT NULL REFERENCES plants(id) ON DELETE CASCADE,
@@ -131,37 +119,30 @@ def _setup_plant_tables(cursor):
             note TEXT,
             cleared_at BIGINT
         )
-        """
-    )
-    cursor.execute(
-        """
+        """)
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS plant_sensors (
             id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
             plant_id INTEGER NOT NULL REFERENCES plants(id) ON DELETE CASCADE,
             device_id INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
             sensor TEXT NOT NULL
         )
-        """
-    )
-    cursor.execute(
-        """
+        """)
+    cursor.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS plant_sensors_unique
         ON plant_sensors (plant_id, device_id, sensor)
-        """
-    )
+        """)
 
 
 def _setup_species_tables(cursor):
-    cursor.execute(
-        """
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS species (
             id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
             name TEXT NOT NULL,
             common_name TEXT,
             metadata JSONB
         )
-        """
-    )
+        """)
     cursor.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS species_name_unique ON species (name)"
     )

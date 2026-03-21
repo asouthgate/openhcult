@@ -37,9 +37,14 @@ def main(args) -> int:
 
     for idx, name in enumerate(sensor_names):
         points = series[name]
-        times = np.array([t for t, _ in points])
-        values = np.array([v for _, v in points], dtype=float)
+        times = np.array([t for t, _, _ in points])
+        values = np.array([v for _, v, _ in points], dtype=float)
         times_map[name] = times
-        ded = SegmentDetector(times, values, args.emwa_tau_minutes, args.trigger_threshold, args.release_threshold)
+        ded = SegmentDetector(
+            times,
+            values,
+            args.emwa_tau_minutes,
+            args.trigger_threshold,
+            args.release_threshold,
+        )
         ded.debug_plot()
-

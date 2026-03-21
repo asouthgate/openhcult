@@ -274,6 +274,7 @@ def _add_inference_train_command(subparsers):
     parser.add_argument(
         "--debug",
         action="store_true",
+        default=True,
         help="Cycle through detected events with lognormal fits",
     )
 

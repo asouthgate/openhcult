@@ -15,6 +15,7 @@ function toUtc(d) {
 export default function App() {
   const [rangeHours, setRangeHours] = useState(48)
   const [plantFilter, setPlantFilter] = useState('')
+  const [measureMode, setMeasureMode] = useState('raw')
   const [plants, setPlants] = useState([])
   const [series, setSeries] = useState([])
   const [observations, setObservations] = useState([])
@@ -57,7 +58,7 @@ export default function App() {
         for (const row of ts.data ?? []) {
           const key = `${row.device_address}:${row.sensor}`
           if (!grouped[key]) grouped[key] = { label: labelMap[key] ?? key, points: [] }
-          grouped[key].points.push({ t: row.adjusted_time_ms, v: row.measurement })
+          grouped[key].points.push({ t: row.adjusted_time_ms, raw: row.measurement, mv: row.voltage_mv })
         }
 
         setSeries(
@@ -111,6 +112,13 @@ export default function App() {
               </button>
             ))}
           </div>
+          <div className="range-btns">
+            {['raw', 'voltage'].map(m => (
+              <button key={m} className={measureMode === m ? 'active' : ''} onClick={() => setMeasureMode(m)}>
+                {m === 'raw' ? 'Raw' : 'mV'}
+              </button>
+            ))}
+          </div>
           <select value={plantFilter} onChange={e => setPlantFilter(e.target.value)}>
             <option value="">All plants</option>
             {plants.map(p => (
@@ -130,11 +138,18 @@ export default function App() {
 
       {series.length > 0 && (
         <TimeseriesChart
-          series={series}
+          series={series.map(s => ({
+            ...s,
+            points: s.points.map(p => ({
+              t: p.t,
+              v: measureMode === 'voltage' && p.mv != null ? p.mv : p.raw,
+            })),
+          }))}
           observations={observations}
           rangeMs={rangeHours * 3600 * 1000}
           onTimePick={handleTimePick}
           pendingTime={pendingTime}
+          yLabel={measureMode === 'voltage' ? 'mV' : 'raw'}
         />
       )}
 

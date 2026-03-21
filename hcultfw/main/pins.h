@@ -6,9 +6,9 @@
 
 #define LED_PIN             21
 #define SENSOR_POWER_PIN_1  23
-#define SENSOR_PIN_1        GPIO_NUM_34
+#define SENSOR_PIN_1        GPIO_NUM_35
 #define SENSOR_POWER_PIN_2  18
-#define SENSOR_PIN_2        GPIO_NUM_35
+#define SENSOR_PIN_2        GPIO_NUM_34
 
 #elif defined(BOARD_FIREBEETLE2_ESP32C5)
 
