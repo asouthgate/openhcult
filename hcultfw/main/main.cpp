@@ -75,16 +75,12 @@ static void power_sensor(gpio_num_t pin, bool on) {
 static SensorReading read_sensor_with_power(
   FirmwareState &state,
   gpio_num_t power_pin,
-  adc_channel_t channel
+  adc_channel_t channel,
+  adc_cali_handle_t cali
 ) {
-  adc_oneshot_chan_cfg_t chan_cfg = {};
-  chan_cfg.atten = ADC_ATTEN_DB_12;
-  chan_cfg.bitwidth = ADC_BITWIDTH_12;
-  ESP_ERROR_CHECK(adc_oneshot_config_channel(state.adc_handle, channel, &chan_cfg));
-
   power_sensor(power_pin, true);
   vTaskDelay(pdMS_TO_TICKS(100));
-  SensorReading reading = read_sensor(state, channel);
+  SensorReading reading = read_sensor(state, channel, cali);
   power_sensor(power_pin, false);
 
   vTaskDelay(pdMS_TO_TICKS(1000));
@@ -95,16 +91,20 @@ static void init_adc(FirmwareState &state) {
   adc_oneshot_unit_init_cfg_t unit_cfg = {};
   unit_cfg.unit_id = ADC_UNIT_1;
   ESP_ERROR_CHECK(adc_oneshot_new_unit(&unit_cfg, &state.adc_handle));
+
+  const gpio_num_t sensor_gpios[kSensorCount] = {SENSOR_PIN_1, SENSOR_PIN_2};
+  adc_oneshot_chan_cfg_t chan_cfg = {};
+  chan_cfg.atten = kAdcAtten;
+  chan_cfg.bitwidth = kAdcBitwidth;
+  for (size_t i = 0; i < kSensorCount; ++i) {
+    adc_unit_t unit;
+    ESP_ERROR_CHECK(adc_oneshot_io_to_channel(sensor_gpios[i], &unit, &state.sensor_channels[i]));
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(state.adc_handle, state.sensor_channels[i], &chan_cfg));
+    state.cali_handles[i] = create_cali_handle(state.sensor_channels[i]);
+  }
 }
 
 static void take_sensor_readings(FirmwareState &state) {
-  const gpio_num_t sensor_gpios[kSensorCount] = {SENSOR_PIN_1, SENSOR_PIN_2};
-  adc_channel_t sensor_channels[kSensorCount];
-  for (size_t i = 0; i < kSensorCount; ++i) {
-    adc_unit_t unit;
-    ESP_ERROR_CHECK(adc_oneshot_io_to_channel(sensor_gpios[i], &unit, &sensor_channels[i]));
-  }
-
   const gpio_num_t sensor_power_pins[kSensorCount] = {
       static_cast<gpio_num_t>(SENSOR_POWER_PIN_1),
       static_cast<gpio_num_t>(SENSOR_POWER_PIN_2),
@@ -114,7 +114,8 @@ static void take_sensor_readings(FirmwareState &state) {
     sensor_readings[i] = read_sensor_with_power(
       state,
       sensor_power_pins[i],
-      sensor_channels[i]
+      state.sensor_channels[i],
+      state.cali_handles[i]
     );
   }
   for (size_t i = 0; i < kSensorCount; ++i) {
