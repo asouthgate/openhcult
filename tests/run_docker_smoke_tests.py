@@ -47,7 +47,7 @@ def _wait_for_postgres():
 def main() -> int:
     interactive = "--interactive" in sys.argv or "-i" in sys.argv
     _run(f"{COMPOSE_CMD} down -v --remove-orphans")
-    _run(f"{COMPOSE_CMD} up -d")
+    _run(f"{COMPOSE_CMD} up --build -d")
     try:
         _wait_for_postgres()
         _run(

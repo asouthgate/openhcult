@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -31,10 +32,17 @@ app.include_router(plant_sensors.router)
 
 logger = logging.getLogger(__name__)
 
-_frontend_dir = Path(__file__).resolve().parent / "frontend"
+_frontend_dir = Path(
+    os.environ.get(
+        "HCULT_FRONTEND_DIR",
+        Path(__file__).resolve().parent.parent.parent / "frontend" / "dist",
+    )
+)
 if _frontend_dir.is_dir():
     app.mount(
-        "/frontend", StaticFiles(directory=_frontend_dir, html=True), name="frontend"
+        "/frontend/app",
+        StaticFiles(directory=_frontend_dir, html=True),
+        name="frontend",
     )
 
 

@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [react()],
   base: '/frontend/app/',
   build: {
-    outDir: '../hcultctrl/hcultctrl/frontend/app',
+    outDir: 'dist',
     emptyOutDir: true,
   },
 })

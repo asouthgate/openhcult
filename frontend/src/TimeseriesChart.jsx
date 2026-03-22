@@ -65,8 +65,9 @@ export function TimeseriesChart({ series, observations, rangeMs, onTimePick, pen
     setCursor(svgCoordToTime(e.clientX, e.currentTarget.getBoundingClientRect()))
   }
 
-  const handleClick = () => {
-    if (cursor) onTimePick?.(cursor.t)
+  const handleClick = e => {
+    const coord = cursor ?? svgCoordToTime(e.clientX, e.currentTarget.getBoundingClientRect())
+    if (coord) onTimePick?.(coord.t)
   }
 
   return (
@@ -144,7 +145,12 @@ export function TimeseriesChart({ series, observations, rangeMs, onTimePick, pen
         {cursor && (
           <>
             <line x1={cursor.x} x2={cursor.x} y1={M.top} y2={M.top + IH} className="cursor-line" />
-            <text x={cursor.x + 5} y={M.top + 13} className="cursor-label">
+            <text
+              x={cursor.x > VW / 2 ? cursor.x - 5 : cursor.x + 5}
+              y={M.top + 13}
+              textAnchor={cursor.x > VW / 2 ? 'end' : 'start'}
+              className="cursor-label"
+            >
               {fmtTime(cursor.t, rangeMs)}
             </text>
           </>
@@ -157,7 +163,12 @@ export function TimeseriesChart({ series, observations, rangeMs, onTimePick, pen
               y1={M.top} y2={M.top + IH}
               stroke={PENDING_COLOR} strokeWidth="2" strokeDasharray="4 3"
             />
-            <text x={x(pendingTime) + 5} y={M.top + 30} fill={PENDING_COLOR} fontSize="11" fontFamily="monospace">
+            <text
+              x={x(pendingTime) > VW / 2 ? x(pendingTime) - 5 : x(pendingTime) + 5}
+              y={M.top + 30}
+              textAnchor={x(pendingTime) > VW / 2 ? 'end' : 'start'}
+              fill={PENDING_COLOR} fontSize="11" fontFamily="monospace"
+            >
               watering?
             </text>
           </>

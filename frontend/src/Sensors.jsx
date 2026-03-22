@@ -15,7 +15,7 @@ function toUtc(d) {
 export default function App() {
   const [rangeHours, setRangeHours] = useState(48)
   const [plantFilter, setPlantFilter] = useState('')
-  const [measureMode, setMeasureMode] = useState('raw')
+  const [measureMode, setMeasureMode] = useState('voltage')
   const [plants, setPlants] = useState([])
   const [series, setSeries] = useState([])
   const [observations, setObservations] = useState([])
@@ -99,7 +99,7 @@ export default function App() {
   return (
     <div className="app">
       <div className="app-header">
-        <h1>HCult</h1>
+        <h1>Hcult</h1>
         <div className="controls">
           <div className="range-btns">
             {TIME_RANGES.map(r => (

@@ -13,7 +13,7 @@ services:
   hcultctrl:
     build:
       context: .
-      dockerfile: docker/Dockerfile.dev
+      dockerfile: docker/Dockerfile.ctrl
     command:
       [
         "python",
