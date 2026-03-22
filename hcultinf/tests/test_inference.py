@@ -37,3 +37,41 @@ def test_parametric_spline_fits_logistic():
     for xa, za in zip(x_anchors[1:-1], z_anchors[1:-1]):
         dist = np.sqrt((x_fit - xa) ** 2 + (z_fit - za) ** 2)
         assert dist.min() < 0.05, f"Curve too far from anchor ({xa:.3f}, {za:.3f})"
+
+
+def test_parametric_spline_sparse_anchors_dense_derivatives(n_anchors=4, n_der=100):
+    # Few noisy anchors, many derivative points — derivative data should carry the shape.
+    rng = np.random.default_rng(0)
+
+    z_true = np.linspace(0.05, 0.95, 200)
+    x_true = 1.0 / (1.0 + np.exp(-12.0 * (z_true - 0.5)))
+
+    anchor_idx = np.linspace(0, len(x_true) - 1, n_anchors).astype(int)
+    x_anchors = x_true[anchor_idx] + rng.normal(0, 0.01, n_anchors)
+    z_anchors = z_true[anchor_idx] + rng.normal(0, 0.01, n_anchors)
+
+    der_idx = np.linspace(0, len(x_true) - 2, n_der).astype(int)
+    x_mid = 0.5 * (x_true[:-1] + x_true[1:])[der_idx]
+    dz_dx = (np.diff(z_true) / np.diff(x_true))[der_idx] + rng.normal(0, 0.1, n_der)
+
+    sx, sz = fit_parametric_monotonic_spline(
+        x_anchors, z_anchors, x_mid, dz_dx, knots=6, k=3, w_der=1.0
+    )
+
+    s_fine = np.linspace(0, 1, 1000)
+    x_fit = sx(s_fine)
+    z_fit = sz(s_fine)
+
+    import matplotlib.pyplot as plt
+
+    plt.figure()
+    plt.plot(x_true, z_true, label="true")
+    plt.scatter(x_anchors, z_anchors, label="anchors", zorder=5)
+    plt.plot(x_fit, z_fit, label="fit")
+    plt.legend()
+    plt.title(f"{n_anchors} anchors, {n_der} derivative points")
+    plt.show()
+
+    assert np.all(np.diff(z_fit) <= 0.01)
+    assert x_fit.min() <= x_anchors.min() + 0.02, "curve doesn't reach left anchor"
+    assert x_fit.max() >= x_anchors.max() - 0.02, "curve doesn't reach right anchor"

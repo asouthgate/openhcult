@@ -119,9 +119,17 @@ def fit_parametric_monotonic_spline(
             cz = coeffs[n_c:]
             return z_dir * BSpline(t, cz, k)(np.linspace(0, 1, 50), nu=1)
 
-        res = minimize(
-            objective, c0, constraints={"type": "ineq", "fun": monotonic_con}
-        )
+        # For a clamped BSpline, cx[0]=sx(0) and cx[-1]=sx(1) exactly, so pinning
+        # the endpoint control points guarantees the curve spans the anchor domain.
+        constraints = [
+            {"type": "ineq", "fun": monotonic_con},
+            {"type": "eq", "fun": lambda c, v=x_sorted[0]: c[0] - v},
+            {"type": "eq", "fun": lambda c, v=x_sorted[-1]: c[n_c - 1] - v},
+            {"type": "eq", "fun": lambda c, v=z_sorted[0]: c[n_c] - v},
+            {"type": "eq", "fun": lambda c, v=z_sorted[-1]: c[-1] - v},
+        ]
+
+        res = minimize(objective, c0, constraints=constraints)
         if not res.success:
             raise RuntimeError(f"Spline optimization failed: {res.message}")
 
