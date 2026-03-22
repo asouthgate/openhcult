@@ -30,6 +30,7 @@ idf_component_register(
     SRCS
         "main.cpp"
         "ble.cpp"
+        "ble_packet.cpp"
         "sensor.cpp"
         "sleep.cpp"
         "state.cpp"

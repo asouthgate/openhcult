@@ -66,6 +66,31 @@ ls /dev/ttyUSB* /dev/ttyACM*
 idf.py -p /dev/ttyUSB0 flash
 ```
 
+## Tests
+
+### Host (no hardware required, runs in CI)
+
+Covers pure-logic tests (BLE packet building).
+
+```bash
+cd test/host
+cmake -B build
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+### Device (hardware required)
+
+Covers packet tests and ADC range checks on real hardware. Sensors do not need to be connected — ADC reads will return floating values but still within the valid 0–4095 range.
+
+```bash
+cd test/device
+idf.py set-target esp32          # or esp32c5 for the C5 board
+idf.py -DBOARD=FIREBEETLE_ESP32E build flash monitor
+```
+
+Unity prints pass/fail per test and a final summary over serial.
+
 ## Notes
 
 - Pin assignments are board-specific; see `main/pins.h`.
