@@ -11,10 +11,11 @@ from hcultdb import queries
 DEVICE_NAME_HINT = "ESP32_Sensor"
 ADV_COMPANY_ID = 0xFFFF
 ADV_MAGIC = b"HC"
-ADV_VERSION = 1
-ADV_PAYLOAD_LEN = 12
+ADV_VERSION = 2
+ADV_PAYLOAD_LEN = 16
 
 _last_adv_payload = {}
+
 
 def _parse_adv_payload(data):
     """Parse advertise-only payload: magic(2), version, count, values, nonce."""
@@ -29,17 +30,26 @@ def _parse_adv_payload(data):
     sensor_count = data[3]
     if sensor_count == 0:
         return None
-    expected_len = 4 + (sensor_count * 2) + 4
+    expected_len = 4 + (sensor_count * 4) + 4
     if len(data) < expected_len:
         return None
     values = []
+    voltages_mv = []
     offset = 4
     for _ in range(sensor_count):
-        value = int.from_bytes(data[offset : offset + 2], byteorder="little")
-        values.append(value)
-        offset += 2
+        raw = int.from_bytes(data[offset : offset + 2], byteorder="little")
+        mv = int.from_bytes(data[offset + 2 : offset + 4], byteorder="little")
+        values.append(raw)
+        voltages_mv.append(mv)
+        offset += 4
     nonce = int.from_bytes(data[offset : offset + 4], byteorder="little")
-    return {"sensor_count": sensor_count, "values": values, "nonce": nonce}
+    return {
+        "sensor_count": sensor_count,
+        "values": values,
+        "voltages_mv": voltages_mv,
+        "nonce": nonce,
+    }
+
 
 def _handle_adv_payload(payload, dbcon, device):
     """Persist advertise-only payload readings."""
@@ -51,12 +61,15 @@ def _handle_adv_payload(payload, dbcon, device):
         payload["nonce"],
     )
     rows = []
-    for i, value in enumerate(payload["values"], start=1):
+    for i, (value, voltage_mv) in enumerate(
+        zip(payload["values"], payload["voltages_mv"]), start=1
+    ):
         rows.append(
             (
                 f"sensor{i}",
                 value,
-                payload["nonce"] * 1_000_000,
+                voltage_mv,
+                collection_time_ms * 1000,
                 collection_time_ms,
                 collection_time_ms,
             )

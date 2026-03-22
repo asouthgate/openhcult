@@ -106,15 +106,6 @@
     msg: "OpenHCult repo not found at {{ openhcult_install_dir }}. Set openhcult_repo_url or pre-populate the directory."
   when: not openhcult_repo_stat.stat.exists
 
-- name: Check for OpenHCult frontend assets
-  ansible.builtin.stat:
-    path: "{{ openhcult_install_dir }}/hcultctrl/hcultctrl/frontend/index.html"
-  register: openhcult_frontend_stat
-
-- name: Fail if OpenHCult frontend is missing
-  ansible.builtin.fail:
-    msg: "OpenHCult frontend not found at {{ openhcult_install_dir }}/hcultctrl/hcultctrl/frontend. Update the repo or provide frontend assets."
-  when: not openhcult_frontend_stat.stat.exists
 
 - name: Install frontend npm dependencies
   ansible.builtin.command:
@@ -160,6 +151,9 @@
     editable: true
     extra_args: --upgrade
   become_user: "{{ openhcult_user }}"
+  notify:
+    - restart hcultmon
+    - restart hcultctrl
 
 - name: Install OpenHCult config
   ansible.builtin.template:

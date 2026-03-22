@@ -19,11 +19,18 @@ source ~/esp/esp-idf/export.sh
 . $IDF_PATH/export.sh
 ```
 
-2) Configure and build:
+2) Configure and build, passing the target board:
 
+**FireBeetle ESP32-E:**
 ```bash
 idf.py set-target esp32
-idf.py build
+idf.py -DBOARD=FIREBEETLE_ESP32E build
+```
+
+**FireBeetle 2 ESP32-C5:**
+```bash
+idf.py set-target esp32c5
+idf.py -DBOARD=FIREBEETLE2_ESP32C5 build
 ```
 
 3) Flash and monitor:
@@ -59,14 +66,34 @@ ls /dev/ttyUSB* /dev/ttyACM*
 idf.py -p /dev/ttyUSB0 flash
 ```
 
+## Tests
+
+### Host (no hardware required, runs in CI)
+
+Covers pure-logic tests (BLE packet building).
+
+```bash
+cd test/host
+cmake -B build
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+### Device (hardware required)
+
+Covers packet tests and ADC range checks on real hardware. Sensors do not need to be connected — ADC reads will return floating values but still within the valid 0–4095 range.
+
+```bash
+cd test/device
+idf.py set-target esp32          # or esp32c5 for the C5 board
+idf.py -DBOARD=FIREBEETLE_ESP32E build flash monitor
+```
+
+Unity prints pass/fail per test and a final summary over serial.
+
 ## Notes
 
-- ADC pins:
-  - Sensor 1: GPIO34 (ADC1_CHANNEL_6)
-  - Sensor 2: GPIO35 (ADC1_CHANNEL_7)
-- Power pins:
-  - Sensor power: GPIO5 and GPIO18
-- Status LED: GPIO4
+- Pin assignments are board-specific; see `main/pins.h`.
 - Advertising window and sleep interval are set in `openhcult.conf`.
 
 ## Glossary

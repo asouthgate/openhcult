@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from hcultctrl.routes import (
@@ -30,16 +32,25 @@ app.include_router(plant_sensors.router)
 
 logger = logging.getLogger(__name__)
 
-from .routes import plants
-
-_frontend_dir = Path(__file__).resolve().parent / "frontend"
+_frontend_dir = Path(
+    os.environ.get(
+        "HCULT_FRONTEND_DIR",
+        Path(__file__).resolve().parent.parent.parent / "frontend" / "dist",
+    )
+)
 if _frontend_dir.is_dir():
     app.mount(
-        "/frontend", StaticFiles(directory=_frontend_dir, html=True), name="frontend"
+        "/frontend/app",
+        StaticFiles(directory=_frontend_dir, html=True),
+        name="frontend",
     )
 
 
 @app.get("/")
 def root():
-    logger.info("GET /")
+    return RedirectResponse(url="/frontend/app/#/sensors")
+
+
+@app.get("/status")
+def status():
     return {"service": "hcultctrl", "status": "ok"}

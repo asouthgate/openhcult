@@ -57,6 +57,7 @@ def write_sensor_readings(conn, device_id, readings):
                 device_id,
                 sensor,
                 measurement,
+                voltage_mv,
                 timestamp_us,
                 adjusted_time_ms,
                 collection_time_ms,
@@ -64,6 +65,7 @@ def write_sensor_readings(conn, device_id, readings):
             for (
                 sensor,
                 measurement,
+                voltage_mv,
                 timestamp_us,
                 adjusted_time_ms,
                 collection_time_ms,
@@ -71,9 +73,9 @@ def write_sensor_readings(conn, device_id, readings):
         ]
         cursor.executemany(
             "INSERT INTO sensor_readings "
-            "(device_id, sensor, measurement, measurement_time_us, "
+            "(device_id, sensor, measurement, voltage_mv, measurement_time_us, "
             "adjusted_time_ms, collection_time_ms) "
-            f"VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})",
+            f"VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})",
             rows,
         )
     conn.commit()
@@ -156,6 +158,7 @@ def fetch_timeseries(
             devices.address AS device_address,
             sensor_readings.sensor,
             sensor_readings.measurement,
+            sensor_readings.voltage_mv,
             sensor_readings.measurement_time_us,
             sensor_readings.adjusted_time_ms,
             sensor_readings.collection_time_ms

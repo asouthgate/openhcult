@@ -3,6 +3,7 @@
 #include <stdio.h>
 
 #include "ble.h"
+#include "ble_packet.h"
 #include "state.h"
 #include "esp_log.h"
 #include "esp_mac.h"
@@ -23,52 +24,10 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg);
 static void start_advertising_beacon(void);
 
 namespace {
-constexpr uint16_t kAdvCompanyId = 0xFFFF;
-constexpr uint8_t kAdvPayloadVersion = 1;
 // Future: rotate sensor types (e.g., moisture/temp/light) across 5s windows and
 // encode the type in a payload flag to keep the advertisement compact.
-constexpr uint8_t kAdvPayloadMagic0 = 'H';
-constexpr uint8_t kAdvPayloadMagic1 = 'C';
-constexpr size_t kAdvPayloadSize = 12; // Magic(2) + version + count + values(4) + timestamp(4).
-constexpr size_t kAdvMfgDataSize = 2 + kAdvPayloadSize; // Company ID + payload.
+constexpr size_t kAdvMfgDataSize = adv_mfg_data_size(kSensorCount);
 } // namespace
-
-static bool build_adv_mfg_data(
-  uint8_t *out,
-  size_t out_capacity,
-  size_t *out_len
-) {
-  if (out_capacity < kAdvMfgDataSize) {
-    return false;
-  }
-  float values[kSensorCount] = {};
-  for (size_t i = 0; i < kSensorCount; ++i) {
-    values[i] = s_state->last_sensor_values[i];
-  }
-
-  out[0] = static_cast<uint8_t>(kAdvCompanyId & 0xFF);
-  out[1] = static_cast<uint8_t>((kAdvCompanyId >> 8) & 0xFF);
-  out[2] = kAdvPayloadMagic0;
-  out[3] = kAdvPayloadMagic1;
-  out[4] = kAdvPayloadVersion;
-  out[5] = static_cast<uint8_t>(kSensorCount & 0xFF);
-
-  uint16_t sensor0 = static_cast<uint16_t>(values[0]);
-  uint16_t sensor1 = static_cast<uint16_t>(values[1]);
-  out[6] = static_cast<uint8_t>(sensor0 & 0xFF);
-  out[7] = static_cast<uint8_t>((sensor0 >> 8) & 0xFF);
-  out[8] = static_cast<uint8_t>(sensor1 & 0xFF);
-  out[9] = static_cast<uint8_t>((sensor1 >> 8) & 0xFF);
-
-  uint32_t timestamp_s = s_state->last_timestamp_s;
-  out[10] = static_cast<uint8_t>(timestamp_s & 0xFF);
-  out[11] = static_cast<uint8_t>((timestamp_s >> 8) & 0xFF);
-  out[12] = static_cast<uint8_t>((timestamp_s >> 16) & 0xFF);
-  out[13] = static_cast<uint8_t>((timestamp_s >> 24) & 0xFF);
-
-  *out_len = kAdvMfgDataSize;
-  return true;
-}
 
 void ble_init(FirmwareState &state) {
   s_state = &state;
@@ -92,7 +51,9 @@ static void start_advertising_beacon(void) {
   uint8_t mfg_data[kAdvMfgDataSize] = {};
   size_t mfg_len = 0;
 
-  if (!build_adv_mfg_data(mfg_data, sizeof(mfg_data), &mfg_len)) {
+  if (!build_adv_mfg_data(mfg_data, sizeof(mfg_data), &mfg_len,
+        s_state->last_sensor_values, s_state->last_sensor_voltages_mv,
+        kSensorCount, s_state->reading_token)) {
     ESP_LOGW(TAG, "No sensor data available for beacon");
     return;
   }

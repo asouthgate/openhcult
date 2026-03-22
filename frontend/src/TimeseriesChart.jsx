@@ -8,7 +8,7 @@ const IH = VH - M.top - M.bottom
 
 const PALETTE = ['#9fb8a9', '#7eb3c9', '#d4a9b8', '#c4b87e', '#9e8fc4', '#7ec4b3', '#c4a07e', '#b37e9e']
 const OBS_COLOR = '#7eb3c9'
-const PENDING_COLOR = '#c4b87e'
+const PENDING_COLOR = 'white'
 
 function timeTicks(tMin, tMax, n) {
   const step = (tMax - tMin) / n
@@ -34,7 +34,7 @@ function fmtTime(ms, rangeMs) {
   return d.toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
-export function TimeseriesChart({ series, observations, rangeMs, onTimePick, pendingTime }) {
+export function TimeseriesChart({ series, observations, rangeMs, onTimePick, pendingTime, yLabel }) {
   const [cursor, setCursor] = useState(null)
 
   const allT = series.flatMap(s => s.points.map(p => p.t))
@@ -65,8 +65,9 @@ export function TimeseriesChart({ series, observations, rangeMs, onTimePick, pen
     setCursor(svgCoordToTime(e.clientX, e.currentTarget.getBoundingClientRect()))
   }
 
-  const handleClick = () => {
-    if (cursor) onTimePick?.(cursor.t)
+  const handleClick = e => {
+    const coord = cursor ?? svgCoordToTime(e.clientX, e.currentTarget.getBoundingClientRect())
+    if (coord) onTimePick?.(coord.t)
   }
 
   return (
@@ -94,14 +95,22 @@ export function TimeseriesChart({ series, observations, rangeMs, onTimePick, pen
           />
         ))}
 
-        {(observations ?? []).filter(o => inRange(o.observed_at)).map(o => (
-          <line
-            key={o.id}
-            x1={x(o.observed_at)} x2={x(o.observed_at)}
-            y1={M.top} y2={M.top + IH}
-            stroke={OBS_COLOR} strokeWidth="1.5" strokeDasharray="4 3" opacity="0.8"
-          />
-        ))}
+        {(observations ?? []).filter(o => inRange(o.observed_at)).map(o => {
+          const confirmed = o.note?.includes('WATER') && !o.note?.includes('AUTO')
+          return (
+            <g key={o.id}>
+              <line
+                x1={x(o.observed_at)} x2={x(o.observed_at)}
+                y1={M.top} y2={M.top + IH}
+                stroke={OBS_COLOR} strokeWidth="1.5" strokeDasharray="4 3" opacity="0.8"
+              />
+              {confirmed && (
+                <text x={x(o.observed_at)} y={M.top - 4} textAnchor="middle"
+                  fontSize="13" fill={OBS_COLOR} opacity="0.9">★</text>
+              )}
+            </g>
+          )
+        })}
 
         <line x1={M.left} x2={VW - M.right} y1={M.top + IH} y2={M.top + IH} className="axis-line" />
         {xTicks.map(t => (
@@ -114,6 +123,16 @@ export function TimeseriesChart({ series, observations, rangeMs, onTimePick, pen
         ))}
 
         <line x1={M.left} x2={M.left} y1={M.top} y2={M.top + IH} className="axis-line" />
+        {yLabel && (
+          <text
+            x={14} y={M.top + IH / 2}
+            className="axis-label"
+            textAnchor="middle"
+            transform={`rotate(-90, 14, ${M.top + IH / 2})`}
+          >
+            {yLabel}
+          </text>
+        )}
         {yTicks.map(v => (
           <g key={v}>
             <line x1={M.left - 5} x2={M.left} y1={y(v)} y2={y(v)} className="axis-line" />
@@ -126,7 +145,12 @@ export function TimeseriesChart({ series, observations, rangeMs, onTimePick, pen
         {cursor && (
           <>
             <line x1={cursor.x} x2={cursor.x} y1={M.top} y2={M.top + IH} className="cursor-line" />
-            <text x={cursor.x + 5} y={M.top + 13} className="cursor-label">
+            <text
+              x={cursor.x > VW / 2 ? cursor.x - 5 : cursor.x + 5}
+              y={M.top + 13}
+              textAnchor={cursor.x > VW / 2 ? 'end' : 'start'}
+              className="cursor-label"
+            >
               {fmtTime(cursor.t, rangeMs)}
             </text>
           </>
@@ -139,7 +163,12 @@ export function TimeseriesChart({ series, observations, rangeMs, onTimePick, pen
               y1={M.top} y2={M.top + IH}
               stroke={PENDING_COLOR} strokeWidth="2" strokeDasharray="4 3"
             />
-            <text x={x(pendingTime) + 5} y={M.top + 30} fill={PENDING_COLOR} fontSize="11" fontFamily="monospace">
+            <text
+              x={x(pendingTime) > VW / 2 ? x(pendingTime) - 5 : x(pendingTime) + 5}
+              y={M.top + 30}
+              textAnchor={x(pendingTime) > VW / 2 ? 'end' : 'start'}
+              fill={PENDING_COLOR} fontSize="11" fontFamily="monospace"
+            >
               watering?
             </text>
           </>

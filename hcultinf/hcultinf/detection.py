@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import contextlib
 import logging
+import os
+import warnings
 from collections import deque
 import matplotlib.pyplot as plt
 import numpy as np
@@ -10,6 +13,22 @@ from scipy.integrate import quad
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)  # Lowest level to capture everything
+
+
+@contextlib.contextmanager
+def _suppress_numerical_noise():
+    """Suppress LAPACK Fortran stderr and scipy/numpy fitting warnings."""
+    devnull_fd = os.open(os.devnull, os.O_WRONLY)
+    old_stderr_fd = os.dup(2)
+    os.dup2(devnull_fd, 2)
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            yield
+    finally:
+        os.dup2(old_stderr_fd, 2)
+        os.close(old_stderr_fd)
+        os.close(devnull_fd)
 
 
 class DynamicIntervalInfo:
@@ -28,7 +47,8 @@ class DynamicIntervalInfo:
         t_numeric = (t_values - self.start).astype("timedelta64[ms]").astype("int64")
         self.m, self.c = None, None
         try:
-            self.m, self.c = np.polyfit(t_numeric, x_values, 1)
+            with _suppress_numerical_noise():
+                self.m, self.c = np.polyfit(t_numeric, x_values, 1)
         except np.linalg.LinAlgError as e:
             print(e)
         self.pred_func, self.pred_params_d, self.gof_d = None, None, None
@@ -68,13 +88,14 @@ class DynamicIntervalInfo:
         upper_bounds = [0, max_t, 2.0, duration]
 
         try:
-            popt, _ = curve_fit(
-                model,
-                t_num,
-                x,
-                p0=[min_val, peak_t, 0.5, 0.0],
-                bounds=(lower_bounds, upper_bounds),
-            )
+            with _suppress_numerical_noise():
+                popt, _ = curve_fit(
+                    model,
+                    t_num,
+                    x,
+                    p0=[min_val, peak_t, 0.5, 0.0],
+                    bounds=(lower_bounds, upper_bounds),
+                )
         except:
             return lambda t_inp: np.zeros_like(t_inp).astype(float), {}
 

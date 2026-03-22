@@ -88,7 +88,14 @@ def _fetch_series_from_ctrl(
         device_name = row.get("device_name") or row.get("device_address") or "unknown"
         sensor_name = row.get("sensor") or "sensor"
         key = f"{device_name}:{sensor_name}"
-        series.setdefault(key, []).append((int(time_ms), int(row.get("measurement", 0))))
+        voltage_mv = row.get("voltage_mv")
+        series.setdefault(key, []).append(
+            (
+                int(time_ms),
+                int(row.get("measurement", 0)),
+                int(voltage_mv) if voltage_mv is not None else None,
+            )
+        )
     for key in series:
         series[key].sort(key=lambda item: item[0])
     return series
@@ -101,9 +108,13 @@ def _median_window(values: np.ndarray, start: int, end: int) -> float | None:
     return float(np.median(window))
 
 
-def _classify_events(times_ms: np.ndarray, values: np.ndarray, args: argparse.Namespace) -> List[Event]:
+def _classify_events(
+    times_ms: np.ndarray, values: np.ndarray, args: argparse.Namespace
+) -> List[Event]:
     baseline = compute_ewma(values, args.ewma_alpha)
-    zscores = compute_zscore(values, lag=args.diff_lag, window=args.mad_window, c=args.mad_scale)
+    zscores = compute_zscore(
+        values, lag=args.diff_lag, window=args.mad_window, c=args.mad_scale
+    )
     triggers = detect_z_triggers(zscores, args.z_pvalue)
     confirmed, flags = detect_hysteresis(
         values,
@@ -151,7 +162,9 @@ def _group_events(events: List[Event], delta_ms: int, eps: float) -> List[List[E
     groups = [[ordered[0]]]
     for event in ordered[1:]:
         prev = groups[-1][-1]
-        if (event.time_ms - prev.time_ms) <= delta_ms and abs(prev.after - event.before) <= eps:
+        if (event.time_ms - prev.time_ms) <= delta_ms and abs(
+            prev.after - event.before
+        ) <= eps:
             groups[-1].append(event)
         else:
             groups.append([event])
@@ -246,8 +259,8 @@ def run(args: argparse.Namespace) -> int:
 
     for idx, name in enumerate(sensor_names):
         points = series[name]
-        times_ms = np.array([t for t, _ in points], dtype=np.int64)
-        values = np.array([v for _, v in points], dtype=float)
+        times_ms = np.array([t for t, _, _ in points], dtype=np.int64)
+        values = np.array([v for _, v, _ in points], dtype=float)
         times = times_ms.astype("datetime64[ms]")
         events = _classify_events(times_ms, values, args)
         groups = _group_events(events, args.group_delta_sec * 1000, args.group_eps)

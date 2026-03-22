@@ -1,4 +1,0 @@
-- name: restart grafana
-  ansible.builtin.systemd:
-    name: grafana-server
-    state: restarted
