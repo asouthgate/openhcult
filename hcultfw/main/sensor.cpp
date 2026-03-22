@@ -1,24 +1,30 @@
+#include "esp_log.h"
+#include "esp_adc/adc_cali.h"
+#include "esp_adc/adc_cali_scheme.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 #include "sensor.h"
-#include "esp_log.h"
-#include "esp_adc/adc_cali.h"
-#include "esp_adc/adc_cali_scheme.h"
 
 static const char *TAG = "hcultfw";
 
+// Setup calibration config (resolution etc.)
 static adc_cali_handle_t _create_cali_handle(adc_channel_t channel) {
   adc_cali_handle_t handle = nullptr;
 #if defined(BOARD_FIREBEETLE2_ESP32C5)
   adc_cali_curve_fitting_config_t cfg = {
-    .unit_id = ADC_UNIT_1, .chan = channel,
-    .atten = ADC_ATTEN_DB_12, .bitwidth = ADC_BITWIDTH_12,
+    .atten = ADC_ATTEN_DB_12,
+    .bitwidth = ADC_BITWIDTH_12,
+    .chan = channel,
+    .unit_id = ADC_UNIT_1,
   };
   adc_cali_create_scheme_curve_fitting(&cfg, &handle);
 #else
   adc_cali_line_fitting_config_t cfg = {
-    .unit_id = ADC_UNIT_1, .atten = ADC_ATTEN_DB_12, .bitwidth = ADC_BITWIDTH_12, .default_vref = 1100,
+    .atten = ADC_ATTEN_DB_12,
+    .bitwidth = ADC_BITWIDTH_12,
+    .default_vref = 1100,
+    .unit_id = ADC_UNIT_1,
   };
   adc_cali_create_scheme_line_fitting(&cfg, &handle);
 #endif
@@ -35,6 +41,7 @@ static void _delete_cali_handle(adc_cali_handle_t handle) {
 }
 
 SensorReading read_sensor(FirmwareState &state, adc_channel_t channel) {
+  // Discard leading samples which could be bad after deep sleep (pretty much superstition)
   constexpr int kDiscardSamples = 3;
   for (int i = 0; i < kDiscardSamples; ++i) {
     int raw = 0;
@@ -45,8 +52,10 @@ SensorReading read_sensor(FirmwareState &state, adc_channel_t channel) {
     vTaskDelay(pdMS_TO_TICKS(10));
   }
 
+  // Average some readings
+  const int nSamples = 10;
   int sum = 0;
-  for (int i = 0; i < 10; ++i) {
+  for (int i = 0; i < nSamples; ++i) {
     int raw = 0;
     esp_err_t rc = adc_oneshot_read(state.adc_handle, channel, &raw);
     if (rc != ESP_OK) {
@@ -56,8 +65,10 @@ SensorReading read_sensor(FirmwareState &state, adc_channel_t channel) {
     }
     vTaskDelay(pdMS_TO_TICKS(10));
   }
-  int avg_raw = sum / 10;
+  int avg_raw = sum / nSamples;
 
+  // Convert to voltage
+  // TODO: could be better to change this to be average(mV) instead of mV(average)
   int voltage_mv = 0;
   adc_cali_handle_t cali = _create_cali_handle(channel);
   if (cali) {

@@ -1,19 +1,17 @@
 #include <stdint.h>
 
-// OS and system includes
-#include "freertos/FreeRTOS.h" //FreeRTOS is the OS for the ESP32, needed for tasks and delays.
-#include "freertos/task.h"
-#include "driver/gpio.h" // For pin controls
+#include "driver/gpio.h"
 #include "esp_log.h"
 #include "esp_sleep.h"
 #include "esp_timer.h"
 #include "esp_system.h"
 #include "esp_random.h"
-#include "nvs_flash.h"
 #include "esp_bt.h"
 #include "esp_wifi.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "nvs_flash.h"
 
-// Bluetooth includes
 #include "ble.h"
 #include "ble_config.h"
 #include "pins.h"
@@ -21,16 +19,17 @@
 #include "sleep.h"
 #include "state.h"
 
-static const char *TAG = "hcultfw"; // Tag for logging
+static const char *TAG = "hcultfw"; // For logging
 
-// Configure LED and sensor power GPIOs as outputs and set safe defaults.
 static void init_power_pins() {
   gpio_config_t io_conf = {};
-  io_conf.intr_type = GPIO_INTR_DISABLE; // No interrupts
-  io_conf.mode = GPIO_MODE_OUTPUT; // Set as output pins
+  io_conf.intr_type = GPIO_INTR_DISABLE; // No interrupts?
+  io_conf.mode = GPIO_MODE_OUTPUT;
   // pin_bit_mask specifies which pins this configuration struct applies to.
-  io_conf.pin_bit_mask = (1ULL << LED_PIN) | (1ULL << SENSOR_POWER_PIN_1) |
-                         (1ULL << SENSOR_POWER_PIN_2);
+  io_conf.pin_bit_mask = (1ULL << LED_PIN) |
+                        (1ULL << SENSOR_POWER_PIN_1) |
+                        (1ULL << SENSOR_POWER_PIN_2);
+  // TODO: internal pulldown/pullup: should these be disabled?
   io_conf.pull_down_en = GPIO_PULLDOWN_ENABLE;
   io_conf.pull_up_en = GPIO_PULLUP_ENABLE;
   ESP_ERROR_CHECK(gpio_config(&io_conf));
@@ -40,6 +39,8 @@ static void init_power_pins() {
   gpio_set_level(static_cast<gpio_num_t>(SENSOR_POWER_PIN_2), 0);
 }
 
+// This is probably unnecessary superstition, we only use BLE
+// Apparently makes a difference to memory and is 'defensive'
 static void disable_unused_radios() {
   esp_err_t err = esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT);
   if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
@@ -55,7 +56,7 @@ static void disable_unused_radios() {
   }
 }
 
-// Init NVS so the BLE controller can load PHY calibration data.
+// We need this for PHY calibration
 static void init_nvs_storage() {
   esp_err_t ret = nvs_flash_init();
   if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -70,21 +71,6 @@ static void init_nvs_storage() {
 static void power_sensor(gpio_num_t pin, bool on) {
   gpio_set_level(pin, on ? 1 : 0);
 }
-
-// // Read a sensor value from the specified ADC channel.
-// static float read_sensor_with_power(
-//   FirmwareState &state,
-//   gpio_num_t power_pin,
-//   adc_channel_t channel
-// ) {
-//   // We power on the sensor, wait briefly for it to stabilize, read the value, then power it off.
-//   // This reduces artifacts in the readings.
-//   power_sensor(power_pin, true);
-//   vTaskDelay(pdMS_TO_TICKS(100));
-//   int value = read_sensor(state, channel);
-//   power_sensor(power_pin, false);
-//   return static_cast<float>(value);
-// }
 
 static SensorReading read_sensor_with_power(
   FirmwareState &state,
@@ -101,29 +87,21 @@ static SensorReading read_sensor_with_power(
   SensorReading reading = read_sensor(state, channel);
   power_sensor(power_pin, false);
 
-  vTaskDelay(pdMS_TO_TICKS(500));
+  vTaskDelay(pdMS_TO_TICKS(1000));
   return reading;
 }
 
-// Take readings from all sensors and log the values.
 static void take_sensor_readings(FirmwareState &state) {
   adc_oneshot_unit_init_cfg_t unit_cfg = {};
   unit_cfg.unit_id = ADC_UNIT_1;
   ESP_ERROR_CHECK(adc_oneshot_new_unit(&unit_cfg, &state.adc_handle));
 
-  adc_oneshot_chan_cfg_t chan_cfg = {};
-  chan_cfg.atten = ADC_ATTEN_DB_12;
-  chan_cfg.bitwidth = ADC_BITWIDTH_12;
   const gpio_num_t sensor_gpios[kSensorCount] = {SENSOR_PIN_1, SENSOR_PIN_2};
   adc_channel_t sensor_channels[kSensorCount];
   for (size_t i = 0; i < kSensorCount; ++i) {
     adc_unit_t unit;
     ESP_ERROR_CHECK(adc_oneshot_io_to_channel(sensor_gpios[i], &unit, &sensor_channels[i]));
   }
-  // ESP_ERROR_CHECK(
-  //     adc_oneshot_config_channel(state.adc_handle, sensor_channels[0], &chan_cfg));
-  // ESP_ERROR_CHECK(
-  //     adc_oneshot_config_channel(state.adc_handle, sensor_channels[1], &chan_cfg));
 
   const gpio_num_t sensor_power_pins[kSensorCount] = {
       static_cast<gpio_num_t>(SENSOR_POWER_PIN_1),
@@ -136,7 +114,6 @@ static void take_sensor_readings(FirmwareState &state) {
       sensor_power_pins[i],
       sensor_channels[i]
     );
-    vTaskDelay(pdMS_TO_TICKS(1000));
   }
   for (size_t i = 0; i < kSensorCount; ++i) {
     state.last_sensor_values[i] = sensor_readings[i].raw;

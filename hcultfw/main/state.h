@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "esp_adc/adc_oneshot.h"
+
 constexpr size_t kSensorCount = 2;
 
 extern uint32_t g_uptime_s;
