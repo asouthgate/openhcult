@@ -18,7 +18,7 @@ static adc_cali_handle_t _create_cali_handle(adc_channel_t channel) {
   adc_cali_create_scheme_curve_fitting(&cfg, &handle);
 #else
   adc_cali_line_fitting_config_t cfg = {
-    .unit_id = ADC_UNIT_1, .atten = ADC_ATTEN_DB_12, .bitwidth = ADC_BITWIDTH_12,
+    .unit_id = ADC_UNIT_1, .atten = ADC_ATTEN_DB_12, .bitwidth = ADC_BITWIDTH_12, .default_vref = 1100,
   };
   adc_cali_create_scheme_line_fitting(&cfg, &handle);
 #endif
