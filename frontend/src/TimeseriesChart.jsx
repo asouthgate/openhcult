@@ -8,7 +8,7 @@ const IH = VH - M.top - M.bottom
 
 const PALETTE = ['#9fb8a9', '#7eb3c9', '#d4a9b8', '#c4b87e', '#9e8fc4', '#7ec4b3', '#c4a07e', '#b37e9e']
 const OBS_COLOR = '#7eb3c9'
-const PENDING_COLOR = '#c4b87e'
+const PENDING_COLOR = 'white'
 
 function timeTicks(tMin, tMax, n) {
   const step = (tMax - tMin) / n
