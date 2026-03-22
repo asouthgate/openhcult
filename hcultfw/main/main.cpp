@@ -91,11 +91,13 @@ static SensorReading read_sensor_with_power(
   return reading;
 }
 
-static void take_sensor_readings(FirmwareState &state) {
+static void init_adc(FirmwareState &state) {
   adc_oneshot_unit_init_cfg_t unit_cfg = {};
   unit_cfg.unit_id = ADC_UNIT_1;
   ESP_ERROR_CHECK(adc_oneshot_new_unit(&unit_cfg, &state.adc_handle));
+}
 
+static void take_sensor_readings(FirmwareState &state) {
   const gpio_num_t sensor_gpios[kSensorCount] = {SENSOR_PIN_1, SENSOR_PIN_2};
   adc_channel_t sensor_channels[kSensorCount];
   for (size_t i = 0; i < kSensorCount; ++i) {
@@ -119,11 +121,11 @@ static void take_sensor_readings(FirmwareState &state) {
     state.last_sensor_values[i] = sensor_readings[i].raw;
     state.last_sensor_voltages_mv[i] = sensor_readings[i].voltage_mv;
   }
-  state.last_timestamp_s = esp_random();
+  state.reading_token = esp_random();
 
   ESP_LOGI(TAG, "Sensor 1: raw=%d voltage=%umV", sensor_readings[0].raw, sensor_readings[0].voltage_mv);
   ESP_LOGI(TAG, "Sensor 2: raw=%d voltage=%umV", sensor_readings[1].raw, sensor_readings[1].voltage_mv);
-  ESP_LOGI(TAG, "Sensor nonce: %u", state.last_timestamp_s);
+  ESP_LOGI(TAG, "Sensor token: %u", state.reading_token);
 }
 
 // Turn off LEDs and sensor power pins, then enter deep sleep.
@@ -144,6 +146,7 @@ extern "C" void app_main(void) {
   init_nvs_storage();
   disable_unused_radios();
   init_power_pins();
+  init_adc(state);
   if (RED_LED_FLASH_MS > 0) {
     gpio_set_level(static_cast<gpio_num_t>(LED_PIN), 1);
     vTaskDelay(pdMS_TO_TICKS(RED_LED_FLASH_MS));

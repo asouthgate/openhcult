@@ -29,7 +29,7 @@ constexpr uint8_t kAdvPayloadVersion = 2;
 // encode the type in a payload flag to keep the advertisement compact.
 constexpr uint8_t kAdvPayloadMagic0 = 'H';
 constexpr uint8_t kAdvPayloadMagic1 = 'C';
-// Magic(2) + version + count + per_sensor(raw_u16 + voltage_mv_u16) * count + nonce(4).
+// Magic(2) + version + count + per_sensor(raw_u16 + voltage_mv_u16) * count + token(4).
 constexpr size_t kAdvPayloadSize = 4 + kSensorCount * 4 + 4;
 constexpr size_t kAdvMfgDataSize = 2 + kAdvPayloadSize; // Company ID + payload.
 } // namespace
@@ -59,11 +59,11 @@ static bool build_adv_mfg_data(
     out[offset++] = static_cast<uint8_t>((mv >> 8) & 0xFF);
   }
 
-  uint32_t timestamp_s = s_state->last_timestamp_s;
-  out[offset++] = static_cast<uint8_t>(timestamp_s & 0xFF);
-  out[offset++] = static_cast<uint8_t>((timestamp_s >> 8) & 0xFF);
-  out[offset++] = static_cast<uint8_t>((timestamp_s >> 16) & 0xFF);
-  out[offset++] = static_cast<uint8_t>((timestamp_s >> 24) & 0xFF);
+  uint32_t token = s_state->reading_token;
+  out[offset++] = static_cast<uint8_t>(token & 0xFF);
+  out[offset++] = static_cast<uint8_t>((token >> 8) & 0xFF);
+  out[offset++] = static_cast<uint8_t>((token >> 16) & 0xFF);
+  out[offset++] = static_cast<uint8_t>((token >> 24) & 0xFF);
 
   *out_len = kAdvMfgDataSize;
   return true;

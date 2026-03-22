@@ -16,5 +16,5 @@ struct FirmwareState {
   volatile bool request_sleep;
   int last_sensor_values[kSensorCount];
   uint16_t last_sensor_voltages_mv[kSensorCount];
-  uint32_t last_timestamp_s;
+  uint32_t reading_token;
 };
