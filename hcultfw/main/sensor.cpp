@@ -4,9 +4,27 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "pins.h"
 #include "sensor.h"
 
 static const char *TAG = "hcultfw";
+
+void init_adc(FirmwareState &state) {
+  adc_oneshot_unit_init_cfg_t unit_cfg = {};
+  unit_cfg.unit_id = ADC_UNIT_1;
+  ESP_ERROR_CHECK(adc_oneshot_new_unit(&unit_cfg, &state.adc_handle));
+
+  const gpio_num_t sensor_gpios[kSensorCount] = {SENSOR_PIN_1, SENSOR_PIN_2};
+  adc_oneshot_chan_cfg_t chan_cfg = {};
+  chan_cfg.atten = kAdcAtten;
+  chan_cfg.bitwidth = kAdcBitwidth;
+  for (size_t i = 0; i < kSensorCount; ++i) {
+    adc_unit_t unit;
+    ESP_ERROR_CHECK(adc_oneshot_io_to_channel(sensor_gpios[i], &unit, &state.sensor_channels[i]));
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(state.adc_handle, state.sensor_channels[i], &chan_cfg));
+    state.cali_handles[i] = create_cali_handle(state.sensor_channels[i]);
+  }
+}
 
 adc_cali_handle_t create_cali_handle(adc_channel_t channel) {
   adc_cali_handle_t handle = nullptr;

@@ -13,4 +13,5 @@ struct SensorReading {
 };
 
 adc_cali_handle_t create_cali_handle(adc_channel_t channel);
+void init_adc(FirmwareState &state);
 SensorReading read_sensor(FirmwareState &state, adc_channel_t channel, adc_cali_handle_t cali);

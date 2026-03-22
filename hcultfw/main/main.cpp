@@ -67,43 +67,6 @@ static void init_nvs_storage() {
   }
 }
 
-// Power on or off a sensor connected to the given GPIO pin.
-static void power_sensor(gpio_num_t pin, bool on) {
-  gpio_set_level(pin, on ? 1 : 0);
-}
-
-static SensorReading read_sensor_with_power(
-  FirmwareState &state,
-  gpio_num_t power_pin,
-  adc_channel_t channel,
-  adc_cali_handle_t cali
-) {
-  power_sensor(power_pin, true);
-  vTaskDelay(pdMS_TO_TICKS(100));
-  SensorReading reading = read_sensor(state, channel, cali);
-  power_sensor(power_pin, false);
-
-  vTaskDelay(pdMS_TO_TICKS(1000));
-  return reading;
-}
-
-static void init_adc(FirmwareState &state) {
-  adc_oneshot_unit_init_cfg_t unit_cfg = {};
-  unit_cfg.unit_id = ADC_UNIT_1;
-  ESP_ERROR_CHECK(adc_oneshot_new_unit(&unit_cfg, &state.adc_handle));
-
-  const gpio_num_t sensor_gpios[kSensorCount] = {SENSOR_PIN_1, SENSOR_PIN_2};
-  adc_oneshot_chan_cfg_t chan_cfg = {};
-  chan_cfg.atten = kAdcAtten;
-  chan_cfg.bitwidth = kAdcBitwidth;
-  for (size_t i = 0; i < kSensorCount; ++i) {
-    adc_unit_t unit;
-    ESP_ERROR_CHECK(adc_oneshot_io_to_channel(sensor_gpios[i], &unit, &state.sensor_channels[i]));
-    ESP_ERROR_CHECK(adc_oneshot_config_channel(state.adc_handle, state.sensor_channels[i], &chan_cfg));
-    state.cali_handles[i] = create_cali_handle(state.sensor_channels[i]);
-  }
-}
-
 static void take_sensor_readings(FirmwareState &state) {
   const gpio_num_t sensor_power_pins[kSensorCount] = {
       static_cast<gpio_num_t>(SENSOR_POWER_PIN_1),
@@ -111,12 +74,11 @@ static void take_sensor_readings(FirmwareState &state) {
   };
   SensorReading sensor_readings[kSensorCount];
   for (size_t i = 0; i < kSensorCount; ++i) {
-    sensor_readings[i] = read_sensor_with_power(
-      state,
-      sensor_power_pins[i],
-      state.sensor_channels[i],
-      state.cali_handles[i]
-    );
+    gpio_set_level(sensor_power_pins[i], 1);
+    vTaskDelay(pdMS_TO_TICKS(100));
+    sensor_readings[i] = read_sensor(state, state.sensor_channels[i], state.cali_handles[i]);
+    gpio_set_level(sensor_power_pins[i], 0);
+    vTaskDelay(pdMS_TO_TICKS(1000));
   }
   for (size_t i = 0; i < kSensorCount; ++i) {
     state.last_sensor_values[i] = sensor_readings[i].raw;
@@ -140,7 +102,7 @@ static void sleep_now() {
 }
 
 extern "C" void app_main(void) {
-  // TODO: remove global
+  // TODO: split up global state
   static FirmwareState state = {};
   state.boot_time_us = esp_timer_get_time();
 
