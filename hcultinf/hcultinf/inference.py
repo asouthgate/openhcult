@@ -3,8 +3,17 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from scipy.interpolate import LSQUnivariateSpline, BSpline, interp1d
+from scipy.interpolate import BSpline, interp1d
 from scipy.optimize import minimize
+
+
+def _make_knots(inner_knots, x_min, x_max, k):
+    return np.concatenate([[x_min] * (k + 1), inner_knots, [x_max] * (k + 1)])
+
+
+def fit_linear(x, y):
+    m, c = np.polyfit(x, y, 1)
+    return lambda v: m * v + c
 
 
 def fit_monotonic_spline(x, y, inner_knots, k=3):
@@ -13,19 +22,60 @@ def fit_monotonic_spline(x, y, inner_knots, k=3):
     xs, ys = x[idx], y[idx]
     x_min, x_max = xs.min(), xs.max()
 
-    tmp_spline = LSQUnivariateSpline(xs, ys, inner_knots, k=k)
-    t = tmp_spline.get_knots()
-    c0 = tmp_spline.get_coeffs()
-
-    def objective(coeffs):
-        spl = BSpline(t, coeffs, k)
-        return np.sum((spl(x) - y) ** 2)
+    y_dir = np.sign(ys[-1] - ys[0])
+    t = _make_knots(inner_knots, x_min, x_max, k)
+    c0 = np.zeros(len(t) - k - 1)
 
     x_check = np.linspace(x_min, x_max, 50)
 
+    def objective(coeffs):
+        return np.sum((BSpline(t, coeffs, k)(x) - y) ** 2)
+
     def monotonic_constraint(coeffs):
+        return y_dir * BSpline(t, coeffs, k)(x_check, nu=1)
+
+    res = minimize(
+        objective, c0, constraints={"type": "ineq", "fun": monotonic_constraint}
+    )
+    if not res.success:
+        raise RuntimeError(f"Spline optimization failed: {res.message}")
+
+    return BSpline(t, res.x, k)
+
+
+def fit_monotonic_spline_with_chords(
+    x, y, inner_knots, x_starts, delta_x, delta_z, k=3, w_chord=1.0
+):
+    """Like fit_monotonic_spline but also fits chord observations.
+
+    Each chord constrains: spline(x_start + delta_x) - spline(x_start) = delta_z.
+    Monotone direction is inferred from the data.
+    """
+    idx = np.argsort(x)
+    xs, ys = x[idx], y[idx]
+    x_ends = x_starts + delta_x
+    x_min = min(xs.min(), x_starts.min(), x_ends.min())
+    x_max = max(xs.max(), x_starts.max(), x_ends.max())
+    y_dir = np.sign(ys[-1] - ys[0])
+
+    t = _make_knots(inner_knots, x_min, x_max, k)
+    n_c = len(t) - k - 1
+    greville = np.array([t[i + 1 : i + k + 1].mean() for i in range(n_c)])
+    if x_max > x_min:
+        c0 = ys[0] + (ys[-1] - ys[0]) * (greville - x_min) / (x_max - x_min)
+    else:
+        c0 = np.full(n_c, ys[0])
+
+    x_check = np.linspace(x_min, x_max, 50)
+
+    def objective(coeffs):
         spl = BSpline(t, coeffs, k)
-        return -spl(x_check, nu=1)
+        err_fit = np.sum((spl(x) - y) ** 2)
+        err_chord = np.sum((spl(x_ends) - spl(x_starts) - delta_z) ** 2)
+        return err_fit + w_chord * err_chord
+
+    def monotonic_constraint(coeffs):
+        return y_dir * BSpline(t, coeffs, k)(x_check, nu=1)
 
     res = minimize(
         objective, c0, constraints={"type": "ineq", "fun": monotonic_constraint}
