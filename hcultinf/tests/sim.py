@@ -35,10 +35,16 @@ def simulate_calibration(
     x_0 = _x_of_fc(0.0) + rng.normal(0, x0_noise)
     x_1 = _x_of_fc(1.0) + rng.normal(0, x1_noise)
 
-    fc_starts_norm = rng.uniform(0.02, 0.98, n_chords)
+    # Sample chord ENDS uniformly so coverage is even across the fc range.
+    # Sampling starts instead would clip delta_fc near fc=1, leaving the high-fc
+    # region under-constrained and biasing the fit downward there.
+    fc_ends_norm = rng.uniform(0.05, 0.99, n_chords)
+    delta_fc_norm = np.clip(
+        rng.uniform(0.01, 0.30, n_chords), 0.005, fc_ends_norm - 0.01
+    )
+    fc_starts_norm = fc_ends_norm - delta_fc_norm
     x_starts = _x_of_fc(fc_starts_norm)
-    delta_fc_norm = np.clip(rng.uniform(0.01, 0.30, n_chords), 0.005, 1.0)
-    x_ends = _x_of_fc(np.clip(fc_starts_norm + delta_fc_norm, 0.01, 0.99))
+    x_ends = _x_of_fc(fc_ends_norm)
     delta_x = x_ends - x_starts
 
     return x_0, x_1, x_starts, fc_starts_norm * fc_max, delta_x, delta_fc_norm * fc_max
