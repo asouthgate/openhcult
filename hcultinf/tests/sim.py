@@ -13,21 +13,21 @@ def _fc_of_x(x):
 
 
 def simulate_calibration(
-    n_chords=60, x0_noise=0.005, x1_noise=0.005, fc_max=1.0, rng=None
+    n_chords=60, x0_noise=0.005, x1_noise=0.005, x_noise=0.2, fc_max=1.0, rng=None
 ):
     """Simulate a logistic FC calibration dataset.
 
     Boundary calibration: x_0 = sensor reading at FC=0, x_1 = sensor reading at FC=fc_max,
     both observed with Gaussian noise.
 
-    Chord observations: intervals where delta_fc (1-30% of full range) is known exactly,
-    with the corresponding delta_x derived from the true curve.
+    Chord observations: delta_fc is noiseless (known water addition). delta_x has
+    multiplicative noise proportional to its magnitude (x_noise is a relative std).
 
     Returns
     -------
     x_0, x_1             : noisy sensor readings at FC=0 and FC=fc_max
-    x_starts, fc_starts  : start positions of each chord observation
-    delta_x, delta_fc    : chord extents (fc values in [0, fc_max] scale)
+    x_starts, fc_starts  : start positions of each chord (exact)
+    delta_x, delta_fc    : chord extents (delta_x noisy, delta_fc exact)
     """
     if rng is None:
         rng = np.random.default_rng()
@@ -44,8 +44,8 @@ def simulate_calibration(
     )
     fc_starts_norm = fc_ends_norm - delta_fc_norm
     x_starts = _x_of_fc(fc_starts_norm)
-    x_ends = _x_of_fc(fc_ends_norm)
-    delta_x = x_ends - x_starts
+    delta_x_true = _x_of_fc(fc_ends_norm) - x_starts
+    delta_x = delta_x_true * (1.0 + rng.normal(0, x_noise, n_chords))
 
     return x_0, x_1, x_starts, fc_starts_norm * fc_max, delta_x, delta_fc_norm * fc_max
 
