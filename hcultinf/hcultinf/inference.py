@@ -44,13 +44,20 @@ def fit_linear(x, y):
 
 
 class MonotonicSpline:
-    def __init__(self, inner_knots, k=3, w_chord=1.0):
-        self._inner_knots = np.asarray(inner_knots)
+    def __init__(self, n_knots, k=3, w_chord=1.0):
+        self._n_knots = n_knots
+        self._inner_knots = None
         self._k = k
         self._w_chord = w_chord
         self._spline = None
 
     def fit(self, x_anchors, swc_anchors, x_starts=None, delta_x=None, delta_swc=None):
+
+        x_max_data = max(list(x_anchors) + list(x_starts))
+        self._inner_knots = np.linspace(x_anchors.min(), x_max_data, self._n_knots + 2)[
+            1:-1
+        ]
+
         x, y = np.asarray(x_anchors), np.asarray(swc_anchors)
         idx = np.argsort(x)
         xs, ys = x[idx], y[idx]
