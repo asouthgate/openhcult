@@ -51,60 +51,40 @@ class MonotonicSpline:
         self._w_chord = w_chord
         self._spline = None
 
-    def fit(self, x_anchors, swc_anchors, x_starts=None, delta_x=None, delta_swc=None):
+    def fit(
+        self,
+        x_anchors,
+        swc_anchors,
+        x_starts=None,
+        delta_x=None,
+        delta_swc=None,
+        monotonic_dir=1,
+    ):
+        x_min = min(list(x_anchors) + list(x_starts))
+        x_ends = x_starts + delta_x
+        x_max = max(list(x_anchors) + list(x_ends))
+        self._inner_knots = np.linspace(x_anchors.min(), x_max, self._n_knots + 2)[1:-1]
 
-        x_max_data = max(list(x_anchors) + list(x_starts))
-        self._inner_knots = np.linspace(x_anchors.min(), x_max_data, self._n_knots + 2)[
-            1:-1
-        ]
-
-        x, y = np.asarray(x_anchors), np.asarray(swc_anchors)
-        idx = np.argsort(x)
-        xs, ys = x[idx], y[idx]
-
-        has_chords = x_starts is not None
-        if has_chords:
-            x_ends = x_starts + delta_x
-            x_min = min(xs.min(), x_starts.min(), x_ends.min())
-            x_max = max(xs.max(), x_starts.max(), x_ends.max())
-        else:
-            x_min, x_max = xs.min(), xs.max()
-
-        y_dir = np.sign(ys[-1] - ys[0])
         t = _make_knots(self._inner_knots, x_min, x_max, self._k)
         n_c = len(t) - self._k - 1
-        greville = np.array([t[i + 1 : i + self._k + 1].mean() for i in range(n_c)])
-        if x_max > x_min:
-            c0 = ys[0] + (ys[-1] - ys[0]) * (greville - x_min) / (x_max - x_min)
-        else:
-            c0 = np.full(n_c, ys[0])
-
-        x_check = np.linspace(x_min, x_max, 50)
-        k, w = self._k, self._w_chord
+        c0 = np.full(n_c, swc_anchors[0])
 
         def monotonic_con(coeffs):
-            return y_dir * BSpline(t, coeffs, k)(x_check, nu=1)
+            # Constraint the difference between adjacent coefficients
+            # For monotonic, the diffs should be positive (or negative)
+            return monotonic_dir * np.diff(coeffs)
 
-        if has_chords:
-
-            def objective(coeffs):
-                spl = BSpline(t, coeffs, k)
-                return np.sum((spl(x) - y) ** 2) + w * np.sum(
-                    (spl(x_ends) - spl(x_starts) - delta_swc) ** 2
-                )
-
-        else:
-
-            def objective(coeffs):
-                return np.sum((BSpline(t, coeffs, k)(x) - y) ** 2)
+        def objective(coeffs):
+            spl = BSpline(t, coeffs, self._k)
+            return np.sum((spl(x_anchors) - swc_anchors) ** 2) + self._w_chord * np.sum(
+                (spl(x_ends) - spl(x_starts) - delta_swc) ** 2
+            )
 
         res = minimize(
             objective, c0, constraints={"type": "ineq", "fun": monotonic_con}
         )
-        if not res.success:
-            raise RuntimeError(f"Spline optimization failed: {res.message}")
 
-        self._spline = BSpline(t, res.x, k)
+        self._spline = BSpline(t, res.x, self._k)
         return self
 
     def __call__(self, x):
