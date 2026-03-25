@@ -11,25 +11,25 @@ def _make_knots(inner_knots, x_min, x_max, k):
 
 
 def _arclen_reparameterise_chords(
-    sx, sfc, x_anchors, fc_anchors, x_starts, x_ends, n_fine=500
+    sx, sswc, x_anchors, swc_anchors, x_starts, x_ends, n_fine=500
 ):
     s_fine = np.linspace(0, 1, n_fine)
     x_fine = sx(s_fine)
-    fc_fine = sfc(s_fine)
+    swc_fine = sswc(s_fine)
 
     x_range = np.ptp(x_fine) or 1.0
-    fc_range = np.ptp(fc_fine) or 1.0
+    swc_range = np.ptp(swc_fine) or 1.0
     xn = x_fine / x_range
-    fcn = fc_fine / fc_range
+    swcn = swc_fine / swc_range
 
-    seg_len = np.sqrt(np.diff(xn) ** 2 + np.diff(fcn) ** 2)
+    seg_len = np.sqrt(np.diff(xn) ** 2 + np.diff(swcn) ** 2)
     arc = np.concatenate([[0.0], np.cumsum(seg_len)])
     arc /= arc[-1]
 
     s_anc = np.array(
         [
-            arc[np.argmin((xn - xa / x_range) ** 2 + (fcn - fa / fc_range) ** 2)]
-            for xa, fa in zip(x_anchors, fc_anchors)
+            arc[np.argmin((xn - xa / x_range) ** 2 + (swcn - fa / swc_range) ** 2)]
+            for xa, fa in zip(x_anchors, swc_anchors)
         ]
     )
     s_starts = np.array([arc[np.argmin((xn - xs / x_range) ** 2)] for xs in x_starts])
@@ -50,8 +50,8 @@ class MonotonicSpline:
         self._w_chord = w_chord
         self._spline = None
 
-    def fit(self, x_anchors, fc_anchors, x_starts=None, delta_x=None, delta_fc=None):
-        x, y = np.asarray(x_anchors), np.asarray(fc_anchors)
+    def fit(self, x_anchors, swc_anchors, x_starts=None, delta_x=None, delta_swc=None):
+        x, y = np.asarray(x_anchors), np.asarray(swc_anchors)
         idx = np.argsort(x)
         xs, ys = x[idx], y[idx]
 
@@ -83,7 +83,7 @@ class MonotonicSpline:
             def objective(coeffs):
                 spl = BSpline(t, coeffs, k)
                 return np.sum((spl(x) - y) ** 2) + w * np.sum(
-                    (spl(x_ends) - spl(x_starts) - delta_fc) ** 2
+                    (spl(x_ends) - spl(x_starts) - delta_swc) ** 2
                 )
 
         else:
@@ -110,19 +110,19 @@ class MonotonicSpline:
     def bootstrap_residuals(
         self,
         x_anchors,
-        fc_anchors,
+        swc_anchors,
         x_starts,
         delta_x,
-        delta_fc,
+        delta_swc,
         n_boot=200,
         rng=None,
     ):
         """Resample anchor residuals to estimate fit sensitivity."""
         if rng is None:
             rng = np.random.default_rng()
-        self.fit(x_anchors, fc_anchors, x_starts, delta_x, delta_fc)
-        x_anchors, fc_anchors = np.asarray(x_anchors), np.asarray(fc_anchors)
-        residuals = fc_anchors - self(x_anchors)
+        self.fit(x_anchors, swc_anchors, x_starts, delta_x, delta_swc)
+        x_anchors, swc_anchors = np.asarray(x_anchors), np.asarray(swc_anchors)
+        residuals = swc_anchors - self(x_anchors)
 
         boots = []
         for _ in range(n_boot):
@@ -131,7 +131,7 @@ class MonotonicSpline:
             )
             b = MonotonicSpline(self._inner_knots, self._k, self._w_chord)
             try:
-                b.fit(x_anchors, y_boot, x_starts, delta_x, delta_fc)
+                b.fit(x_anchors, y_boot, x_starts, delta_x, delta_swc)
                 boots.append(b)
             except RuntimeError:
                 pass
@@ -140,17 +140,17 @@ class MonotonicSpline:
     def bootstrap_data(
         self,
         x_anchors,
-        fc_anchors,
+        swc_anchors,
         x_starts,
         delta_x,
-        delta_fc,
+        delta_swc,
         n_boot=200,
         rng=None,
     ):
         """Resample chord observations to estimate epistemic uncertainty."""
         if rng is None:
             rng = np.random.default_rng()
-        self.fit(x_anchors, fc_anchors, x_starts, delta_x, delta_fc)
+        self.fit(x_anchors, swc_anchors, x_starts, delta_x, delta_swc)
         n_chords = len(x_starts)
 
         boots = []
@@ -158,7 +158,9 @@ class MonotonicSpline:
             idx = rng.integers(0, n_chords, n_chords)
             b = MonotonicSpline(self._inner_knots, self._k, self._w_chord)
             try:
-                b.fit(x_anchors, fc_anchors, x_starts[idx], delta_x[idx], delta_fc[idx])
+                b.fit(
+                    x_anchors, swc_anchors, x_starts[idx], delta_x[idx], delta_swc[idx]
+                )
                 boots.append(b)
             except RuntimeError:
                 pass
@@ -172,22 +174,22 @@ class ParametricMonotonicSpline:
         self._w_chord = w_chord
         self._n_iter = n_iter
         self.sx = None
-        self.sfc = None
+        self.sswc = None
 
-    def fit(self, x_anchors, fc_anchors, x_starts, delta_x, delta_fc):
+    def fit(self, x_anchors, swc_anchors, x_starts, delta_x, delta_swc):
         inner = np.linspace(0, 1, self.knots + 2)[1:-1]
         k = self._k
         t = np.concatenate(([0.0] * (k + 1), inner, [1.0] * (k + 1)))
         n_c = len(t) - k - 1
 
         x_anchors = np.asarray(x_anchors)
-        fc_anchors = np.asarray(fc_anchors)
+        swc_anchors = np.asarray(swc_anchors)
         x_ends = x_starts + delta_x
         sort_idx = np.argsort(x_anchors)
-        x_sorted, fc_sorted = x_anchors[sort_idx], fc_anchors[sort_idx]
-        fc_dir = np.sign(fc_sorted[-1] - fc_sorted[0])
-        if fc_dir == 0:
-            fc_dir = 1
+        x_sorted, swc_sorted = x_anchors[sort_idx], swc_anchors[sort_idx]
+        swc_dir = np.sign(swc_sorted[-1] - swc_sorted[0])
+        if swc_dir == 0:
+            swc_dir = 1
 
         x_min = min(x_sorted.min(), x_starts.min(), x_ends.min())
         x_max = max(x_sorted.max(), x_starts.max(), x_ends.max())
@@ -200,7 +202,7 @@ class ParametricMonotonicSpline:
         c0 = np.concatenate(
             [
                 np.interp(s_init, np.linspace(0, 1, len(x_sorted)), x_sorted),
-                np.interp(s_init, np.linspace(0, 1, len(fc_sorted)), fc_sorted),
+                np.interp(s_init, np.linspace(0, 1, len(swc_sorted)), swc_sorted),
             ]
         )
 
@@ -208,21 +210,23 @@ class ParametricMonotonicSpline:
         for _ in range(self._n_iter):
 
             def objective(coeffs, s_anc=s_anc, s_starts=s_starts, s_ends=s_ends):
-                cx, cfc = coeffs[:n_c], coeffs[n_c:]
+                cx, cswc = coeffs[:n_c], coeffs[n_c:]
                 sx = BSpline(t, cx, k)
-                sfc = BSpline(t, cfc, k)
+                sswc = BSpline(t, cswc, k)
                 err_anc = np.sum(
-                    (sx(s_anc) - x_sorted) ** 2 + (sfc(s_anc) - fc_sorted) ** 2
+                    (sx(s_anc) - x_sorted) ** 2 + (sswc(s_anc) - swc_sorted) ** 2
                 )
                 err_chord = np.sum(
                     (sx(s_starts) - x_starts) ** 2
                     + (sx(s_ends) - x_ends) ** 2
-                    + (sfc(s_ends) - sfc(s_starts) - delta_fc) ** 2
+                    + (sswc(s_ends) - sswc(s_starts) - delta_swc) ** 2
                 )
                 return err_anc + w * err_chord
 
             def monotonic_con(coeffs):
-                return fc_dir * BSpline(t, coeffs[n_c:], k)(np.linspace(0, 1, 50), nu=1)
+                return swc_dir * BSpline(t, coeffs[n_c:], k)(
+                    np.linspace(0, 1, 50), nu=1
+                )
 
             constraints = [{"type": "ineq", "fun": monotonic_con}]
 
@@ -235,50 +239,50 @@ class ParametricMonotonicSpline:
                 BSpline(t, res.x[:n_c], k),
                 BSpline(t, res.x[n_c:], k),
                 x_sorted,
-                fc_sorted,
+                swc_sorted,
                 x_starts,
                 x_ends,
             )
 
         self.sx = BSpline(t, res.x[:n_c], k)
-        self.sfc = BSpline(t, res.x[n_c:], k)
+        self.sswc = BSpline(t, res.x[n_c:], k)
         return self
 
     def predict(self, x, n_fine=2000):
         s_fine = np.linspace(0, 1, n_fine)
-        return np.interp(x, self.sx(s_fine), self.sfc(s_fine))
+        return np.interp(x, self.sx(s_fine), self.sswc(s_fine))
 
     def knot_positions(self):
         inner_s = np.linspace(0, 1, self.knots + 2)[1:-1]
-        return self.sx(inner_s), self.sfc(inner_s)
+        return self.sx(inner_s), self.sswc(inner_s)
 
     def bootstrap_residuals(
         self,
         x_anchors,
-        fc_anchors,
+        swc_anchors,
         x_starts,
         delta_x,
-        delta_fc,
+        delta_swc,
         n_boot=200,
         rng=None,
     ):
         """Resample anchor residuals to estimate fit sensitivity."""
         if rng is None:
             rng = np.random.default_rng()
-        self.fit(x_anchors, fc_anchors, x_starts, delta_x, delta_fc)
-        x_anchors, fc_anchors = np.asarray(x_anchors), np.asarray(fc_anchors)
-        residuals = fc_anchors - self.predict(x_anchors)
+        self.fit(x_anchors, swc_anchors, x_starts, delta_x, delta_swc)
+        x_anchors, swc_anchors = np.asarray(x_anchors), np.asarray(swc_anchors)
+        residuals = swc_anchors - self.predict(x_anchors)
 
         boots = []
         for _ in range(n_boot):
-            fc_boot = self.predict(x_anchors) + rng.choice(
+            swc_boot = self.predict(x_anchors) + rng.choice(
                 residuals, size=len(residuals), replace=True
             )
             b = ParametricMonotonicSpline(
                 self.knots, self._k, self._w_chord, self._n_iter
             )
             try:
-                b.fit(x_anchors, fc_boot, x_starts, delta_x, delta_fc)
+                b.fit(x_anchors, swc_boot, x_starts, delta_x, delta_swc)
                 boots.append(b)
             except RuntimeError:
                 pass
@@ -287,17 +291,17 @@ class ParametricMonotonicSpline:
     def bootstrap_data(
         self,
         x_anchors,
-        fc_anchors,
+        swc_anchors,
         x_starts,
         delta_x,
-        delta_fc,
+        delta_swc,
         n_boot=200,
         rng=None,
     ):
         """Resample chord observations to estimate epistemic uncertainty."""
         if rng is None:
             rng = np.random.default_rng()
-        self.fit(x_anchors, fc_anchors, x_starts, delta_x, delta_fc)
+        self.fit(x_anchors, swc_anchors, x_starts, delta_x, delta_swc)
         n_chords = len(x_starts)
 
         boots = []
@@ -307,7 +311,9 @@ class ParametricMonotonicSpline:
                 self.knots, self._k, self._w_chord, self._n_iter
             )
             try:
-                b.fit(x_anchors, fc_anchors, x_starts[idx], delta_x[idx], delta_fc[idx])
+                b.fit(
+                    x_anchors, swc_anchors, x_starts[idx], delta_x[idx], delta_swc[idx]
+                )
                 boots.append(b)
             except RuntimeError:
                 pass
