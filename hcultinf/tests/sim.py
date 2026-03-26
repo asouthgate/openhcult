@@ -21,21 +21,34 @@ def simulate_calibration(
     x_0 = logistic_x_of_swc(0.0) + rng.normal(0, x0_noise)
     x_1 = logistic_x_of_swc(1.0) + rng.normal(0, x1_noise)
 
-    swc_starts_norm = rng.uniform(0.0, 1.2, n_chords)
+    swc_starts_norm = rng.uniform(0.0, 1.0, n_chords)
     delta_swc_norm = rng.uniform(0.01, 0.30, n_chords)
+
     swc_ends_norm = swc_starts_norm + delta_swc_norm
+
+    clipped_swc_ends_norm = np.clip(swc_ends_norm, 0.0, 1.0)
+
     x_starts = logistic_x_of_swc(swc_starts_norm)
-    clipped_x_ends = np.clip(logistic_x_of_swc(swc_ends_norm), 0.0, 1.0)
-    delta_x_noerr = clipped_x_ends - x_starts
+    delta_x_noerr = logistic_x_of_swc(clipped_swc_ends_norm) - x_starts
     delta_x = delta_x_noerr * (1.0 + rng.normal(0, x_noise, n_chords))
 
+    scaled_swc_ends = clipped_swc_ends_norm * swc_max
+    scaled_swc_starts = swc_starts_norm * swc_max
+    scaled_swc_deltas = scaled_swc_ends - scaled_swc_starts
+
+    assert (
+        max(scaled_swc_starts) <= swc_max
+    ), f"{max(scaled_swc_starts)} should be less than {swc_max}"
+    assert all(scaled_swc_starts) <= swc_max
+    assert all(delta_swc_norm) >= 0
+    assert all(scaled_swc_starts + scaled_swc_deltas <= swc_max)
     return (
         x_0,
         x_1,
         x_starts,
-        swc_starts_norm * swc_max,
+        scaled_swc_starts,
         delta_x,
-        delta_swc_norm * swc_max,
+        scaled_swc_deltas,
     )
 
 
@@ -51,6 +64,9 @@ def plot_calibration(
     title=None,
 ):
     """Plot response curve, boundary anchors, chord segments, and optional fit."""
+    assert (
+        max(swc_starts) <= swc_max
+    ), f"{max(swc_starts)} should be less than {swc_max}"
     import matplotlib.pyplot as plt
 
     swc_curve = np.linspace(0.01, 0.99, 500)
@@ -63,7 +79,7 @@ def plot_calibration(
 
     for xs, fs, dx, df in zip(x_starts, swc_starts, delta_x, delta_swc):
         ax.plot([xs, xs + dx], [fs, fs + df], "r-", alpha=0.15, lw=0.8)
-    ax.scatter(x_starts, swc_starts, color="r", alpha=0.5)
+    # ax.scatter(x_starts, swc_starts, color="r", alpha=0.5)
 
     if spline is not None:
         x_fine = np.linspace(x_curve.min(), x_curve.max(), 500)
