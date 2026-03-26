@@ -62,6 +62,7 @@ def plot_calibration(
     swc_max=1.0,
     spline=None,
     title=None,
+    swc_max_est=None,
 ):
     """Plot response curve, boundary anchors, chord segments, and optional fit."""
     assert (
@@ -79,11 +80,19 @@ def plot_calibration(
 
     for xs, fs, dx, df in zip(x_starts, swc_starts, delta_x, delta_swc):
         ax.plot([xs, xs + dx], [fs, fs + df], "r-", alpha=0.15, lw=0.8)
-    # ax.scatter(x_starts, swc_starts, color="r", alpha=0.5)
-
     if spline is not None:
         x_fine = np.linspace(x_curve.min(), x_curve.max(), 500)
         ax.plot(x_fine, spline(x_fine), "b-", lw=2, label="fit")
+
+    if swc_max_est is not None:
+        ax.axhline(
+            swc_max_est,
+            color="g",
+            lw=1.5,
+            linestyle="--",
+            label=f"swc_max_est={swc_max_est:.1f}",
+        )
+        ax.axhline(swc_max, color="k", lw=1, linestyle=":", label=f"true={swc_max}")
 
     ax.set_xlabel("sensor reading (x)")
     ax.set_ylabel(f"swc max={swc_max}")
