@@ -23,6 +23,44 @@ def fit_linear(x, y):
     return lambda v: m * v + c
 
 
+class MonotonicPWL:
+    """Monotone piecewise-linear fit to anchor points and chord observations."""
+
+    def __init__(self, n_nodes=50):
+        self._n_nodes = n_nodes
+        self._x_nodes = None
+        self._y_nodes = None
+
+    def fit(self, x_anchors, swc_anchors, x_starts, delta_x, delta_swc):
+        x_ends = x_starts + delta_x
+        x_min = min(x_anchors.min(), x_starts.min())
+        x_max = max(x_anchors.max(), x_ends.max())
+        self._x_nodes = np.linspace(x_min, x_max, self._n_nodes)
+
+        def interp(y_nodes, x):
+            return np.interp(x, self._x_nodes, y_nodes)
+
+        def objective(y_nodes):
+            return np.sum(
+                (interp(y_nodes, x_ends) - interp(y_nodes, x_starts) - delta_swc) ** 2
+            )
+
+        y0 = np.interp(self._x_nodes, x_anchors, swc_anchors)
+        res = minimize(
+            objective,
+            y0,
+            constraints=[
+                {"type": "ineq", "fun": np.diff},
+                {"type": "eq", "fun": lambda y: interp(y, x_anchors) - swc_anchors},
+            ],
+        )
+        self._y_nodes = res.x
+        return self
+
+    def __call__(self, x):
+        return np.interp(x, self._x_nodes, self._y_nodes)
+
+
 class MonotonicSpline:
     def __init__(self, n_knots, k=3, w_chord=1.0):
         self._n_knots = n_knots

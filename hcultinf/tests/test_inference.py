@@ -1,6 +1,12 @@
 import numpy as np
 
-from hcultinf.inference import fit_linear, MonotonicSpline, GP, estimate_swc_max
+from hcultinf.inference import (
+    fit_linear,
+    MonotonicSpline,
+    MonotonicPWL,
+    GP,
+    estimate_swc_max,
+)
 from tests.sim import (
     simulate_calibration,
     plot_calibration,
@@ -100,6 +106,43 @@ def test_noiseless_accuracy_gp():
 
     assert abs(gp(x_0) - 0.0) < 0.02
     assert np.sqrt(np.mean((gp(x_eval) - swc_true) ** 2)) < 5.0
+
+
+def test_noiseless_accuracy_pwl():
+    """MonotonicPWL recovers the true curve within tolerance when there is no noise."""
+    import matplotlib.pyplot as plt
+
+    swc_max = 447.219
+    rng = np.random.default_rng(42)
+    x_0, x_1, x_starts, swc_starts, delta_x, delta_swc = simulate_calibration(
+        n_chords=500, x0_noise=0.0, x1_noise=0.0, x_noise=0.0, swc_max=swc_max, rng=rng
+    )
+    x_anchors = np.array([x_0, x_1])
+    swc_anchors = np.array([0.0, swc_max])
+    pwl = MonotonicPWL(n_nodes=100).fit(
+        x_anchors, swc_anchors, x_starts, delta_x, delta_swc
+    )
+
+    swc_curve = np.linspace(0.01, 0.99, 500)
+    x_curve = logistic_x_of_swc(swc_curve)
+    swc_true = invlogistic_swc_of_x(x_curve) * swc_max
+
+    fig, ax = plot_calibration(
+        x_0,
+        x_1,
+        x_starts,
+        swc_starts,
+        delta_x,
+        delta_swc,
+        swc_max=swc_max,
+        title="noiseless accuracy (MonotonicPWL)",
+    )
+    ax.plot(x_curve, pwl(x_curve), "b-", lw=2, label="MonotonicPWL")
+    ax.legend()
+    plt.show()
+
+    assert abs(pwl(x_0) - 0.0) < 0.5
+    assert np.sqrt(np.mean((pwl(x_curve) - swc_true) ** 2)) < 10.0
 
 
 def test_estimate_swc_max_good_prior_partial_coverage():
