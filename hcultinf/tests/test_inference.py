@@ -1,6 +1,6 @@
 import numpy as np
 
-from hcultinf.inference import fit_linear, MonotonicSpline, GP
+from hcultinf.inference import fit_linear, MonotonicSpline, GP, estimate_swc_max
 from tests.sim import (
     simulate_calibration,
     plot_calibration,
@@ -100,3 +100,125 @@ def test_noiseless_accuracy_gp():
 
     assert abs(gp(x_0) - 0.0) < 0.02
     assert np.sqrt(np.mean((gp(x_eval) - swc_true) ** 2)) < 5.0
+
+
+def test_estimate_swc_max_good_prior_partial_coverage():
+    """Good prior + 50% x-coverage: estimate is accurate despite partial data."""
+    import matplotlib.pyplot as plt
+
+    swc_max = 447.219
+    rng = np.random.default_rng(42)
+    x_0, x_1, x_starts, swc_starts, delta_x, delta_swc = simulate_calibration(
+        n_chords=500, x0_noise=0.0, x1_noise=0.0, x_noise=0.0, swc_max=swc_max, rng=rng
+    )
+    mask = (x_starts + delta_x) <= 0.5
+    x_starts, delta_x, delta_swc, swc_starts = (
+        x_starts[mask],
+        delta_x[mask],
+        delta_swc[mask],
+        swc_starts[mask],
+    )
+
+    swc_max_est = estimate_swc_max(x_starts, delta_x, delta_swc, invlogistic_swc_of_x)
+
+    fig, ax = plot_calibration(
+        x_0,
+        x_1,
+        x_starts,
+        swc_starts,
+        delta_x,
+        delta_swc,
+        swc_max=swc_max,
+        title=f"good prior, 50% coverage — est={swc_max_est:.1f} true={swc_max}",
+    )
+    ax.axhline(
+        swc_max_est,
+        color="g",
+        lw=1.5,
+        linestyle="--",
+        label=f"swc_max_est={swc_max_est:.1f}",
+    )
+    ax.axhline(swc_max, color="k", lw=1, linestyle=":", label=f"true={swc_max}")
+    ax.legend()
+    plt.show()
+
+    assert abs(swc_max_est - swc_max) < 30.0
+
+
+def test_estimate_swc_max_bad_prior_full_coverage():
+    """Bad prior (linear) + 100% coverage: estimate is data-driven, prior shape irrelevant."""
+    import matplotlib.pyplot as plt
+
+    swc_max = 447.219
+    rng = np.random.default_rng(42)
+    x_0, x_1, x_starts, swc_starts, delta_x, delta_swc = simulate_calibration(
+        n_chords=500, x0_noise=0.0, x1_noise=0.0, x_noise=0.0, swc_max=swc_max, rng=rng
+    )
+    linear_prior = lambda x: (x - x_0) / (x_1 - x_0)
+    swc_max_est = estimate_swc_max(x_starts, delta_x, delta_swc, linear_prior)
+
+    fig, ax = plot_calibration(
+        x_0,
+        x_1,
+        x_starts,
+        swc_starts,
+        delta_x,
+        delta_swc,
+        swc_max=swc_max,
+        title=f"bad prior, 100% coverage — est={swc_max_est:.1f} true={swc_max}",
+    )
+    ax.axhline(
+        swc_max_est,
+        color="r",
+        lw=1.5,
+        linestyle="--",
+        label=f"swc_max_est={swc_max_est:.1f}",
+    )
+    ax.axhline(swc_max, color="k", lw=1, linestyle=":", label=f"true={swc_max}")
+    ax.legend()
+    plt.show()
+
+    assert abs(swc_max_est - swc_max) < 20.0
+
+
+def test_estimate_swc_max_bad_prior_partial_coverage():
+    """Bad prior + partial coverage: estimate fails — both conditions must not hold simultaneously."""
+    import matplotlib.pyplot as plt
+
+    swc_max = 447.219
+    rng = np.random.default_rng(42)
+    x_0, x_1, x_starts, swc_starts, delta_x, delta_swc = simulate_calibration(
+        n_chords=500, x0_noise=0.0, x1_noise=0.0, x_noise=0.0, swc_max=swc_max, rng=rng
+    )
+    mask = (x_starts + delta_x) <= 0.3
+    x_starts, delta_x, delta_swc, swc_starts = (
+        x_starts[mask],
+        delta_x[mask],
+        delta_swc[mask],
+        swc_starts[mask],
+    )
+    linear_prior = lambda x: (x - x_0) / (x_1 - x_0)
+    swc_max_est = estimate_swc_max(x_starts, delta_x, delta_swc, linear_prior)
+
+    fig, ax = plot_calibration(
+        x_0,
+        x_1,
+        x_starts,
+        swc_starts,
+        delta_x,
+        delta_swc,
+        swc_max=swc_max,
+        title=f"bad prior, 30% coverage — est={swc_max_est:.1f} true={swc_max}",
+    )
+    ax.axhline(
+        swc_max_est,
+        color="r",
+        lw=1.5,
+        linestyle="--",
+        label=f"swc_max_est={swc_max_est:.1f}",
+    )
+    ax.axhline(swc_max, color="k", lw=1, linestyle=":", label=f"true={swc_max}")
+    ax.legend()
+    plt.show()
+
+    assert abs(swc_max_est - swc_max) > 100.0

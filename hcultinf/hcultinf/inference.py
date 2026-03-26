@@ -10,6 +10,14 @@ def _make_knots(inner_knots, x_min, x_max, k):
     return np.concatenate([[x_min] * (k + 1), inner_knots, [x_max] * (k + 1)])
 
 
+def estimate_swc_max(x_starts, delta_x, delta_swc, prior):
+    x_lo, x_hi = x_starts.min(), (x_starts + delta_x).max()
+    gp = GP().fit(np.array([x_lo]), np.array([0.0]), x_starts, delta_x, delta_swc)
+    water_covered = float(gp(np.array([x_hi]))[0])
+    fraction_covered = float(prior(x_hi) - prior(x_lo))
+    return water_covered / fraction_covered
+
+
 def fit_linear(x, y):
     m, c = np.polyfit(x, y, 1)
     return lambda v: m * v + c
