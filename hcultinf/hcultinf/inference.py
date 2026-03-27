@@ -10,12 +10,94 @@ def _make_knots(inner_knots, x_min, x_max, k):
     return np.concatenate([[x_min] * (k + 1), inner_knots, [x_max] * (k + 1)])
 
 
+def find_overlapping_groups(samples):
+    if not samples:
+        return []
+
+    # Sort by start point
+    sorted_samples = sorted(samples, key=lambda s: s["x"])
+    groups = []
+    current_group = [sorted_samples[0]]
+    current_max_x = sorted_samples[0]["x"] + sorted_samples[0]["dx"]
+
+    for s in sorted_samples[1:]:
+        # If the next sample starts before or exactly at the current max reached
+        if s["x"] <= current_max_x:
+            current_group.append(s)
+            current_max_x = max(current_max_x, s["x"] + s["dx"])
+        else:
+            groups.append(current_group)
+            current_group = [s]
+            current_max_x = s["x"] + s["dx"]
+
+    groups.append(current_group)
+    return groups
+
+
+def estimate_total_dy(group):
+    """
+    Computes total dy by integrating local slopes.
+    To handle random overlaps perfectly, it uses a weighted average
+    of slopes based on the sample length (dx).
+    """
+    # 1. Define atomic segments from all unique endpoints
+    pts = sorted(list(set([s["x"] for s in group] + [s["x"] + s["dx"] for s in group])))
+
+    total_dy = 0.0
+    for i in range(len(pts) - 1):
+        x0, x1 = pts[i], pts[i + 1]
+        width = x1 - x0
+        if width <= 0:
+            continue
+
+        # 2. Find samples covering this segment
+        covering_samples = [
+            s
+            for s in group
+            if s["x"] <= x0 + 1e-13 and (s["x"] + s["dx"]) >= x1 - 1e-13
+        ]
+
+        if covering_samples:
+            # 3. Weighted average of slopes (dy/dx)
+            # We weight by s['dx'] because longer samples provide a more
+            # stable 'global' estimate of the slope over this segment.
+            weights = np.array([s["dx"] for s in covering_samples])
+            slopes = np.array([s["dy"] / s["dx"] for s in covering_samples])
+
+            avg_slope = np.average(slopes, weights=weights)
+            total_dy += avg_slope * width
+
+    return total_dy
+
+
 def estimate_swc_max(x_starts, delta_x, delta_swc, prior):
-    x_lo, x_hi = x_starts.min(), (x_starts + delta_x).max()
-    gp = GP().fit(np.array([x_lo]), np.array([0.0]), x_starts, delta_x, delta_swc)
-    water_covered = float(gp(np.array([x_hi]))[0])
-    fraction_covered = float(prior(x_hi) - prior(x_lo))
-    return water_covered / fraction_covered
+    x_ends = x_starts + delta_x
+
+    # merge overlapping chord intervals into disjoint coverage regions
+    order = np.argsort(x_starts)
+    regions = []
+    x_lo, x_hi = x_starts[order[0]], x_ends[order[0]]
+    for i in order[1:]:
+        if x_starts[i] <= x_hi:
+            x_hi = max(x_hi, x_ends[i])
+        else:
+            regions.append((x_lo, x_hi))
+            x_lo, x_hi = x_starts[i], x_ends[i]
+    regions.append((x_lo, x_hi))
+
+    total_water = 0.0
+    total_fraction = 0.0
+    for x_lo, x_hi in regions:
+        mask = (x_starts >= x_lo) & (x_ends <= x_hi)
+        xs, dx, dswc = x_starts[mask], delta_x[mask], delta_swc[mask]
+        x_nodes = np.unique(np.concatenate([xs, xs + dx]))
+        pwl = MonotonicPWL(x_nodes=x_nodes).fit(
+            np.array([x_lo]), np.array([0.0]), xs, dx, dswc
+        )
+        total_water += float(pwl(x_hi))
+        total_fraction += float(prior(x_hi) - prior(x_lo))
+
+    return total_water / total_fraction
 
 
 def fit_linear(x, y):
@@ -26,8 +108,9 @@ def fit_linear(x, y):
 class MonotonicPWL:
     """Monotone piecewise-linear fit to anchor points and chord observations."""
 
-    def __init__(self, n_nodes=50):
+    def __init__(self, n_nodes=50, x_nodes=None):
         self._n_nodes = n_nodes
+        self._x_nodes_init = x_nodes
         self._x_nodes = None
         self._y_nodes = None
 
@@ -35,7 +118,10 @@ class MonotonicPWL:
         x_ends = x_starts + delta_x
         x_min = min(x_anchors.min(), x_starts.min())
         x_max = max(x_anchors.max(), x_ends.max())
-        self._x_nodes = np.linspace(x_min, x_max, self._n_nodes)
+        if self._x_nodes_init is not None:
+            self._x_nodes = self._x_nodes_init
+        else:
+            self._x_nodes = np.linspace(x_min, x_max, self._n_nodes)
 
         def interp(y_nodes, x):
             return np.interp(x, self._x_nodes, y_nodes)
