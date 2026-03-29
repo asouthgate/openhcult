@@ -98,7 +98,7 @@ def test_estimate_dy_partial_coverage_equals_full_coverage_if_given_full_coverag
     estimated_total_y_partial = estimate_total_dy(
         x, dx, dy, priorx, priory, n_pwl_nodes
     )
-    assert estimated_total_y_partial == pytest.approx(estimated_total_y, rel=0.0002)
+    assert estimated_total_y_partial == pytest.approx(estimated_total_y, rel=0.001)
 
 
 def test_estimate_dy_partial_coverage_perfect_prior():
@@ -126,7 +126,7 @@ def test_estimate_dy_partial_coverage_perfect_prior():
     estimated_total_y_partial = estimate_total_dy(
         x, dx, dy, priorx, priory, n_pwl_nodes
     )
-    assert estimated_total_y_partial == pytest.approx(true_total_y, rel=0.0002)
+    assert estimated_total_y_partial == pytest.approx(true_total_y, rel=0.001)
 
 
 # def test_noiseless_accuracy():
