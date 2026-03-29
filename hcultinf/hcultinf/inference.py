@@ -4,105 +4,64 @@ import numpy as np
 
 from scipy.interpolate import BSpline
 from scipy.optimize import minimize
+from scipy.optimize import lsq_linear
 
 
 def _make_knots(inner_knots, x_min, x_max, k):
     return np.concatenate([[x_min] * (k + 1), inner_knots, [x_max] * (k + 1)])
 
 
-def find_overlapping_groups(samples):
-    if not samples:
+def find_overlapping_groups(x, dx):
+    """
+    Groups indices of samples that share a continuous span of x-support.
+    Args:
+        x, dx, dy: np.arrays of sample starts, lengths, and changes.
+    Returns:
+        List of np.arrays containing indices for each group.
+    """
+    if len(x) == 0:
         return []
 
-    # Sort by start point
-    sorted_samples = sorted(samples, key=lambda s: s["x"])
+    # Sort indices by start point x
+    idx = np.argsort(x)
+    x_s, dx_s = x[idx], dx[idx]
+
     groups = []
-    current_group = [sorted_samples[0]]
-    current_max_x = sorted_samples[0]["x"] + sorted_samples[0]["dx"]
+    current_group_indices = [idx[0]]
+    current_max_x = x_s[0] + dx_s[0]
 
-    for s in sorted_samples[1:]:
-        # If the next sample starts before or exactly at the current max reached
-        if s["x"] <= current_max_x:
-            current_group.append(s)
-            current_max_x = max(current_max_x, s["x"] + s["dx"])
+    for i in range(1, len(x)):
+        # If the sample starts before or at the current group's end
+        if x_s[i] <= current_max_x:
+            current_group_indices.append(idx[i])
+            current_max_x = max(current_max_x, x_s[i] + dx_s[i])
         else:
-            groups.append(current_group)
-            current_group = [s]
-            current_max_x = s["x"] + s["dx"]
+            groups.append(np.array(current_group_indices))
+            current_group_indices = [idx[i]]
+            current_max_x = x_s[i] + dx_s[i]
 
-    groups.append(current_group)
+    groups.append(np.array(current_group_indices))
     return groups
-
-
-def estimate_total_dy(group):
-    """
-    Computes total dy by integrating local slopes.
-    To handle random overlaps perfectly, it uses a weighted average
-    of slopes based on the sample length (dx).
-    """
-    # 1. Define atomic segments from all unique endpoints
-    pts = sorted(list(set([s["x"] for s in group] + [s["x"] + s["dx"] for s in group])))
-
-    total_dy = 0.0
-    for i in range(len(pts) - 1):
-        x0, x1 = pts[i], pts[i + 1]
-        width = x1 - x0
-        if width <= 0:
-            continue
-
-        # 2. Find samples covering this segment
-        covering_samples = [
-            s
-            for s in group
-            if s["x"] <= x0 + 1e-13 and (s["x"] + s["dx"]) >= x1 - 1e-13
-        ]
-
-        if covering_samples:
-            # 3. Weighted average of slopes (dy/dx)
-            # We weight by s['dx'] because longer samples provide a more
-            # stable 'global' estimate of the slope over this segment.
-            weights = np.array([s["dx"] for s in covering_samples])
-            slopes = np.array([s["dy"] / s["dx"] for s in covering_samples])
-
-            avg_slope = np.average(slopes, weights=weights)
-            total_dy += avg_slope * width
-
-    return total_dy
-
-
-def estimate_swc_max(x_starts, delta_x, delta_swc, prior):
-    x_ends = x_starts + delta_x
-
-    # merge overlapping chord intervals into disjoint coverage regions
-    order = np.argsort(x_starts)
-    regions = []
-    x_lo, x_hi = x_starts[order[0]], x_ends[order[0]]
-    for i in order[1:]:
-        if x_starts[i] <= x_hi:
-            x_hi = max(x_hi, x_ends[i])
-        else:
-            regions.append((x_lo, x_hi))
-            x_lo, x_hi = x_starts[i], x_ends[i]
-    regions.append((x_lo, x_hi))
-
-    total_water = 0.0
-    total_fraction = 0.0
-    for x_lo, x_hi in regions:
-        mask = (x_starts >= x_lo) & (x_ends <= x_hi)
-        xs, dx, dswc = x_starts[mask], delta_x[mask], delta_swc[mask]
-        x_nodes = np.unique(np.concatenate([xs, xs + dx]))
-        pwl = MonotonicPWL(x_nodes=x_nodes).fit(
-            np.array([x_lo]), np.array([0.0]), xs, dx, dswc
-        )
-        total_water += float(pwl(x_hi))
-        total_fraction += float(prior(x_hi) - prior(x_lo))
-
-    return total_water / total_fraction
 
 
 def fit_linear(x, y):
     m, c = np.polyfit(x, y, 1)
     return lambda v: m * v + c
+
+
+def estimate_total_dy(x, dx, dy, n_nodes, endpoint=None):
+    x_nodes = np.linspace(x.min(), x.max(), n_nodes)
+    pwl = MonotonicPWL(x_nodes=x_nodes).fit(
+        np.array([x.min()]), np.array([0.0]), x, dx, dy
+    )
+    if not endpoint:
+        endpoint = max(x + dx)
+    #     print("No endpoint provided, using max x + dx as endpoint.", endpoint)
+    # print("Max x was:", x.max())
+    # print("Max dx is:", dx.max())
+    # print("Max endpoint is", max(x + dx))
+    # print("Used endpoint:", endpoint)
+    return pwl(endpoint), pwl
 
 
 class MonotonicPWL:
@@ -136,9 +95,9 @@ class MonotonicPWL:
             objective,
             y0,
             constraints=[
-                {"type": "ineq", "fun": np.diff},
                 {"type": "eq", "fun": lambda y: interp(y, x_anchors) - swc_anchors},
             ],
+            tol=1e-7,
         )
         self._y_nodes = res.x
         return self
