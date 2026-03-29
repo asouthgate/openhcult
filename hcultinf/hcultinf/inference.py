@@ -51,12 +51,12 @@ def fit_linear(x, y):
 
 def estimate_total_dy_full_coverage(x, dx, dy, n_nodes, endpoint=None):
     """Estimate the total change in y given a sample of x intervals and dy values, assuming no holes in the x coverage."""
-    x_nodes = np.linspace(x.min(), x.max(), n_nodes)
+    if endpoint is None:
+        endpoint = max(x + dx)
+    x_nodes = np.linspace(x.min(), endpoint, n_nodes)
     pwl = MonotonicPWL(x_nodes=x_nodes).fit(
         np.array([x.min()]), np.array([0.0]), x, dx, dy
     )
-    if not endpoint:
-        endpoint = max(x + dx)
     return pwl(endpoint), pwl
 
 
@@ -69,11 +69,15 @@ def estimate_total_dy(x, dx, dy, priorx, priory, n_nodes, endpoint=None):
     """
 
     # The prior func must integrate to 1; integrate and assert the result equals 1
-    prior_integral = np.trapezoid(priory, priorx)
-    assert np.isclose(
-        prior_integral, 1.0
-    ), f"Prior function must integrate to 1, but got {prior_integral}"
+    # prior_integral = np.trapezoid(priory, priorx)
+    # assert np.isclose(
+    #     prior_integral, 1.0
+    # ), f"Prior function must integrate to 1, but got {prior_integral}"
 
+    assert priory.min() == 0
+    assert (
+        priory.max() == 1
+    ), "Prior must be normalized to [0, 1] range, it is not required to integrate to 1"
     total = 0
     covered_proportion = 0
     groups = find_overlapping_groups(x, dx)
@@ -83,9 +87,24 @@ def estimate_total_dy(x, dx, dy, priorx, priory, n_nodes, endpoint=None):
             xg, dxg, dyg, n_nodes, endpoint=endpoint
         )
         total += partial_sum
+
+        # mask = (priorx >= xg.min()) & (priorx <= (xg + dxg).max())
+        # print(f"Interval min and max: {xg.min()} to {(xg + dxg).max()}")
         mask = (priorx >= xg.min()) & (priorx <= (xg + dxg).max())
-        priorx_interval = priorx[mask]
-        covered_proportion += np.trapezoid(priory[mask], priorx_interval)
+        # print(f"Prior x range for group: {priorx[mask].min()} to {priorx[mask].max()}")
+
+        covered_proportion += priory[mask].max() - priory[mask].min()
+        # import matplotlib.pyplot as plt
+        # plt.plot(priorx, priory)
+        # plt.scatter(priorx, priory)
+        # plt.axvline((xg + dxg).max(), color="red", label="xmax")
+        # plt.axhline(covered_proportion, color="red", label="xmax")
+        # plt.show()
+
+        # print(f"Group min max: {xg.min(), (xg + dxg).max()} vs prior: {priory[mask].min()} {priory[mask].max()}")
+        # print(f"Group {group}: partial_sum={partial_sum}, covered_proportion={covered_proportion}")
+        # print(f"Percentage covered: {covered_proportion * 100:.2f}%")
+        # covered_proportion = priory[mask].max() - priory[mask].min()
 
     # Finally extrapolate to the uncovered proportion specified by the prior
     # if 3.33... is 1/3, then the total is 3.33 / (1/3) = 10.0

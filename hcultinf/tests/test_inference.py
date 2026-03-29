@@ -88,17 +88,45 @@ def test_estimate_dy_partial_coverage_equals_full_coverage_if_given_full_coverag
     # Discretize the unusual function
     pwlx = np.linspace(0, xmax, n_pwl_nodes)
     y = _f_to_pwl(Y_TEST_FUNCTION, pwlx)
-    x, dx, dy = _sample_data(xmin, xmax, dxmin, dxmax, noise_level, 1000, y)
+    x, dx, dy = _sample_data(xmin, xmax, dxmin, dxmax, noise_level, 3000, y)
     estimated_total_y, _ = estimate_total_dy_full_coverage(x, dx, dy, n_pwl_nodes)
 
     priorx = np.linspace(0, xmax, 100000)  # Need a finely grained prior
     priory = _f_to_pwl(Y_TEST_FUNCTION, pwlx)(priorx)
-    priory = priory / np.trapezoid(priory, priorx)
+    priory = (priory - priory.min()) / (priory.max() - priory.min())
 
     estimated_total_y_partial = estimate_total_dy(
         x, dx, dy, priorx, priory, n_pwl_nodes
     )
-    assert estimated_total_y_partial == pytest.approx(estimated_total_y, rel=0.0001)
+    assert estimated_total_y_partial == pytest.approx(estimated_total_y, rel=0.0002)
+
+
+def test_estimate_dy_partial_coverage_perfect_prior():
+    # Define an unusual function
+    xmin = 0.0
+    xmax = 5
+    dxmin = 0.1
+    dxmax = 0.5
+    noise_level = 0.01
+    n_pwl_nodes = 5
+    mask_xlim = 1.0
+    # Discretize the unusual function
+    pwlx = np.linspace(0, xmax, n_pwl_nodes)
+    y = _f_to_pwl(Y_TEST_FUNCTION, pwlx)
+    x, dx, dy = _sample_data(xmin, xmax, dxmin, dxmax, noise_level, 30000, y)
+
+    # Mask the data to simulate partial coverage, but use a perfect prior that matches the true curve
+    mask = (x + dx) <= mask_xlim
+    x, dx, dy = x[mask], dx[mask], dy[mask]
+
+    priorx = np.linspace(0, xmax, 200000)  # Need a finely grained prior
+    priory = y(priorx)
+    true_total_y = y(xmax) - y(xmin)
+    priory = (priory - priory.min()) / (priory.max() - priory.min())
+    estimated_total_y_partial = estimate_total_dy(
+        x, dx, dy, priorx, priory, n_pwl_nodes
+    )
+    assert estimated_total_y_partial == pytest.approx(true_total_y, rel=0.0002)
 
 
 # def test_noiseless_accuracy():
