@@ -68,12 +68,6 @@ def estimate_total_dy(x, dx, dy, priorx, priory, n_nodes, endpoint=None):
     and using a prior shape where there is no coverage.
     """
 
-    # The prior func must integrate to 1; integrate and assert the result equals 1
-    # prior_integral = np.trapezoid(priory, priorx)
-    # assert np.isclose(
-    #     prior_integral, 1.0
-    # ), f"Prior function must integrate to 1, but got {prior_integral}"
-
     assert priory.min() == 0
     assert (
         priory.max() == 1
@@ -87,24 +81,8 @@ def estimate_total_dy(x, dx, dy, priorx, priory, n_nodes, endpoint=None):
             xg, dxg, dyg, n_nodes, endpoint=endpoint
         )
         total += partial_sum
-
-        # mask = (priorx >= xg.min()) & (priorx <= (xg + dxg).max())
-        # print(f"Interval min and max: {xg.min()} to {(xg + dxg).max()}")
         mask = (priorx >= xg.min()) & (priorx <= (xg + dxg).max())
-        # print(f"Prior x range for group: {priorx[mask].min()} to {priorx[mask].max()}")
-
         covered_proportion += priory[mask].max() - priory[mask].min()
-        # import matplotlib.pyplot as plt
-        # plt.plot(priorx, priory)
-        # plt.scatter(priorx, priory)
-        # plt.axvline((xg + dxg).max(), color="red", label="xmax")
-        # plt.axhline(covered_proportion, color="red", label="xmax")
-        # plt.show()
-
-        # print(f"Group min max: {xg.min(), (xg + dxg).max()} vs prior: {priory[mask].min()} {priory[mask].max()}")
-        # print(f"Group {group}: partial_sum={partial_sum}, covered_proportion={covered_proportion}")
-        # print(f"Percentage covered: {covered_proportion * 100:.2f}%")
-        # covered_proportion = priory[mask].max() - priory[mask].min()
 
     # Finally extrapolate to the uncovered proportion specified by the prior
     # if 3.33... is 1/3, then the total is 3.33 / (1/3) = 10.0
