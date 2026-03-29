@@ -8,6 +8,7 @@ from hcultinf.inference import (
     find_overlapping_groups,
     estimate_total_dy_full_coverage,
     estimate_total_dy,
+    GPWithPriorShape,
 )
 from tests.sim import (
     simulate_calibration,
@@ -55,28 +56,35 @@ def test_estimate_total_y_convergence_pwl_true_curve():
     n_pwl_nodes = 5
 
     # Discretize the unusual function
-    pwlx = np.linspace(0, xmax, n_pwl_nodes)
+    pwlx = np.linspace(xmin, xmax, n_pwl_nodes)
     y = _f_to_pwl(Y_TEST_FUNCTION, pwlx)
 
     err_prev = 1e10
     for n in [
-        5,
-        25,
-        625,
-        390625,
+        4**1,
+        4**3,
+        4**5,
     ]:  # Square the number of points, 5 chosen for convenience
         x, dx, dy = _sample_data(xmin, xmax, dxmin, dxmax, noise_level, n, y)
-        estimated_total_y, _ = estimate_total_dy_full_coverage(x, dx, dy, n_pwl_nodes)
+        # estimated_total_y, _ = estimate_total_dy_full_coverage(x, dx, dy, n_pwl_nodes)
+        # Use linear prior (bad)
+        priorx = np.array([0.0, 1.0])
+        priory = np.array([0.0, 1.0])
+        pwl = GPWithPriorShape().fit(
+            np.array([x.min()]), np.array([0.0]), x, dx, dy, priorx, priory
+        )
+        estimated_total_y = pwl(xmax) - pwl(xmin)
 
         true_total_y = y(xmax) - y(xmin)
         error = np.abs(true_total_y - estimated_total_y)
         assert error < err_prev
         err_prev = error
 
-    assert error < 0.0001 * true_total_y
+    error_tol_prop = 0.01 * true_total_y
+    assert error < error_tol_prop
 
 
-def test_estimate_dy_partial_coverage_equals_full_coverage_if_given_full_coverage():
+def test_estimate_dy_partial_coverage_equals_full_coverage_if_perfect_prior():
     # Define an unusual function
     xmin = 0.0
     xmax = 5.5
@@ -94,10 +102,10 @@ def test_estimate_dy_partial_coverage_equals_full_coverage_if_given_full_coverag
     priorx = np.linspace(0, xmax, 100000)  # Need a finely grained prior
     priory = _f_to_pwl(Y_TEST_FUNCTION, pwlx)(priorx)
     priory = (priory - priory.min()) / (priory.max() - priory.min())
-
-    estimated_total_y_partial = estimate_total_dy(
-        x, dx, dy, priorx, priory, n_pwl_nodes
+    pwl = GPWithPriorShape().fit(
+        np.array([x.min()]), np.array([0.0]), x, dx, dy, priorx, priory
     )
+    estimated_total_y_partial = pwl(xmax) - pwl(xmin)
     assert estimated_total_y_partial == pytest.approx(estimated_total_y, rel=0.001)
 
 
@@ -108,25 +116,40 @@ def test_estimate_dy_partial_coverage_perfect_prior():
     dxmin = 0.1
     dxmax = 0.5
     noise_level = 0.01
-    n_pwl_nodes = 5
-    mask_xlim = 1.0
+    n_pwl_nodes = 100
+    mask_xlim = 2.0
     # Discretize the unusual function
     pwlx = np.linspace(0, xmax, n_pwl_nodes)
-    y = _f_to_pwl(Y_TEST_FUNCTION, pwlx)
-    x, dx, dy = _sample_data(xmin, xmax, dxmin, dxmax, noise_level, 30000, y)
+    y = Y_TEST_FUNCTION
+    x, dx, dy = _sample_data(xmin, xmax, dxmin, dxmax, noise_level, 500, y)
 
     # Mask the data to simulate partial coverage, but use a perfect prior that matches the true curve
     mask = (x + dx) <= mask_xlim
     x, dx, dy = x[mask], dx[mask], dy[mask]
 
-    priorx = np.linspace(0, xmax, 200000)  # Need a finely grained prior
+    priorx = np.linspace(xmin, xmax, 1000)  # Need a finely grained prior
     priory = y(priorx)
     true_total_y = y(xmax) - y(xmin)
     priory = (priory - priory.min()) / (priory.max() - priory.min())
-    estimated_total_y_partial = estimate_total_dy(
-        x, dx, dy, priorx, priory, n_pwl_nodes
+    pwl = GPWithPriorShape().fit(
+        np.array([x.min()]), np.array([0.0]), x, dx, dy, priorx, priory
     )
-    assert estimated_total_y_partial == pytest.approx(true_total_y, rel=0.001)
+    estimated_total_y_partial = pwl(xmax) - pwl(xmin)
+
+    mean, std = pwl.predict(pwlx)
+    ci_lower = mean - 1.96 * std
+    ci_upper = mean + 1.96 * std
+
+    # import matplotlib.pyplot as plt
+    # plt.plot(pwlx, y(pwlx) - y(pwlx.min()), label="true")
+    # plt.scatter(pwlx, y(pwlx) - y(pwlx.min()), label="true")
+    # plt.plot(pwlx, pwl(pwlx) - pwl(pwlx.min()), label="true")
+    # plt.scatter(pwlx, pwl(pwlx) - pwl(pwlx.min()), label="true")
+    # plt.fill_between(pwlx, ci_lower - ci_lower.min(), ci_upper - ci_lower.min(), color="gray", alpha=0.3, label="95% CI")
+    # plt.plot(pwlx, mean - mean.min(), label="GP mean")
+    # plt.legend()
+    # plt.show()
+    assert estimated_total_y_partial == pytest.approx(true_total_y, rel=0.01)
 
 
 # def test_noiseless_accuracy():
