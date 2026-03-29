@@ -49,19 +49,49 @@ def fit_linear(x, y):
     return lambda v: m * v + c
 
 
-def estimate_total_dy(x, dx, dy, n_nodes, endpoint=None):
+def estimate_total_dy_full_coverage(x, dx, dy, n_nodes, endpoint=None):
+    """Estimate the total change in y given a sample of x intervals and dy values, assuming no holes in the x coverage."""
     x_nodes = np.linspace(x.min(), x.max(), n_nodes)
     pwl = MonotonicPWL(x_nodes=x_nodes).fit(
         np.array([x.min()]), np.array([0.0]), x, dx, dy
     )
     if not endpoint:
         endpoint = max(x + dx)
-    #     print("No endpoint provided, using max x + dx as endpoint.", endpoint)
-    # print("Max x was:", x.max())
-    # print("Max dx is:", dx.max())
-    # print("Max endpoint is", max(x + dx))
-    # print("Used endpoint:", endpoint)
     return pwl(endpoint), pwl
+
+
+def estimate_total_dy(x, dx, dy, priorx, priory, n_nodes, endpoint=None):
+    """Estimate the total change in y given a sample of x intervals and dy values.
+
+    This function does not assume a single covered interval. Instead, it extracts
+    groups of elements, finding the sum within each group, summing the group sums,
+    and using a prior shape where there is no coverage.
+    """
+
+    # The prior func must integrate to 1; integrate and assert the result equals 1
+    prior_integral = np.trapezoid(priory, priorx)
+    assert np.isclose(
+        prior_integral, 1.0
+    ), f"Prior function must integrate to 1, but got {prior_integral}"
+
+    total = 0
+    covered_proportion = 0
+    groups = find_overlapping_groups(x, dx)
+    for group in groups:
+        xg, dxg, dyg = x[group], dx[group], dy[group]
+        partial_sum, _ = estimate_total_dy_full_coverage(
+            xg, dxg, dyg, n_nodes, endpoint=endpoint
+        )
+        total += partial_sum
+        mask = (priorx >= xg.min()) & (priorx <= (xg + dxg).max())
+        priorx_interval = priorx[mask]
+        covered_proportion += np.trapezoid(priory[mask], priorx_interval)
+
+    # Finally extrapolate to the uncovered proportion specified by the prior
+    # if 3.33... is 1/3, then the total is 3.33 / (1/3) = 10.0
+    total = total / covered_proportion if covered_proportion > 0 else 0.0
+
+    return total
 
 
 class MonotonicPWL:

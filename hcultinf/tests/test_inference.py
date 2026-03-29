@@ -6,6 +6,7 @@ from hcultinf.inference import (
     MonotonicPWL,
     GP,
     find_overlapping_groups,
+    estimate_total_dy_full_coverage,
     estimate_total_dy,
 )
 from tests.sim import (
@@ -21,6 +22,22 @@ def _f_to_pwl(f, x_nodes):
     return lambda x: np.interp(x, x_nodes, y_nodes)
 
 
+Y_TEST_FUNCTION = (
+    lambda x: x**2 + np.log(x + 1) + np.exp(0.5 * x) + np.sqrt(x) - np.sin(3 * x) + 3.3
+)
+
+
+def _sample_data(xmin, xmax, dxmin, dxmax, noise_level, n, y):
+    x = np.random.uniform(xmin, xmax, n)
+    x = np.clip(x, xmin, xmax)
+    dx = np.random.uniform(dxmin, dxmax, n)
+    ends = np.clip(x + dx, xmin, xmax)
+    dx = ends - x
+    dy = y(x + dx) - y(x)
+    dy += np.random.normal(0, noise_level, n)
+    return x, dx, dy
+
+
 def test_estimate_total_y_convergence_pwl_true_curve():
     """Test that the estimate of total change in y in a single interval converges with large n
 
@@ -30,15 +47,6 @@ def test_estimate_total_y_convergence_pwl_true_curve():
     """
 
     # Define an unusual function
-    ycont = (
-        lambda x: x**2
-        + np.log(x + 1)
-        + np.exp(0.5 * x)
-        + np.sqrt(x)
-        - np.sin(3 * x)
-        + 3.3
-    )
-
     xmin = 0.0
     xmax = 5.5
     dxmin = 0.1
@@ -48,7 +56,7 @@ def test_estimate_total_y_convergence_pwl_true_curve():
 
     # Discretize the unusual function
     pwlx = np.linspace(0, xmax, n_pwl_nodes)
-    y = _f_to_pwl(ycont, pwlx)
+    y = _f_to_pwl(Y_TEST_FUNCTION, pwlx)
 
     err_prev = 1e10
     for n in [
@@ -57,15 +65,8 @@ def test_estimate_total_y_convergence_pwl_true_curve():
         625,
         390625,
     ]:  # Square the number of points, 5 chosen for convenience
-        x = np.random.uniform(xmin, xmax, n)
-        x = np.clip(x, xmin, xmax)
-        dx = np.random.uniform(dxmin, dxmax, n)
-        ends = np.clip(x + dx, xmin, xmax)
-        dx = ends - x
-
-        dy = y(x + dx) - y(x)
-        dy += np.random.normal(0, noise_level, n)
-        estimated_total_y, _ = estimate_total_dy(x, dx, dy, n_pwl_nodes)
+        x, dx, dy = _sample_data(xmin, xmax, dxmin, dxmax, noise_level, n, y)
+        estimated_total_y, _ = estimate_total_dy_full_coverage(x, dx, dy, n_pwl_nodes)
 
         true_total_y = y(xmax) - y(xmin)
         error = np.abs(true_total_y - estimated_total_y)
@@ -73,6 +74,31 @@ def test_estimate_total_y_convergence_pwl_true_curve():
         err_prev = error
 
     assert error < 0.0001 * true_total_y
+
+
+def test_estimate_dy_partial_coverage_equals_full_coverage_if_given_full_coverage():
+    # Define an unusual function
+    xmin = 0.0
+    xmax = 5.5
+    dxmin = 0.1
+    dxmax = 0.5
+    noise_level = 0.05
+    n_pwl_nodes = 5
+
+    # Discretize the unusual function
+    pwlx = np.linspace(0, xmax, n_pwl_nodes)
+    y = _f_to_pwl(Y_TEST_FUNCTION, pwlx)
+    x, dx, dy = _sample_data(xmin, xmax, dxmin, dxmax, noise_level, 1000, y)
+    estimated_total_y, _ = estimate_total_dy_full_coverage(x, dx, dy, n_pwl_nodes)
+
+    priorx = np.linspace(0, xmax, 100000)  # Need a finely grained prior
+    priory = _f_to_pwl(Y_TEST_FUNCTION, pwlx)(priorx)
+    priory = priory / np.trapezoid(priory, priorx)
+
+    estimated_total_y_partial = estimate_total_dy(
+        x, dx, dy, priorx, priory, n_pwl_nodes
+    )
+    assert estimated_total_y_partial == pytest.approx(estimated_total_y, rel=0.0001)
 
 
 # def test_noiseless_accuracy():
@@ -105,7 +131,7 @@ def test_estimate_total_y_convergence_pwl_true_curve():
 #             swc_max=swc_max,
 #             title="noiseless accuracy",
 #             inferred=ms,
-#             save_path=f"tests/artifacts/noiseless_accuracy_{tag}.png",
+#             # save_path=f"tests/artifacts/noiseless_accuracy_{tag}.png",
 #         )
 
 #         x_eval = np.linspace(x_0, x_1, 200)
