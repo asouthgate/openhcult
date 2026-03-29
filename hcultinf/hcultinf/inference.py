@@ -296,7 +296,7 @@ class GPWithPriorShape:
         if length_scale is None:
             length_scale = np.median(np.abs(x_ends - x_starts)) * 2.0
         variance = np.var(delta_y) if len(delta_y) > 1 else 1.0
-        noise = 1e-3
+        noise = 1e-2
 
         def kernel(x1, x2):
             sq_dist = np.subtract.outer(x1, x2) ** 2
