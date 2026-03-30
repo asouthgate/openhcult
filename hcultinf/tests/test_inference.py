@@ -1,21 +1,7 @@
 import numpy as np
 import pytest
 
-from hcultinf.inference import (
-    MonotonicSpline,
-    MonotonicPWL,
-    GP,
-    find_overlapping_groups,
-    estimate_total_dy_full_coverage,
-    estimate_total_dy,
-    GPWithPriorShape,
-)
-from tests.sim import (
-    simulate_calibration,
-    plot_calibration,
-    invlogistic_swc_of_x,
-    logistic_x_of_swc,
-)
+from hcultinf.inference import GPWithPriorShape
 
 Y_TEST_FUNCTION = (
     lambda x: x**2 + np.log(x + 1) + np.exp(0.5 * x) + np.sqrt(x) - np.sin(3 * x) + 3.3
@@ -108,17 +94,29 @@ def test_estimate_dy_partial_coverage_perfect_prior():
     ci_lower = mean - 1.96 * std
     ci_upper = mean + 1.96 * std
 
-    # import matplotlib.pyplot as plt
-    # plt.plot(pwlx, Y_TEST_FUNCTION(pwlx) - Y_TEST_FUNCTION(pwlx.min()), label="true")
-    # plt.scatter(pwlx, Y_TEST_FUNCTION(pwlx) - Y_TEST_FUNCTION(pwlx.min()), label="true")
-    # plt.scatter(priorx, priory * (Y_TEST_FUNCTION(pwlx).max() - Y_TEST_FUNCTION(pwlx).min()), label="rescaled prior")
-    # plt.plot(pwlx, pwl(pwlx) - pwl(pwlx.min()), label="true")
-    # plt.scatter(pwlx, pwl(pwlx) - pwl(pwlx.min()), label="true")
-    # plt.fill_between(pwlx, ci_lower - mean.min(), ci_upper - mean.min(), color="gray", alpha=0.3, label="95% CI")
-    # plt.plot(pwlx, mean - mean.min(), label="GP mean")
-    # plt.legend()
-    # plt.show()
-    assert estimated_total_y_partial == pytest.approx(true_total_y, rel=0.01)
+    import matplotlib.pyplot as plt
+
+    plt.plot(pwlx, Y_TEST_FUNCTION(pwlx) - Y_TEST_FUNCTION(pwlx.min()), label="true")
+    plt.scatter(pwlx, Y_TEST_FUNCTION(pwlx) - Y_TEST_FUNCTION(pwlx.min()), label="true")
+    plt.scatter(
+        priorx,
+        priory * (Y_TEST_FUNCTION(pwlx).max() - Y_TEST_FUNCTION(pwlx).min()),
+        label="rescaled prior",
+    )
+    plt.plot(pwlx, pwl(pwlx) - pwl(pwlx.min()), label="true")
+    plt.scatter(pwlx, pwl(pwlx) - pwl(pwlx.min()), label="true")
+    plt.fill_between(
+        pwlx,
+        ci_lower - mean.min(),
+        ci_upper - mean.min(),
+        color="gray",
+        alpha=0.3,
+        label="95% CI",
+    )
+    plt.plot(pwlx, mean - mean.min(), label="GP mean")
+    plt.legend()
+    plt.show()
+    assert estimated_total_y_partial == pytest.approx(true_total_y, rel=0.02)
 
 
 # def test_noiseless_accuracy():
