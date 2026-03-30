@@ -17,15 +17,15 @@ from tests.sim import (
     logistic_x_of_swc,
 )
 
-
-def _f_to_pwl(f, x_nodes):
-    y_nodes = f(x_nodes)
-    return lambda x: np.interp(x, x_nodes, y_nodes)
-
-
 Y_TEST_FUNCTION = (
     lambda x: x**2 + np.log(x + 1) + np.exp(0.5 * x) + np.sqrt(x) - np.sin(3 * x) + 3.3
 )
+
+TEST_XMIN = 0.0
+TEST_XMAX = 5.5
+TEST_DXMIN = 0.1
+TEST_DXMAX = 0.5
+TEST_NOISE_LEVEL = 0.05
 
 
 def _sample_data(xmin, xmax, dxmin, dxmax, noise_level, n, y):
@@ -46,36 +46,30 @@ def test_estimate_total_y_convergence_pwl_true_curve():
     fit of a continuous curve will have an error floor that does not go to zero given a fixed
     number of points.
     """
-
-    # Define an unusual function
-    xmin = 0.0
-    xmax = 5.5
-    dxmin = 0.1
-    dxmax = 0.5
-    noise_level = 0.05
-    n_pwl_nodes = 5
-
-    # Discretize the unusual function
-    pwlx = np.linspace(xmin, xmax, n_pwl_nodes)
-    y = _f_to_pwl(Y_TEST_FUNCTION, pwlx)
-
     err_prev = 1e10
     for n in [
         4**1,
         4**3,
         4**5,
     ]:  # Square the number of points, 5 chosen for convenience
-        x, dx, dy = _sample_data(xmin, xmax, dxmin, dxmax, noise_level, n, y)
-        # estimated_total_y, _ = estimate_total_dy_full_coverage(x, dx, dy, n_pwl_nodes)
+        x, dx, dy = _sample_data(
+            TEST_XMIN,
+            TEST_XMAX,
+            TEST_DXMIN,
+            TEST_DXMAX,
+            TEST_NOISE_LEVEL,
+            n,
+            Y_TEST_FUNCTION,
+        )
         # Use linear prior (bad)
         priorx = np.array([0.0, 1.0])
         priory = np.array([0.0, 1.0])
         pwl = GPWithPriorShape().fit(
             np.array([]), np.array([]), x, dx, dy, priorx, priory
         )
-        estimated_total_y = pwl(xmax) - pwl(xmin)
+        estimated_total_y = pwl(TEST_XMAX) - pwl(TEST_XMIN)
 
-        true_total_y = y(xmax) - y(xmin)
+        true_total_y = Y_TEST_FUNCTION(TEST_XMAX) - Y_TEST_FUNCTION(TEST_XMIN)
         error = np.abs(true_total_y - estimated_total_y)
         assert error < err_prev
         err_prev = error
@@ -85,41 +79,39 @@ def test_estimate_total_y_convergence_pwl_true_curve():
 
 
 def test_estimate_dy_partial_coverage_perfect_prior():
-    # Define an unusual function
-    xmin = 0.0
-    xmax = 5
-    dxmin = 0.1
-    dxmax = 0.5
-    noise_level = 0.01
-    n_pwl_nodes = 100
     mask_xlim_l = 1.0
     mask_xlim_u = 2.0
-    # Discretize the unusual function
-    pwlx = np.linspace(xmin, xmax, n_pwl_nodes)
-    y = Y_TEST_FUNCTION
-    x, dx, dy = _sample_data(xmin, xmax, dxmin, dxmax, noise_level, 500, y)
+    x, dx, dy = _sample_data(
+        TEST_XMIN,
+        TEST_XMAX,
+        TEST_DXMIN,
+        TEST_DXMAX,
+        TEST_NOISE_LEVEL,
+        100,
+        Y_TEST_FUNCTION,
+    )
 
     # Mask the data to simulate partial coverage, but use a perfect prior that matches the true curve
     mask = np.logical_and(mask_xlim_l <= (x + dx), (x + dx) <= mask_xlim_u)
     x, dx, dy = x[mask], dx[mask], dy[mask]
 
-    priorx = np.linspace(xmin, xmax, 100)  # Need a finely grained prior
-    priory = y(priorx)
+    priorx = np.linspace(TEST_XMIN, TEST_XMAX, 100)  # Need a finely grained prior
+    priory = Y_TEST_FUNCTION(priorx)
 
-    true_total_y = y(xmax) - y(xmin)
+    true_total_y = Y_TEST_FUNCTION(TEST_XMAX) - Y_TEST_FUNCTION(TEST_XMIN)
     priory = (priory - priory.min()) / (priory.max() - priory.min())
-    print(priory.max())
     pwl = GPWithPriorShape().fit(np.array([]), np.array([]), x, dx, dy, priorx, priory)
-    estimated_total_y_partial = pwl(xmax) - pwl(xmin)
+    estimated_total_y_partial = pwl(TEST_XMAX) - pwl(TEST_XMIN)
 
+    pwlx = np.linspace(TEST_XMIN, TEST_XMAX, 50)
     mean, std = pwl.predict(pwlx)
     ci_lower = mean - 1.96 * std
     ci_upper = mean + 1.96 * std
 
     # import matplotlib.pyplot as plt
-    # plt.plot(pwlx, y(pwlx) - y(pwlx.min()), label="true")
-    # plt.scatter(pwlx, y(pwlx) - y(pwlx.min()), label="true")
-    # plt.scatter(priorx, priory * (y(pwlx).max() - y(pwlx).min()), label="rescaled prior")
+    # plt.plot(pwlx, Y_TEST_FUNCTION(pwlx) - Y_TEST_FUNCTION(pwlx.min()), label="true")
+    # plt.scatter(pwlx, Y_TEST_FUNCTION(pwlx) - Y_TEST_FUNCTION(pwlx.min()), label="true")
+    # plt.scatter(priorx, priory * (Y_TEST_FUNCTION(pwlx).max() - Y_TEST_FUNCTION(pwlx).min()), label="rescaled prior")
     # plt.plot(pwlx, pwl(pwlx) - pwl(pwlx.min()), label="true")
     # plt.scatter(pwlx, pwl(pwlx) - pwl(pwlx.min()), label="true")
     # plt.fill_between(pwlx, ci_lower - mean.min(), ci_upper - mean.min(), color="gray", alpha=0.3, label="95% CI")
