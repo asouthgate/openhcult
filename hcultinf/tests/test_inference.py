@@ -25,10 +25,10 @@ def _sample_data(xmin, xmax, dxmin, dxmax, noise_level, n, y):
     return x, dx, dy
 
 
-def test_convergence_true_curve_bad_prior():
+def test_convergence_in_n_bad_prior():
     """Test that, as data increases, the curve estimate approaches the true curve."""
     curve_error_prev = 1e10
-    pwlprev = None
+    # pwlprev = None
     for n in [4, 16, 256]:  # Square the number of points, 5 chosen for convenience
         x, dx, dy = _sample_data(
             TEST_XMIN,
@@ -45,13 +45,13 @@ def test_convergence_true_curve_bad_prior():
         pwl = GPWithPriorShape().fit(
             np.array([]), np.array([]), x, dx, dy, priorx, priory
         )
-        estimated_total_y = pwl(TEST_XMAX) - pwl(TEST_XMIN)
-        import matplotlib.pyplot as plt
+        # estimated_total_y = pwl(TEST_XMAX) - pwl(TEST_XMIN)
+        # import matplotlib.pyplot as plt
 
         pwlx = np.linspace(TEST_XMIN, TEST_XMAX, 1000)
-        mean, std = pwl.predict(pwlx)
-        ci_lower = mean - 1.96 * std
-        ci_upper = mean + 1.96 * std
+        # mean, std = pwl.predict(pwlx)
+        # ci_lower = mean - 1.96 * std
+        # ci_upper = mean + 1.96 * std
 
         # plt.plot(pwlx, Y_TEST_FUNCTION(pwlx) - Y_TEST_FUNCTION(pwlx.min()), label="true")
         # plt.scatter(pwlx, Y_TEST_FUNCTION(pwlx) - Y_TEST_FUNCTION(pwlx.min()), label="true")
@@ -77,7 +77,7 @@ def test_convergence_true_curve_bad_prior():
         # plt.legend()
         # plt.show()
 
-        pwlprev = pwl
+        # pwlprev = pwl
 
         curve_error = np.abs(
             (Y_TEST_FUNCTION(pwlx) - Y_TEST_FUNCTION(TEST_XMIN))
@@ -89,56 +89,70 @@ def test_convergence_true_curve_bad_prior():
     assert curve_error < 0.01 * Y_TEST_FUNCTION(pwlx).max()
 
 
-def test_estimate_dy_partial_coverage_perfect_prior():
-    mask_xlim_l = 1.0
-    mask_xlim_u = 2.0
+def test_convergence_in_prior_low_n():
+    """Test that, as data increases, the curve estimate approaches the true curve."""
+    curve_error_prev = 1e10
+    # pwlprev = None
+    n = 2
     x, dx, dy = _sample_data(
         TEST_XMIN,
         TEST_XMAX,
         TEST_DXMIN,
         TEST_DXMAX,
         TEST_NOISE_LEVEL,
-        100,
+        n,
         Y_TEST_FUNCTION,
     )
+    for p in [1.0, 0.8, 0.6, 0.4, 0.2, 0.0]:
+        priorx = np.linspace(TEST_XMIN, TEST_XMAX, 1000)
+        linear_prior_y = np.interp(priorx, [TEST_XMIN, TEST_XMAX], [0.0, 1.0])
+        assert linear_prior_y.min() == 0.0 and linear_prior_y.max() == 1.0
+        normalized_true_prior_y = (
+            Y_TEST_FUNCTION(priorx) - Y_TEST_FUNCTION(TEST_XMIN)
+        ) / (Y_TEST_FUNCTION(priorx).max() - Y_TEST_FUNCTION(priorx).min())
+        priory = linear_prior_y * p + normalized_true_prior_y * (1 - p)
 
-    # Mask the data to simulate partial coverage, but use a perfect prior that matches the true curve
-    mask = np.logical_and(mask_xlim_l <= (x + dx), (x + dx) <= mask_xlim_u)
-    x, dx, dy = x[mask], dx[mask], dy[mask]
+        pwl = GPWithPriorShape().fit(
+            np.array([]), np.array([]), x, dx, dy, priorx, priory
+        )
+        # estimated_total_y = pwl(TEST_XMAX) - pwl(TEST_XMIN)
+        # import matplotlib.pyplot as plt
 
-    priorx = np.linspace(TEST_XMIN, TEST_XMAX, 100)  # Need a finely grained prior
-    priory = Y_TEST_FUNCTION(priorx)
+        # mean, std = pwl.predict(priorx)
+        # ci_lower = mean - 1.96 * std
+        # ci_upper = mean + 1.96 * std
 
-    true_total_y = Y_TEST_FUNCTION(TEST_XMAX) - Y_TEST_FUNCTION(TEST_XMIN)
-    priory = (priory - priory.min()) / (priory.max() - priory.min())
-    pwl = GPWithPriorShape().fit(np.array([]), np.array([]), x, dx, dy, priorx, priory)
-    estimated_total_y_partial = pwl(TEST_XMAX) - pwl(TEST_XMIN)
+        # plt.plot(priorx, Y_TEST_FUNCTION(priorx) - Y_TEST_FUNCTION(priorx.min()), label="true")
+        # plt.scatter(priorx, Y_TEST_FUNCTION(priorx) - Y_TEST_FUNCTION(priorx.min()), label="true")
+        # plt.scatter(
+        #     priorx,
+        #     priory * (Y_TEST_FUNCTION(priorx).max() - Y_TEST_FUNCTION(priorx).min()),
+        #     label="rescaled prior",
+        # )
+        # plt.plot(priorx, pwl(priorx) - pwl(priorx.min()), label="GP")
+        # plt.scatter(priorx, pwl(priorx) - pwl(priorx.min()), label="GP")
+        # plt.fill_between(
+        #     priorx,
+        #     ci_lower - mean.min(),
+        #     ci_upper - mean.min(),
+        #     color="gray",
+        #     alpha=0.3,
+        #     label="95% CI",
+        # )
+        # plt.plot(priorx, mean - mean.min(), label="GP mean")
+        # if pwlprev is not None:
+        #     plt.plot(priorx, pwlprev(priorx) - pwlprev(priorx.min()), label="previous", alpha=0.5)
 
-    pwlx = np.linspace(TEST_XMIN, TEST_XMAX, 50)
-    mean, std = pwl.predict(pwlx)
-    ci_lower = mean - 1.96 * std
-    ci_upper = mean + 1.96 * std
+        # plt.legend()
+        # plt.show()
 
-    import matplotlib.pyplot as plt
+        # pwlprev = pwl
 
-    plt.plot(pwlx, Y_TEST_FUNCTION(pwlx) - Y_TEST_FUNCTION(pwlx.min()), label="true")
-    plt.scatter(pwlx, Y_TEST_FUNCTION(pwlx) - Y_TEST_FUNCTION(pwlx.min()), label="true")
-    plt.scatter(
-        priorx,
-        priory * (Y_TEST_FUNCTION(pwlx).max() - Y_TEST_FUNCTION(pwlx).min()),
-        label="rescaled prior",
-    )
-    plt.plot(pwlx, pwl(pwlx) - pwl(pwlx.min()), label="true")
-    plt.scatter(pwlx, pwl(pwlx) - pwl(pwlx.min()), label="true")
-    plt.fill_between(
-        pwlx,
-        ci_lower - mean.min(),
-        ci_upper - mean.min(),
-        color="gray",
-        alpha=0.3,
-        label="95% CI",
-    )
-    plt.plot(pwlx, mean - mean.min(), label="GP mean")
-    plt.legend()
-    plt.show()
-    assert estimated_total_y_partial == pytest.approx(true_total_y, rel=0.02)
+        curve_error = np.abs(
+            (Y_TEST_FUNCTION(priorx) - Y_TEST_FUNCTION(TEST_XMIN))
+            - (pwl(priorx) - pwl(TEST_XMIN))
+        ).mean()
+        assert curve_error < curve_error_prev
+        curve_error_prev = curve_error
+
+    assert curve_error < 0.02 * Y_TEST_FUNCTION(priorx).max()
