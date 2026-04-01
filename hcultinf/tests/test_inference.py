@@ -38,7 +38,7 @@ def test_convergence_in_n_bad_prior():
         priorx = np.array([TEST_XMIN, TEST_XMAX])
         priory = np.array([0.0, 1.0])
         errs = []
-        for _ in range(3):
+        for _ in range(5):
             x, dx, dy = _sample_data(
                 TEST_XMIN,
                 TEST_XMAX,
