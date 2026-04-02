@@ -103,7 +103,6 @@ class GPWithPriorShape:
             bounds=(np.log(1e-8), np.log(1e2)),
             method="bounded",
         )
-        noise = np.exp(result.x)
 
         # Build final K with optimized noise
         K = _build_K(result.x)

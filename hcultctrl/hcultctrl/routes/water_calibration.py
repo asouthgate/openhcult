@@ -1,0 +1,129 @@
+from __future__ import annotations
+
+import csv
+import logging
+import os
+import re
+
+import numpy as np
+from fastapi import Depends, HTTPException, APIRouter
+
+from hcultctrl.utils import get_db_conn
+from hcultdb import queries as database
+from hcultinf.inference import GPWithPriorShape
+
+logger = logging.getLogger(__name__)
+router = APIRouter()
+
+_ML_RE = re.compile(r"\bml=(\d+(?:\.\d+)?)\b")
+_WINDOW_MS = 10 * 60 * 1000
+
+
+def _volume_ml(note: str) -> float | None:
+    m = _ML_RE.search(note or "")
+    return float(m.group(1)) if m else None
+
+
+def _load_calibration(csv_path: str) -> tuple[np.ndarray, np.ndarray]:
+    """Return (sensor_vals, swc_vals) sorted by sensor_val ascending.
+
+    Handles two formats:
+    - Legacy: sensor_val, swc columns
+    - Experimental: ml, sensor1_raw, sensor2_raw columns — averages readings per ml level
+    """
+    sensor_vals, swc_vals = [], []
+    with open(csv_path, newline="") as f:
+        reader = csv.DictReader(f)
+        fieldnames = set(reader.fieldnames or [])
+        if "sensor_val" in fieldnames:
+            for row in reader:
+                sensor_vals.append(float(row["sensor_val"]))
+                swc_vals.append(float(row["swc"]))
+        else:
+            by_ml: dict[float, list[float]] = {}
+            for row in reader:
+                ml = float(row["ml"])
+                for col in ("sensor1_raw", "sensor2_raw"):
+                    if col in fieldnames:
+                        by_ml.setdefault(ml, []).append(float(row[col]))
+            for ml, readings in by_ml.items():
+                sensor_vals.append(float(np.mean(readings)))
+                swc_vals.append(ml)
+    order = np.argsort(sensor_vals)
+    return np.array(sensor_vals)[order], np.array(swc_vals)[order]
+
+
+@router.get("/water_calibration")
+def water_calibration(plant: str, conn=Depends(get_db_conn)):
+    logger.info("GET /water_calibration plant=%s", plant)
+
+    obs = list(
+        database.fetch_observations_for_plant(conn, plant_name=plant, limit=1000)
+    )
+    waterings = [
+        (o["observed_at"], _volume_ml(o["note"]))
+        for o in obs
+        if o.get("note")
+        and "WATER" in o["note"]
+        and "AUTO" not in o["note"]
+        and _volume_ml(o["note"]) is not None
+    ]
+
+    if not waterings:
+        raise HTTPException(
+            status_code=400,
+            detail="No watering observations with ml data for this plant",
+        )
+
+    chords = []
+    for t_ms, ml in waterings:
+        before = list(
+            database.fetch_timeseries(
+                conn, plant=plant, start_ms=t_ms - _WINDOW_MS, end_ms=t_ms, limit=5000
+            )
+        )
+        after = list(
+            database.fetch_timeseries(
+                conn, plant=plant, start_ms=t_ms, end_ms=t_ms + _WINDOW_MS, limit=5000
+            )
+        )
+        if not before or not after:
+            continue
+        x = float(np.mean([r["measurement"] for r in before]))
+        x_after = float(np.mean([r["measurement"] for r in after]))
+        chords.append((x, x_after - x, ml))
+
+    if not chords:
+        raise HTTPException(
+            status_code=400,
+            detail="No sensor data found in ±10 min windows around waterings",
+        )
+
+    x_arr = np.array([c[0] for c in chords])
+    dx_arr = np.array([c[1] for c in chords])
+    dy_arr = np.array([c[2] for c in chords])
+
+    csv_path = os.environ.get("HCULT_CALIBRATION_CSV")
+    if not csv_path:
+        raise HTTPException(
+            status_code=500, detail="HCULT_CALIBRATION_CSV not configured"
+        )
+
+    sensor_vals, swc_vals = _load_calibration(csv_path)
+    swc_min, swc_max = swc_vals.min(), swc_vals.max()
+    prior_x = sensor_vals
+    prior_y = (swc_vals - swc_min) / (swc_max - swc_min)
+
+    x_anchor = np.array([sensor_vals.max()])
+    swc_anchor = np.array([0.0])
+
+    gp = GPWithPriorShape().fit(
+        x_anchor, swc_anchor, x_arr, dx_arr, dy_arr, prior_x, prior_y
+    )
+    mean, std = gp.predict(prior_x)
+
+    return {
+        "prior_x": prior_x.tolist(),
+        "mean": mean.tolist(),
+        "std": std.tolist(),
+    }

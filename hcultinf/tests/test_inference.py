@@ -304,6 +304,40 @@ def test_total_estimate_improves_and_std_shrinks_with_coverage():
     ), f"Curve error did not decrease with increasing delta size: {preverrs}"
 
 
+def test_sequential_watering_inference():
+    """Simulate 10 sequential watering events and verify inference produces a valid curve."""
+    rng = np.random.default_rng(7)
+    n = 10
+
+    def _logistic(swc):
+        return 1.0 / (1.0 + np.exp(-12.0 * (swc - 0.5)))
+
+    dry_swc = rng.uniform(0.05, 0.25, n)
+    wet_swc = rng.uniform(0.70, 0.90, n)
+    x_starts = _logistic(dry_swc)
+    dx = _logistic(wet_swc) - x_starts + rng.normal(0, 0.02, n)
+    dy_ml = np.full(n, 250.0) + rng.normal(0, 10.0, n)
+
+    swc_grid = np.linspace(0.001, 0.999, 500)
+    prior_x = _logistic(swc_grid)
+    prior_y = swc_grid
+
+    x_anchor = np.array([_logistic(0.0)])
+    swc_anchor = np.array([0.0])
+
+    gp = GPWithPriorShape().fit(
+        x_anchor, swc_anchor, x_starts, dx, dy_ml, prior_x, prior_y
+    )
+    mean, std = gp.predict(prior_x)
+
+    assert mean.shape == prior_x.shape
+    assert std.shape == prior_x.shape
+    assert np.all(np.isfinite(mean))
+    assert np.all(np.isfinite(std))
+    assert np.all(std >= 0)
+    assert mean[-1] > mean[0], "wet end should have higher estimate than dry end"
+
+
 def test_total_estimate_improves_and_std_shrinks_with_delta_size():
     """Test that, as data increases, the curve estimate approaches the true curve."""
     pwlprevs = []

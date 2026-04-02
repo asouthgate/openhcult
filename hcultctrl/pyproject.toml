@@ -13,6 +13,9 @@ dependencies = [
     "uvicorn>=0.27",
     "psycopg[binary]",
     "hcultdb",
+    "hcultinf",
+    "numpy",
+    "scipy",
 ]
 
 [project.scripts]

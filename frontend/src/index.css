@@ -173,3 +173,39 @@ select {
   text-align: center;
   font-size: 0.95rem;
 }
+
+.ml-input {
+  width: 80px;
+  font-size: 0.9rem;
+  padding: 5px 8px;
+  border: 1px solid;
+  background: black;
+  color: white;
+}
+
+.obs-table {
+  width: 100%;
+  margin-top: 24px;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.obs-table th, .obs-table td {
+  text-align: left;
+  padding: 6px 10px;
+  border-bottom: 1px solid #333;
+}
+
+.obs-table th {
+  color: #aaa;
+  font-weight: normal;
+}
+
+.obs-table button {
+  font-size: 0.8rem;
+  padding: 3px 8px;
+  border: 1px solid;
+  cursor: pointer;
+  background: black;
+  color: white;
+}

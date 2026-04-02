@@ -36,27 +36,14 @@ def _setup_inference_tables(cursor):
         ADD COLUMN IF NOT EXISTS observation_type_id INTEGER
         REFERENCES observation_types(id)
         """)
-
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS moisture_calibrations (
-            id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-            observed_at BIGINT NOT NULL,
-            sensor_value INTEGER NOT NULL,
-            meter_value DOUBLE PRECISION NOT NULL
-        )
+        ALTER TABLE observations
+        DROP CONSTRAINT IF EXISTS observations_plant_id_fkey
         """)
-
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS response_curve_lookup (
-            id SERIAL PRIMARY KEY,
-            swc DOUBLE PRECISION,
-            sensor_val DOUBLE PRECISION, -- This is the median/mean
-            swc_std DOUBLE PRECISION,
-            version VARCHAR(50),
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_swc_lookup ON response_curve_lookup(swc);        
+        ALTER TABLE observations
+        ADD CONSTRAINT observations_plant_id_fkey
+        FOREIGN KEY (plant_id) REFERENCES plants(id) ON DELETE SET NULL
         """)
 
 

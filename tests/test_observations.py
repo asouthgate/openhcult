@@ -51,6 +51,19 @@ def test_observation_unknown_plant_returns_404():
     assert exc_info.value.code == 404
 
 
+def test_delete_observation():
+    note = f"obs-delete-{uuid.uuid4().hex[:8]}"
+    created = request_json("/observations", method="POST", payload={"note": note})
+    obs_id = created["id"]
+
+    deleted = request_json(f"/observations/{obs_id}", method="DELETE")
+    assert deleted["id"] == obs_id
+
+    listed = request_json("/observations?limit=10000")
+    ids = [r["id"] for r in listed["data"]]
+    assert obs_id not in ids
+
+
 def test_patch_observation_plant_name():
     species_name = f"pytest-species-{uuid.uuid4().hex[:8]}"
     plant_name = f"pytest-plant-{uuid.uuid4().hex[:8]}"

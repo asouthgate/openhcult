@@ -12,6 +12,18 @@ function toUtc(d) {
   return d.toISOString()
 }
 
+function _interp(x, xs, ys) {
+  if (x <= xs[0]) return ys[0]
+  if (x >= xs[xs.length - 1]) return ys[xs.length - 1]
+  let lo = 0, hi = xs.length - 1
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1
+    if (xs[mid] <= x) lo = mid; else hi = mid
+  }
+  const t = (x - xs[lo]) / (xs[hi] - xs[lo])
+  return ys[lo] + t * (ys[hi] - ys[lo])
+}
+
 export default function App() {
   const [rangeHours, setRangeHours] = useState(48)
   const [plantFilter, setPlantFilter] = useState('')
@@ -21,8 +33,12 @@ export default function App() {
   const [observations, setObservations] = useState([])
   const [pendingTime, setPendingTime] = useState(null)
   const [pendingPlant, setPendingPlant] = useState('')
+  const [pendingMl, setPendingMl] = useState('')
   const [loading, setLoading] = useState(false)
   const [showDuplicateModal, setShowDuplicateModal] = useState(false)
+  const [calibration, setCalibration] = useState(null)
+  const [calibError, setCalibError] = useState(null)
+  const [calibLoading, setCalibLoading] = useState(false)
 
   useEffect(() => {
     fetch('/plants?limit=1000')
@@ -72,15 +88,31 @@ export default function App() {
       .finally(() => setLoading(false))
   }, [rangeHours, plantFilter])
 
+  useEffect(() => {
+    if (measureMode !== 'water' || !plantFilter) {
+      setCalibration(null)
+      setCalibError(null)
+      return
+    }
+    setCalibLoading(true)
+    setCalibError(null)
+    fetch(`/water_calibration?plant=${encodeURIComponent(plantFilter)}`)
+      .then(r => r.ok ? r.json() : r.json().then(body => Promise.reject(body.detail ?? `HTTP ${r.status}`)))
+      .then(d => setCalibration(d))
+      .catch(err => { setCalibration(null); setCalibError(String(err)) })
+      .finally(() => setCalibLoading(false))
+  }, [measureMode, plantFilter])
+
   const handleTimePick = t => {
     setPendingTime(t)
     setPendingPlant(plantFilter || '')
+    setPendingMl('')
     setShowDuplicateModal(false)
   }
 
   const submitWatering = () => {
     const payload = {
-      note: 'WATER manual',
+      note: `WATER manual ml=${pendingMl}`,
       observed_at: new Date(pendingTime).toISOString(),
     }
     if (pendingPlant) payload.plant_name = pendingPlant
@@ -94,6 +126,11 @@ export default function App() {
         setObservations(prev => [...prev, created])
         setPendingTime(null)
       })
+  }
+
+  const deleteObservation = id => {
+    fetch(`/observations/${id}`, { method: 'DELETE' })
+      .then(r => r.ok && setObservations(prev => prev.filter(o => o.id !== id)))
   }
 
   return (
@@ -113,9 +150,9 @@ export default function App() {
             ))}
           </div>
           <div className="range-btns">
-            {['raw', 'voltage'].map(m => (
+            {[['raw', 'Raw'], ['voltage', 'mV'], ['water', 'Water']].map(([m, label]) => (
               <button key={m} className={measureMode === m ? 'active' : ''} onClick={() => setMeasureMode(m)}>
-                {m === 'raw' ? 'Raw' : 'mV'}
+                {label}
               </button>
             ))}
           </div>
@@ -136,21 +173,65 @@ export default function App() {
         <div className="empty">No sensor data in this time range.</div>
       )}
 
-      {series.length > 0 && (
+      {measureMode === 'water' && !plantFilter && (
+        <div className="empty">Select a plant to view calibrated water estimate.</div>
+      )}
+
+      {measureMode === 'water' && plantFilter && calibLoading && (
+        <div className="loading">Computing calibration…</div>
+      )}
+
+      {measureMode === 'water' && plantFilter && !calibLoading && !calibration && (
+        <div className="empty">{calibError ?? 'No calibration data.'}</div>
+      )}
+
+      {series.length > 0 && (measureMode !== 'water' || (plantFilter && calibration)) && (
         <TimeseriesChart
           series={series.map(s => ({
             ...s,
-            points: s.points.map(p => ({
-              t: p.t,
-              v: measureMode === 'voltage' && p.mv != null ? p.mv : p.raw,
-            })),
+            points: s.points.map(p => {
+              let v
+              if (measureMode === 'water' && calibration) {
+                v = _interp(p.raw, calibration.prior_x, calibration.mean)
+              } else if (measureMode === 'voltage' && p.mv != null) {
+                v = p.mv
+              } else {
+                v = p.raw
+              }
+              return { t: p.t, v }
+            }),
           }))}
           observations={observations}
           rangeMs={rangeHours * 3600 * 1000}
           onTimePick={handleTimePick}
           pendingTime={pendingTime}
-          yLabel={measureMode === 'voltage' ? 'mV' : 'raw'}
+          yLabel={measureMode === 'water' ? 'ml' : measureMode === 'voltage' ? 'mV' : 'raw'}
         />
+      )}
+
+      {observations.length > 0 && (
+        <table className="obs-table">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Plant</th>
+              <th>Note</th>
+              <th>ml</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {[...observations].reverse().map(o => (
+              <tr key={o.id}>
+                <td>{new Date(o.observed_at).toLocaleString()}</td>
+                <td>{o.plant_name ?? '—'}</td>
+                <td>{o.note}</td>
+                <td>{o.volume_ml ?? '—'}</td>
+                <td><button onClick={() => deleteObservation(o.id)}>Delete</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
 
       {pendingTime != null && (() => {
@@ -160,7 +241,11 @@ export default function App() {
           (!pendingPlant ? !o.plant_name : o.plant_name === pendingPlant) &&
           Math.abs(o.observed_at - pendingTime) < WARN_MS
         )
-        const handleRecord = () => nearby ? setShowDuplicateModal(true) : submitWatering()
+        const mlOk = pendingMl !== '' && Number(pendingMl) > 0
+        const handleRecord = () => {
+          if (!mlOk) return
+          nearby ? setShowDuplicateModal(true) : submitWatering()
+        }
         return (
           <>
             {showDuplicateModal && (
@@ -188,7 +273,15 @@ export default function App() {
                   <option key={p.plant_name} value={p.plant_name}>{p.plant_name}</option>
                 ))}
               </select>
-              <button className="submit-btn" onClick={handleRecord}>Record</button>
+              <input
+                type="number"
+                min="1"
+                placeholder="ml *"
+                value={pendingMl}
+                onChange={e => setPendingMl(e.target.value)}
+                className="ml-input"
+              />
+              <button className="submit-btn" onClick={handleRecord} disabled={!mlOk}>Record</button>
               <button onClick={() => setPendingTime(null)}>Dismiss</button>
             </div>
           </>

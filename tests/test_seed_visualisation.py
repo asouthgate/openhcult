@@ -58,12 +58,20 @@ def test_seed_visualisation_data():
                     (plant_id, device_id, p["sensor"]),
                 )
 
+                wet = p.get("wet", 900)
                 readings, watering_times = simulate_moisture_multi(
                     _N_EVENTS,
                     days_per_cycle=_DAYS_PER_CYCLE,
                     base=p["base"],
+                    wet=wet,
                     noise_seed=hash(p["plant"]) % 1000,
                 )
+
+                _5min = 5 * 60 * 1000
+                window_readings = [
+                    (t - _5min, int(p["base"] * 0.75)) for t in watering_times
+                ] + [(t + _5min, wet + 50) for t in watering_times]
+
                 cur.executemany(
                     "INSERT INTO sensor_readings "
                     "(device_id, sensor, measurement, voltage_mv, measurement_time_us, collection_time_ms, adjusted_time_ms) "
@@ -71,11 +79,15 @@ def test_seed_visualisation_data():
                     [
                         (device_id, p["sensor"], v, mv, t * 1000, t, t)
                         for t, v, mv in readings
+                    ]
+                    + [
+                        (device_id, p["sensor"], v, int(v * 0.95), t, t, t)
+                        for t, v in window_readings
                     ],
                 )
                 cur.executemany(
                     "INSERT INTO observations (observed_at, note, plant_id) VALUES (%s, %s, %s)",
-                    [(t, "WATER manual seed", plant_id) for t in watering_times],
+                    [(t, "WATER manual ml=200", plant_id) for t in watering_times],
                 )
 
         conn.commit()
