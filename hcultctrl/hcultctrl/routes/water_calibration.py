@@ -126,4 +126,5 @@ def water_calibration(plant: str, conn=Depends(get_db_conn)):
         "prior_x": prior_x.tolist(),
         "mean": mean.tolist(),
         "std": std.tolist(),
+        "scale": float(gp.scale),
     }

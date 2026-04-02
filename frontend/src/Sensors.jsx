@@ -83,13 +83,13 @@ export default function App() {
             color: PALETTE[i % PALETTE.length],
           }))
         )
-        setObservations(obs.data ?? [])
+        setObservations((obs.data ?? []).filter(o => !plantFilter || o.plant_name === plantFilter))
       })
       .finally(() => setLoading(false))
   }, [rangeHours, plantFilter])
 
   useEffect(() => {
-    if (measureMode !== 'water' || !plantFilter) {
+    if (!plantFilter) {
       setCalibration(null)
       setCalibError(null)
       return
@@ -101,7 +101,7 @@ export default function App() {
       .then(d => setCalibration(d))
       .catch(err => { setCalibration(null); setCalibError(String(err)) })
       .finally(() => setCalibLoading(false))
-  }, [measureMode, plantFilter])
+  }, [plantFilter])
 
   const handleTimePick = t => {
     setPendingTime(t)
@@ -133,6 +133,12 @@ export default function App() {
       .then(r => r.ok && setObservations(prev => prev.filter(o => o.id !== id)))
   }
 
+  const nearestRaw = t => {
+    const pts = series.flatMap(s => s.points)
+    if (!pts.length) return null
+    return pts.reduce((a, b) => Math.abs(a.t - t) < Math.abs(b.t - t) ? a : b).raw
+  }
+
   return (
     <div className="app">
       <div className="app-header">
@@ -150,7 +156,7 @@ export default function App() {
             ))}
           </div>
           <div className="range-btns">
-            {[['raw', 'Raw'], ['voltage', 'mV'], ['water', 'Water']].map(([m, label]) => (
+            {[['raw', 'Raw'], ['voltage', 'mV'], ['water', 'Water (ml)'], ['water_pct', 'Water (%FC)']].map(([m, label]) => (
               <button key={m} className={measureMode === m ? 'active' : ''} onClick={() => setMeasureMode(m)}>
                 {label}
               </button>
@@ -173,41 +179,61 @@ export default function App() {
         <div className="empty">No sensor data in this time range.</div>
       )}
 
-      {measureMode === 'water' && !plantFilter && (
+      {(measureMode === 'water' || measureMode === 'water_pct') && !plantFilter && (
         <div className="empty">Select a plant to view calibrated water estimate.</div>
       )}
 
-      {measureMode === 'water' && plantFilter && calibLoading && (
+      {(measureMode === 'water' || measureMode === 'water_pct') && plantFilter && calibLoading && (
         <div className="loading">Computing calibration…</div>
       )}
 
-      {measureMode === 'water' && plantFilter && !calibLoading && !calibration && (
+      {(measureMode === 'water' || measureMode === 'water_pct') && plantFilter && !calibLoading && !calibration && (
         <div className="empty">{calibError ?? 'No calibration data.'}</div>
       )}
 
-      {series.length > 0 && (measureMode !== 'water' || (plantFilter && calibration)) && (
+      {series.length > 0 && (!['water', 'water_pct'].includes(measureMode) || (plantFilter && calibration)) && (() => {
+        const isWater = (measureMode === 'water' || measureMode === 'water_pct') && calibration
+        const scale = calibration?.scale ?? 1
+        const toV = ml => measureMode === 'water_pct' ? ml / scale * 100 : ml
+        const meanPlus2 = calibration?.mean.map((m, i) => m + 2 * calibration.std[i])
+        const meanMinus2 = calibration?.mean.map((m, i) => Math.max(0, m - 2 * calibration.std[i]))
+        const mappedSeries = series.map(s => ({
+          ...s,
+          points: s.points.map(p => {
+            let v
+            if (isWater) {
+              v = toV(_interp(p.raw, calibration.prior_x, calibration.mean))
+            } else if (measureMode === 'voltage' && p.mv != null) {
+              v = p.mv
+            } else {
+              v = p.raw
+            }
+            return { t: p.t, v, raw: p.raw }
+          }),
+        }))
+        const bands = isWater
+          ? mappedSeries.map(s => ({
+              color: s.color,
+              points: s.points.map(p => ({
+                t: p.t,
+                lo: toV(_interp(p.raw, calibration.prior_x, meanMinus2)),
+                hi: toV(_interp(p.raw, calibration.prior_x, meanPlus2)),
+              })),
+            }))
+          : []
+        const yLabel = measureMode === 'water' ? 'ml' : measureMode === 'water_pct' ? '%FC' : measureMode === 'voltage' ? 'mV' : 'raw'
+        return (
         <TimeseriesChart
-          series={series.map(s => ({
-            ...s,
-            points: s.points.map(p => {
-              let v
-              if (measureMode === 'water' && calibration) {
-                v = _interp(p.raw, calibration.prior_x, calibration.mean)
-              } else if (measureMode === 'voltage' && p.mv != null) {
-                v = p.mv
-              } else {
-                v = p.raw
-              }
-              return { t: p.t, v }
-            }),
-          }))}
+          series={mappedSeries}
+          bands={bands}
           observations={observations}
           rangeMs={rangeHours * 3600 * 1000}
           onTimePick={handleTimePick}
           pendingTime={pendingTime}
-          yLabel={measureMode === 'water' ? 'ml' : measureMode === 'voltage' ? 'mV' : 'raw'}
+          yLabel={yLabel}
         />
-      )}
+        )
+      })()}
 
       {observations.length > 0 && (
         <table className="obs-table">
@@ -216,20 +242,31 @@ export default function App() {
               <th>Time</th>
               <th>Plant</th>
               <th>Note</th>
-              <th>ml</th>
+              <th>Dose (ml)</th>
+              {calibration && <th>Water (ml)</th>}
+              {calibration && <th>Water (%FC)</th>}
               <th></th>
             </tr>
           </thead>
           <tbody>
-            {[...observations].reverse().map(o => (
-              <tr key={o.id}>
-                <td>{new Date(o.observed_at).toLocaleString()}</td>
-                <td>{o.plant_name ?? '—'}</td>
-                <td>{o.note}</td>
-                <td>{o.volume_ml ?? '—'}</td>
-                <td><button onClick={() => deleteObservation(o.id)}>Delete</button></td>
-              </tr>
-            ))}
+            {[...observations].reverse().map(o => {
+              let wcMl = null
+              if (calibration) {
+                const raw = nearestRaw(o.observed_at)
+                if (raw != null) wcMl = _interp(raw, calibration.prior_x, calibration.mean)
+              }
+              return (
+                <tr key={o.id}>
+                  <td>{new Date(o.observed_at).toLocaleString()}</td>
+                  <td>{o.plant_name ?? '—'}</td>
+                  <td>{o.note}</td>
+                  <td>{o.volume_ml ?? '—'}</td>
+                  {calibration && <td>{wcMl != null ? wcMl.toFixed(1) : '—'}</td>}
+                  {calibration && <td>{wcMl != null ? (wcMl / calibration.scale * 100).toFixed(0) + '%' : '—'}</td>}
+                  <td><button onClick={() => deleteObservation(o.id)}>Delete</button></td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       )}

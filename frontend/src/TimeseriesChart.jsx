@@ -34,11 +34,14 @@ function fmtTime(ms, rangeMs) {
   return d.toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
-export function TimeseriesChart({ series, observations, rangeMs, onTimePick, pendingTime, yLabel }) {
+export function TimeseriesChart({ series, bands = [], observations, rangeMs, onTimePick, pendingTime, yLabel }) {
   const [cursor, setCursor] = useState(null)
 
   const allT = series.flatMap(s => s.points.map(p => p.t))
-  const allV = series.flatMap(s => s.points.map(p => p.v))
+  const allV = [
+    ...series.flatMap(s => s.points.map(p => p.v)),
+    ...bands.flatMap(b => b.points.flatMap(p => [p.lo, p.hi])),
+  ]
   if (!allT.length) return null
 
   const tMin = Math.min(...allT)
@@ -82,6 +85,20 @@ export function TimeseriesChart({ series, observations, rangeMs, onTimePick, pen
         {yTicks.map(v => (
           <line key={v} x1={M.left} x2={VW - M.right} y1={y(v)} y2={y(v)} className="grid-line" />
         ))}
+
+        {bands.map((b, i) => {
+          const upper = b.points.map(p => `${x(p.t).toFixed(1)},${y(p.hi).toFixed(1)}`).join(' ')
+          const lower = [...b.points].reverse().map(p => `${x(p.t).toFixed(1)},${y(p.lo).toFixed(1)}`).join(' ')
+          return (
+            <g key={i}>
+              <polygon points={`${upper} ${lower}`} fill={b.color} opacity="0.15" />
+              <polyline points={b.points.map(p => `${x(p.t).toFixed(1)},${y(p.hi).toFixed(1)}`).join(' ')}
+                fill="none" stroke={b.color} strokeWidth="1" strokeDasharray="3 3" opacity="0.5" />
+              <polyline points={b.points.map(p => `${x(p.t).toFixed(1)},${y(p.lo).toFixed(1)}`).join(' ')}
+                fill="none" stroke={b.color} strokeWidth="1" strokeDasharray="3 3" opacity="0.5" />
+            </g>
+          )
+        })}
 
         {series.map(s => (
           <polyline
