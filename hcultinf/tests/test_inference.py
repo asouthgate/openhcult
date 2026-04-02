@@ -1,5 +1,4 @@
 import numpy as np
-import pytest
 
 from hcultinf.inference import GPWithPriorShape
 
@@ -41,7 +40,7 @@ def _sample_data(xmin, xmax, dxmin, dxmax, noise_level, n, y, uniform=False):
     return x, dx, dy
 
 
-def _debug_plot(pwl, priorx, priory, anchors_x, anchors_y, x, dx, dy, pwlprev=None):
+def _debug_plot(pwl, priorx, priory, anchors_x, anchors_y, x, dx, dy, pwlprevs=None):
     import matplotlib.pyplot as plt
 
     mean, std = pwl.predict(priorx)
@@ -81,6 +80,16 @@ def _debug_plot(pwl, priorx, priory, anchors_x, anchors_y, x, dx, dy, pwlprev=No
         label="95% CI",
     )
     plt.plot(priorx, mean - mean.min(), label="GP mean")
+    if pwlprevs is not None:
+        for i, pwlprev in enumerate(pwlprevs):
+            plt.plot(
+                priorx,
+                pwlprev(priorx) - pwlprev(priorx.min()),
+                label=f"prev{i}",
+                alpha=0.5,
+                color="brown",
+                linestyle="--",
+            )
 
     plt.legend()
     plt.show()
@@ -89,6 +98,8 @@ def _debug_plot(pwl, priorx, priory, anchors_x, anchors_y, x, dx, dy, pwlprev=No
 def test_convergence_in_n_bad_prior():
     """Test that, as data increases, the curve estimate approaches the true curve."""
     curve_error_prev = 1e10
+    pwlprevs = []
+    preverrs = []
     for n in [4, 32, 256]:  # Square the number of points, 5 chosen for convenience
         # Use linear prior (bad)
         priorx = np.array([TEST_XMIN, TEST_XMAX])
@@ -117,10 +128,11 @@ def test_convergence_in_n_bad_prior():
             ).mean()
             errs.append(_curve_error)
         curve_error = np.mean(errs)
-        assert (
-            curve_error < curve_error_prev
-        ), f"n={n} had curve error {curve_error} which is not less than previous {curve_error_prev}"
-        curve_error_prev = curve_error
+        preverrs.append(curve_error)
+
+    assert all(
+        np.diff(preverrs) < 0
+    ), f"Curve error did not decrease with increasing n: {preverrs}"
     assert curve_error < 0.02 * Y_TEST_FUNCTION(pwlx).max()
 
 
@@ -129,7 +141,6 @@ def test_convergence_in_prior_low_n():
     curve_error_prev = 1e10
     # pwlprev = None
     n = 4  # has to be high enough that it is much more likely to fit real prior
-    # pwlprev = None
     x, dx, dy = _sample_data(
         TEST_XMIN,
         TEST_XMAX,
@@ -141,6 +152,8 @@ def test_convergence_in_prior_low_n():
         Y_TEST_FUNCTION,
         uniform=True,  # use uniform sampling to make it more likely to fit the true prior
     )
+    pwlprevs = []
+    preverrs = []
 
     for p in [1.0, 2 / 3, 1 / 3, 0.0]:
         priorx, priory = _get_mixed_prior(TEST_XMIN, TEST_XMAX, p)
@@ -157,43 +170,13 @@ def test_convergence_in_prior_low_n():
             )
             ** 2
         ).mean()
-        # print(curve_error)
 
-        # import matplotlib.pyplot as plt
+        pwlprevs.append(pwl)
+        preverrs.append(curve_error)
 
-        # mean, std = pwl.predict(priorx)
-        # ci_lower = mean - 1.96 * std
-        # ci_upper = mean + 1.96 * std
-
-        # plt.scatter(x, Y_TEST_FUNCTION(x), label="data points")
-        # plt.plot(priorx, Y_TEST_FUNCTION(priorx), label="true")
-        # plt.plot(
-        #     priorx,
-        #     priory * (Y_TEST_FUNCTION(priorx).max() - Y_TEST_FUNCTION(priorx).min()),
-        #     label="rescaled prior",
-        # )
-        # plt.plot(priorx, pwl(priorx) - pwl(priorx.min()), label="GP")
-        # plt.fill_between(
-        #     priorx,
-        #     ci_lower - mean.min(),
-        #     ci_upper - mean.min(),
-        #     color="gray",
-        #     alpha=0.3,
-        #     label="95% CI",
-        # )
-        # plt.plot(priorx, mean - mean.min(), label="GP mean")
-        # if pwlprev is not None:
-        #     plt.plot(priorx, pwlprev(priorx) - pwlprev(priorx.min()), label="prev")
-
-        # plt.legend()
-        # plt.show()
-
-        assert (
-            curve_error < curve_error_prev
-        ), f"p={p} had curve error {curve_error} which is not less than previous {curve_error_prev}"
-        curve_error_prev = curve_error
-        pwlprev = pwl
-
+    assert all(
+        np.diff(preverrs) < 0
+    ), f"Curve error did not decrease with increasing p: {preverrs}"
     assert curve_error < 0.02 * Y_TEST_FUNCTION(priorx).max()
 
 
@@ -206,7 +189,7 @@ def test_performance_realistic_parameters():
         3.5,
         0.1,
         0.9,
-        0.0,
+        1.0,
         n,
         Y_TEST_FUNCTION,
     )
@@ -225,8 +208,7 @@ def test_performance_realistic_parameters():
         priorx,
         priory,
     )
-    estimated_total_y = pwl(TEST_XMAX) - pwl(TEST_XMIN)
-    _debug_plot(pwl, priorx, priory, anchors_x, anchors_y, x, dx, dy, pwlprev=None)
+    _debug_plot(pwl, priorx, priory, anchors_x, anchors_y, x, dx, dy, pwlprevs=None)
 
     curve_error = np.abs(
         (Y_TEST_FUNCTION(priorx) - Y_TEST_FUNCTION(TEST_XMIN))
@@ -239,87 +221,52 @@ def test_total_estimate_improves_and_std_shrinks_with_coverage():
     pass
 
 
-# def test_total_estimate_improves_and_std_shrinks_with_delta_size():
-#     """Test that, as data increases, the curve estimate approaches the true curve."""
-#     # pwlprev = None
-#     n = 10
-#     x, dx, dy = _sample_data(
-#         1.5,
-#         3.5,
-#         0.1,
-#         0.9,
-#         0.0,
-#         n,
-#         Y_TEST_FUNCTION,
-#     )
-#     priorx = np.linspace(TEST_XMIN, TEST_XMAX, 1000)
-#     linear_prior_y = np.interp(priorx, [TEST_XMIN, TEST_XMAX], [0.0, 1.0])
-#     assert linear_prior_y.min() == 0.0 and linear_prior_y.max() == 1.0
-#     normalized_true_prior_y = (Y_TEST_FUNCTION(priorx) - Y_TEST_FUNCTION(TEST_XMIN)) / (
-#         Y_TEST_FUNCTION(priorx).max() - Y_TEST_FUNCTION(priorx).min()
-#     )
-#     priory = linear_prior_y * 0.5 + normalized_true_prior_y * (1 - 0.5)
-#     anchors_x = [TEST_XMIN]
-#     anchors_y = [0.0]
+def test_total_estimate_improves_and_std_shrinks_with_delta_size():
+    """Test that, as data increases, the curve estimate approaches the true curve."""
+    pwlprevs = []
+    preverrs = []
+    prevstds = []
+    n = 50
+    for dx_max in np.linspace(0.01, 2.0, 4):
+        x, dx, dy = _sample_data(
+            1.5,
+            3.5,
+            dx_max / 2.0,
+            dx_max,
+            0.0,
+            n,
+            Y_TEST_FUNCTION,
+            uniform=True,  # use uniform sampling to make it more likely to fit the true prior
+        )
+        anchors_x = [TEST_XMIN]
+        anchors_y = [0.0]
+        priorx, priory = _get_mixed_prior(TEST_XMIN, TEST_XMAX, 0.5)
 
-#     # anchors_x += [5.0]
-#     # anchors_y += [Y_TEST_FUNCTION(5.0) - Y_TEST_FUNCTION(0.0)]
+        pwl = GPWithPriorShape().fit(
+            np.array(anchors_x),
+            np.array(anchors_y),
+            x,
+            dx,
+            dy,
+            priorx,
+            priory,
+        )
+        _debug_plot(
+            pwl, priorx, priory, anchors_x, anchors_y, x, dx, dy, pwlprevs=pwlprevs
+        )
+        prevstds.append(
+            pwl.predict(priorx)[1].mean()
+        )  # this is mean of stds, not mean trend
+        pwlprevs.append(pwl)
+        curve_error = np.abs(
+            (Y_TEST_FUNCTION(priorx) - Y_TEST_FUNCTION(TEST_XMIN))
+            - (pwl(priorx) - pwl(TEST_XMIN))
+        ).mean()
+        preverrs.append(curve_error)
 
-#     pwl = GPWithPriorShape().fit(
-#         np.array(anchors_x),
-#         np.array(anchors_y),
-#         x,
-#         dx,
-#         dy,
-#         priorx,
-#         priory,
-#     )
-#     estimated_total_y = pwl(TEST_XMAX) - pwl(TEST_XMIN)
-#     import matplotlib.pyplot as plt
-
-#     mean, std = pwl.predict(priorx)
-#     ci_lower = mean - 1.96 * std
-#     ci_upper = mean + 1.96 * std
-
-#     for i in range(len(dx)):
-#         plt.scatter(
-#             [x[i], x[i] + dx[i]],
-#             [pwl(x[i]) - pwl(TEST_XMIN), pwl(x[i]) - pwl(TEST_XMIN) + dy[i]],
-#         )
-#         plt.plot(
-#             [x[i], x[i] + dx[i]],
-#             [pwl(x[i]) - pwl(TEST_XMIN), pwl(x[i]) - pwl(TEST_XMIN) + dy[i]],
-#         )
-#         # plt.plot(x, pwl(priorx) - pwl(priorx.min()), label="data points")
-
-#     plt.scatter(
-#         anchors_x,
-#         anchors_y,
-#         label="anchors",
-#     )
-#     plt.plot(
-#         priorx, Y_TEST_FUNCTION(priorx) - Y_TEST_FUNCTION(priorx.min()), label="true"
-#     )
-#     plt.plot(
-#         priorx,
-#         priory * (pwl(priorx).max() - pwl(priorx).min()),
-#         label="rescaled prior",
-#     )
-#     plt.plot(priorx, pwl(priorx) - pwl(priorx.min()), label="GP")
-#     plt.fill_between(
-#         priorx,
-#         ci_lower - mean.min(),
-#         ci_upper - mean.min(),
-#         color="gray",
-#         alpha=0.3,
-#         label="95% CI",
-#     )
-#     plt.plot(priorx, mean - mean.min(), label="GP mean")
-
-#     plt.legend()
-#     plt.show()
-
-#     curve_error = np.abs(
-#         (Y_TEST_FUNCTION(priorx) - Y_TEST_FUNCTION(TEST_XMIN))
-#         - (pwl(priorx) - pwl(TEST_XMIN))
-#     ).mean()
+    assert all(
+        np.diff(prevstds) < 0
+    ), f"Curve std did not decrease with increasing delta size: {prevstds}"
+    assert all(
+        np.diff(preverrs) < 0
+    ), f"Curve error did not decrease with increasing delta size: {preverrs}"
