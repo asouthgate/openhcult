@@ -116,14 +116,14 @@ def _debug_plot(
             os.makedirs("artifacts")
         plt.savefig(f"artifacts/debug_plot_{artifact_name}.png")
 
+    if DEBUG_PLOT:
+        plt.show()
+
     plt.legend()
-    plt.show()
 
 
 def test_convergence_in_n_bad_prior():
     """Test that, as data increases, the curve estimate approaches the true curve."""
-    curve_error_prev = 1e10
-    pwlprevs = []
     preverrs = []
     for n in [4, 32, 256]:  # Square the number of points, 5 chosen for convenience
         # Use linear prior (bad)
@@ -163,7 +163,6 @@ def test_convergence_in_n_bad_prior():
 
 def test_convergence_in_prior_low_n():
     """Test that, as data increases, the curve estimate approaches the true curve."""
-    curve_error_prev = 1e10
     # pwlprev = None
     n = 4  # has to be high enough that it is much more likely to fit real prior
     x, dx, dy = _sample_data(
@@ -221,8 +220,6 @@ def test_performance_realistic_parameters():
     anchors_x = [TEST_XMIN]
     anchors_y = [0.0]
     priorx, priory = _get_mixed_prior(TEST_XMIN, TEST_XMAX, 0.5)
-    # anchors_x += [5.0]
-    # anchors_y += [Y_TEST_FUNCTION(5.0) - Y_TEST_FUNCTION(0.0)]
 
     pwl = GPWithPriorShape().fit(
         np.array(anchors_x),
@@ -251,8 +248,7 @@ def test_performance_realistic_parameters():
         - (pwl(priorx) - pwl(TEST_XMIN))
     ).mean()
 
-
-#     # assert curve_error < 0.02 * Y_TEST_FUNCTION(priorx).max()
+    assert curve_error < 0.2 * Y_TEST_FUNCTION(priorx).max()
 
 
 def test_total_estimate_improves_and_std_shrinks_with_coverage():
