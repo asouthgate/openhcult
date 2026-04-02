@@ -157,9 +157,9 @@ def test_performance_realistic_parameters():
     n = 10
     x, dx, dy = _sample_data(
         1.5,
-        5.5,
+        3.5,
         0.1,
-        0.5,
+        0.9,
         0.0,
         n,
         Y_TEST_FUNCTION,
@@ -171,10 +171,15 @@ def test_performance_realistic_parameters():
         Y_TEST_FUNCTION(priorx).max() - Y_TEST_FUNCTION(priorx).min()
     )
     priory = linear_prior_y * 0.5 + normalized_true_prior_y * (1 - 0.5)
+    anchors_x = [TEST_XMIN]
+    anchors_y = [0.0]
+
+    # anchors_x += [5.0]
+    # anchors_y += [Y_TEST_FUNCTION(5.0) - Y_TEST_FUNCTION(0.0)]
 
     pwl = GPWithPriorShape().fit(
-        np.array([TEST_XMIN, 5.0]),
-        np.array([0.0, Y_TEST_FUNCTION(5.0)]),
+        np.array(anchors_x),
+        np.array(anchors_y),
         x,
         dx,
         dy,
@@ -199,6 +204,11 @@ def test_performance_realistic_parameters():
         )
         # plt.plot(x, pwl(priorx) - pwl(priorx.min()), label="data points")
 
+    plt.scatter(
+        anchors_x,
+        anchors_y,
+        label="anchors",
+    )
     plt.plot(
         priorx, Y_TEST_FUNCTION(priorx) - Y_TEST_FUNCTION(priorx.min()), label="true"
     )
