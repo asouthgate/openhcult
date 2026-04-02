@@ -1,4 +1,5 @@
 import numpy as np
+import os
 
 from hcultinf.inference import GPWithPriorShape
 
@@ -13,6 +14,9 @@ TEST_XMAX = 5.5
 TEST_DXMIN = 0.2
 TEST_DXMAX = 0.5
 TEST_NOISE_LEVEL = 0.5
+
+# See if debug flag is set
+DEBUG_PLOT = os.getenv("TEST_DEBUG_PLOT", "0") == "1"
 
 
 def _get_mixed_prior(xmin, xmax, p):
@@ -40,7 +44,22 @@ def _sample_data(xmin, xmax, dxmin, dxmax, noise_level, n, y, uniform=False):
     return x, dx, dy
 
 
-def _debug_plot(pwl, priorx, priory, anchors_x, anchors_y, x, dx, dy, pwlprevs=None):
+def _debug_plot(
+    pwl,
+    priorx,
+    priory,
+    anchors_x,
+    anchors_y,
+    x,
+    dx,
+    dy,
+    pwlprevs=None,
+    artifact_name=None,
+):
+
+    if not DEBUG_PLOT and artifact_name is None:
+        return
+
     import matplotlib.pyplot as plt
 
     mean, std = pwl.predict(priorx)
@@ -90,6 +109,12 @@ def _debug_plot(pwl, priorx, priory, anchors_x, anchors_y, x, dx, dy, pwlprevs=N
                 color="brown",
                 linestyle="--",
             )
+
+    if artifact_name is not None:
+        # create artifacts directory
+        if not os.path.exists("artifacts"):
+            os.makedirs("artifacts")
+        plt.savefig(f"artifacts/debug_plot_{artifact_name}.png")
 
     plt.legend()
     plt.show()
@@ -208,7 +233,18 @@ def test_performance_realistic_parameters():
         priorx,
         priory,
     )
-    _debug_plot(pwl, priorx, priory, anchors_x, anchors_y, x, dx, dy, pwlprevs=None)
+    _debug_plot(
+        pwl,
+        priorx,
+        priory,
+        anchors_x,
+        anchors_y,
+        x,
+        dx,
+        dy,
+        pwlprevs=None,
+        artifact_name="realistic_parameters",
+    )
 
     curve_error = np.abs(
         (Y_TEST_FUNCTION(priorx) - Y_TEST_FUNCTION(TEST_XMIN))
@@ -217,8 +253,59 @@ def test_performance_realistic_parameters():
 
 
 #     # assert curve_error < 0.02 * Y_TEST_FUNCTION(priorx).max()
+
+
 def test_total_estimate_improves_and_std_shrinks_with_coverage():
-    pass
+    """Test that, as data increases, the curve estimate approaches the true curve."""
+    pwlprevs = []
+    preverrs = []
+    prevstds = []
+    n = 100
+    half_cov = (TEST_XMAX - TEST_XMIN) * 0.5
+    eps = (TEST_XMAX - TEST_XMIN) * 0.1
+    for ddx in np.linspace(eps, half_cov - eps, 4):
+        x, dx, dy = _sample_data(
+            TEST_XMIN + ((TEST_XMAX - TEST_XMIN) / 2.0) - ddx,
+            TEST_XMIN + ((TEST_XMAX - TEST_XMIN) / 2.0) + ddx,
+            0.5,
+            0.5,
+            0.0,
+            n,
+            Y_TEST_FUNCTION,
+            uniform=True,  # use uniform sampling to make it more likely to fit the true prior
+        )
+        anchors_x = [TEST_XMIN]
+        anchors_y = [0.0]
+        priorx, priory = _get_mixed_prior(TEST_XMIN, TEST_XMAX, 0.5)
+
+        pwl = GPWithPriorShape().fit(
+            np.array(anchors_x),
+            np.array(anchors_y),
+            x,
+            dx,
+            dy,
+            priorx,
+            priory,
+        )
+        # _debug_plot(
+        #     pwl, priorx, priory, anchors_x, anchors_y, x, dx, dy, pwlprevs=pwlprevs
+        # )
+        prevstds.append(
+            pwl.predict(priorx)[1].mean()
+        )  # this is mean of stds, not mean trend
+        pwlprevs.append(pwl)
+        curve_error = np.abs(
+            (Y_TEST_FUNCTION(priorx) - Y_TEST_FUNCTION(TEST_XMIN))
+            - (pwl(priorx) - pwl(TEST_XMIN))
+        ).mean()
+        preverrs.append(curve_error)
+
+    assert all(
+        np.diff(prevstds) < 0
+    ), f"Curve std did not decrease with increasing delta size: {prevstds}"
+    assert all(
+        np.diff(preverrs) < 0
+    ), f"Curve error did not decrease with increasing delta size: {preverrs}"
 
 
 def test_total_estimate_improves_and_std_shrinks_with_delta_size():
