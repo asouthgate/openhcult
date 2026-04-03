@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Optional
 from fastapi import Depends, HTTPException, Query, APIRouter
@@ -13,6 +14,13 @@ from hcultdb import queries as database
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+_ML_RE = re.compile(r"\bml=(\d+(?:\.\d+)?)\b")
+
+
+def _volume_ml(note: str) -> float | None:
+    m = _ML_RE.search(note)
+    return float(m.group(1)) if m else None
 
 
 class ObservationIn(BaseModel):
@@ -56,6 +64,7 @@ def create_observation(payload: ObservationIn, conn=Depends(get_db_conn)):
         "observed_at": observed_at_ms,
         "note": note,
         "plant_name": payload.plant_name,
+        "volume_ml": _volume_ml(note),
     }
 
 
@@ -100,6 +109,7 @@ def list_observations(
             "observed_at": row["observed_at"],
             "note": row["note"],
             "plant_name": row.get("plant_name"),
+            "volume_ml": _volume_ml(row["note"]),
         }
         for row in rows
     ]
@@ -140,3 +150,12 @@ def update_observation(
         "note": note,
         "plant_name": payload.plant_name,
     }
+
+
+@router.delete("/observations/{obs_id}")
+def delete_observation(obs_id: int, conn=Depends(get_db_conn)):
+    logger.info("DELETE /observations/%s", obs_id)
+    found = database.delete_observation(conn, obs_id=obs_id)
+    if not found:
+        raise HTTPException(status_code=404, detail="Observation not found")
+    return {"id": obs_id}

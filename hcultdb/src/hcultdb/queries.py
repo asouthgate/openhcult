@@ -250,6 +250,14 @@ def fetch_observations_for_plant(
     return fetchall_dicts(cursor)
 
 
+def delete_observation(conn, *, obs_id: int) -> bool:
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM observations WHERE id = %s RETURNING id", (obs_id,))
+    row = cursor.fetchone()
+    conn.commit()
+    return row is not None
+
+
 def fetch_devices(
     conn,
     *,
@@ -651,28 +659,3 @@ def fetch_plant_statuses(conn, *, plant_id: int, limit: int = 100) -> Iterable[d
     cursor = conn.cursor()
     cursor.execute(query, [plant_id, limit])
     return fetchall_dicts(cursor)
-
-
-def insert_response_curve_lookup(
-    conn,
-    swc,
-    sensor_vals,
-    swc_std,
-    version,
-    created_at,
-):
-    cursor = conn.cursor()
-    last_id = None
-
-    for j in range(len(swc)):
-        cursor.execute(
-            """INSERT INTO response_curve_lookup 
-               (swc, sensor_val, swc_std, version, created_at) 
-               VALUES (%s, %s, %s, %s, %s) 
-               RETURNING id""",
-            (swc[j], sensor_vals[j], swc_std[j], version, created_at),
-        )
-        last_id = cursor.fetchone()[0]
-
-    conn.commit()
-    return last_id

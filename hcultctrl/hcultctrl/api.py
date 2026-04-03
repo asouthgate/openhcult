@@ -16,8 +16,8 @@ from hcultctrl.routes import (
     devices,
     observations,
     timeseries,
-    calibration,
     plant_sensors,
+    water_calibration,
 )
 
 app = FastAPI(title="hcultctrl", version="0.1.0")
@@ -26,8 +26,8 @@ app.include_router(species.router)
 app.include_router(devices.router)
 app.include_router(observations.router)
 app.include_router(timeseries.router)
-app.include_router(calibration.router)
 app.include_router(plant_sensors.router)
+app.include_router(water_calibration.router)
 
 
 logger = logging.getLogger(__name__)

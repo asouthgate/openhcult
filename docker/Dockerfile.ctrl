@@ -6,7 +6,7 @@ COPY frontend/ ./
 RUN npm run build
 
 FROM python:3.12-slim
-RUN pip install --no-cache-dir fastapi uvicorn psycopg[binary]
+RUN pip install --no-cache-dir fastapi uvicorn "psycopg[binary]" numpy scipy
 COPY --from=frontend /frontend/dist /opt/frontend
 ENV HCULT_FRONTEND_DIR=/opt/frontend
 WORKDIR /app

@@ -8,6 +8,11 @@ from test_observations import (
     test_observation_with_plant,
     test_observation_unknown_plant_returns_404,
     test_patch_observation_plant_name,
+    test_delete_observation,
+)
+from test_water_calibration import (
+    test_water_calibration_no_data,
+    test_water_calibration_with_waterings,
 )
 
 from test_utils import request_json
@@ -69,7 +74,7 @@ def test_create_and_list_observations():
     assert "id" in created
     assert created["note"] == note
 
-    listed = request_json("/observations?limit=10")
+    listed = request_json("/observations?limit=10000")
     notes = [item["note"] for item in listed.get("data", [])]
     assert note in notes
 
@@ -157,21 +162,3 @@ def test_devices_smoke_flow():
     listed = request_json("/devices?limit=10000")
     addresses = [item["address"] for item in listed.get("data", [])]
     assert address in addresses
-
-
-def test_calibration_smoke_flow():
-
-    data = {
-        "swc": [0.0, 0.1, 0.5, 1.0],
-        "sensor_val": [100, 200, 300, 500],
-        "swc_std": [0.0, 0.1, 0.5, 1.0],
-        "version": "bazbar",
-        "created_at": "2026-01-01T11:20:23Z",
-    }
-
-    inserted_id = request_json(
-        "/calibration/response_curve_lookup",
-        method="POST",
-        payload=data,
-    )
-    assert inserted_id

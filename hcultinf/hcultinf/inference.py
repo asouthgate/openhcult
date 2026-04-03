@@ -1,286 +1,141 @@
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd 
-
-from scipy.stats import norm
-from scipy.integrate import cumulative_trapezoid
-from scipy.interpolate import LSQUnivariateSpline, BSpline
-from scipy.interpolate import interp1d
-from scipy.optimize import minimize
-
-from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import RBF, ConstantKernel
 
 
-def fit_monotonic_spline(x, y, inner_knots, k=3):
-    # Sort for the spline engine
-    idx = np.argsort(x)
-    xs, ys = x[idx], y[idx]
-    x_min, x_max = xs.min(), xs.max()
-    
-    # 2. Use LSQUnivariateSpline just to get the "Full" knot vector (including pads)
-    tmp_spline = LSQUnivariateSpline(xs, ys, inner_knots, k=k)
-    t = tmp_spline.get_knots() # Full knot vector
-    c0 = tmp_spline.get_coeffs() # Initial guess coefficients
-    
-    # 3. Objective: Minimize MSE of the BSpline
-    def objective(coeffs):
-        spl = BSpline(t, coeffs, k)
-        return np.sum((spl(x) - y)**2)
+class GPWithPriorShape:
+    def __init__(self, length_scale=None):
+        self._length_scale = length_scale
+        self._mean = None
+        self._std = None
+        self.scale = None
 
-    # 4. Constraint: Slope <= 0 (Decreasing) at 50 points
-    x_check = np.linspace(x_min, x_max, 50)
-    def monotonic_constraint(coeffs):
-        spl = BSpline(t, coeffs, k)
-        # We want -f'(x) >= 0 for decreasing
-        return -spl(x_check, nu=1)
+    def fit(
+        self, x_anchors, swc_anchors, x_starts, delta_x, delta_swc, prior_x, prior_y
+    ):
+        x_ends = x_starts + delta_x
+        self._mean, self._std, self.scale = self.fit_gp_chords(
+            x_anchors,
+            swc_anchors,
+            x_starts,
+            x_ends,
+            delta_swc,
+            prior_x,
+            prior_y,
+            self._length_scale,
+        )
+        return self
 
-    res = minimize(objective, c0, constraints={'type': 'ineq', 'fun': monotonic_constraint})
-    
-    # Return the final optimized BSpline object
-    return BSpline(t, res.x, k)
+    def __call__(self, x):
+        return self._mean(x)
 
+    def predict(self, x):
+        return self._mean(x), self._std(x)
 
+    def fit_gp_chords(
+        self,
+        x_anchor,
+        y_anchor,
+        x_starts,
+        x_ends,
+        delta_y,
+        prior_x,
+        prior_y,
+        length_scale=None,
+    ):
+        from scipy.optimize import minimize_scalar
 
-def fit_parametric_monotonic_spline(x_anchors, z_anchors, x_der, dz_dx, knots=10, k=3, w_der=1.0):
-    
-    x_min, x_max = min(x_anchors.min(), x_der.min()), max(x_anchors.max(), x_der.max())
-    
-    # Map s to the data points
-    s_der = (x_der - x_min) / (x_max - x_min)
-    s_anc = (x_anchors - x_min) / (x_max - x_min)
-    
-    # if type(knots) is int:
-    n_int = knots
-    inner = np.linspace(0, 1, n_int + 2)[1:-1]
-    t = np.concatenate(([0.0]*(k+1), inner, [1.0]*(k+1)))
-    # else:
-    #     # Assume n_int is already the inner knots
-    #     inner = np.asarray(knots)
-    #     t = np.concatenate(([0.0]*(k+1), inner, [1.0]*(k+1)))  
-    n_c = len(t) - k - 1
-    
-    # Initial guess
-    c0_x = np.linspace(x_min, x_max, n_c)
-    c0_z = np.linspace(z_anchors.max(), z_anchors.min(), n_c)
-    c0 = np.concatenate([c0_x, c0_z])
+        if length_scale is None:
+            length_scale = np.median(np.abs(x_ends - x_starts)) * 1.0
+        variance = 20.0
 
-    def objective(coeffs):
-        cx, cz = coeffs[:n_c], coeffs[n_c:]
-        sx, sz = BSpline(t, cx, k), BSpline(t, cz, k)
-        
-        # 1. Anchor Errors (Position)
-        err_anc = np.sum((sx(s_anc) - x_anchors)**2) + np.sum((sz(s_anc) - z_anchors)**2)
-        
-        # 2. X-Alignment (Ensures s_der actually corresponds to x_der)
-        # This prevents the 'shift' by forcing sx(s) approx x
-        err_x_align = np.sum((sx(s_der) - x_der)**2)
-        
-        # 3. Shape Error (Chain Rule: dz/ds = dz/dx * dx/ds)
-        # dz_dx MUST be d(SWC)/d(Value)
-        z_prime = sz(s_der, nu=1)
-        x_prime = sx(s_der, nu=1)
-        err_der = np.sum((z_prime - (dz_dx * x_prime))**2)
-        
-        # We give high priority to staying aligned with the X coordinates
-        return (err_anc + 10.0 * err_x_align) + (w_der * err_der)
+        def kernel(x1, x2):
+            sq_dist = np.subtract.outer(x1, x2) ** 2
+            return variance * np.exp(-0.5 * sq_dist / length_scale**2)
 
-    def monotonic_con(coeffs):
-        cz = coeffs[n_c:]
-        # dz/ds <= 0 for decreasing SWC
-        return -BSpline(t, cz, k)(np.linspace(0, 1, 50), nu=1)
+        # Prior shape evaluated at anchors and as chord differences
+        h_anchor = np.interp(x_anchor, prior_x, prior_y)
+        h_chords = np.interp(x_ends, prior_x, prior_y) - np.interp(
+            x_starts, prior_x, prior_y
+        )
+        h = np.concatenate([h_anchor, h_chords])
 
+        # Kernel matrices (noise-free parts)
+        K_aa = kernel(x_anchor, x_anchor)
+        K_ac = kernel(x_anchor, x_ends) - kernel(x_anchor, x_starts)
+        K_cc = (
+            kernel(x_ends, x_ends)
+            - kernel(x_ends, x_starts)
+            - kernel(x_starts, x_ends)
+            + kernel(x_starts, x_starts)
+        )
 
-    res = minimize(objective, c0, constraints={'type': 'ineq', 'fun': monotonic_con})
-    return BSpline(t, res.x[:n_c], k), BSpline(t, res.x[n_c:], k)
+        observations = np.concatenate([y_anchor, delta_y])
+        n_a = len(y_anchor)
+        n_c = len(delta_y)
+        n = n_a + n_c
 
+        def _build_K(log_noise):
+            noise = np.exp(log_noise)
+            noise_mat = np.zeros((n, n))
+            noise_mat[n_a:, n_a:] = noise * np.eye(n_c)
+            return np.block([[K_aa, K_ac], [K_ac.T, K_cc]]) + noise_mat
 
+        def neg_log_marginal_likelihood(log_noise):
+            K = _build_K(log_noise)
+            try:
+                L = np.linalg.cholesky(K)
+            except np.linalg.LinAlgError:
+                return 1e10
+            # Solve for beta
+            Kinv_h = np.linalg.solve(K, h)
+            Kinv_y = np.linalg.solve(K, observations)
+            beta = float(h @ Kinv_y) / float(h @ Kinv_h)
+            residuals = observations - beta * h
+            Kinv_r = np.linalg.solve(K, residuals)
+            # log|K| = 2 * sum(log(diag(L)))
+            log_det = 2.0 * np.sum(np.log(np.diag(L)))
+            return 0.5 * float(residuals @ Kinv_r) + 0.5 * log_det
 
-def bootstrap_parametric_spline(x_anchors, z_anchors, x_der, dz_dx, knots=10, k=2, w_der=0.5, n_boots=50):
-    """
-    Performs bootstrapping on the derivative data to produce a distribution of splines.
-    """
-    boot_results = []
-    n_der = len(x_der)
-    
-    print(f"Starting bootstrap ({n_boots} iterations)...")
-    
-    for i in range(n_boots):
-        print(f"Bootstrap iteration {i+1}/{n_boots}")
-        # 1. Resample derivative indices with replacement
-        indices = np.random.choice(n_der, size=n_der, replace=True)
-        
-        x_resampled = x_der[indices]
-        dz_dx_resampled = dz_dx[indices]
-        
-        # 2. Fit the model using the resampled derivatives
-        try:
-            sx, sz = fit_parametric_monotonic_spline(
-                x_anchors, z_anchors, 
-                x_resampled, dz_dx_resampled, 
-                knots=knots, k=k, w_der=w_der
-            )
-            boot_results.append((sx, sz))
-        except Exception as e:
-            print(f"Iteration {i} failed: {e}")
-            continue
-            
-    return boot_results
+        # Optimize noise in log space
+        result = minimize_scalar(
+            neg_log_marginal_likelihood,
+            bounds=(np.log(1e-8), np.log(1e2)),
+            method="bounded",
+        )
 
+        # Build final K with optimized noise
+        K = _build_K(result.x)
 
-def bootstrap_monotonic_spline(x, y, inner_knots, k=3, n_boots=50):
-    boot_splines = []
-    n = len(x)
-    
-    print(f"Starting bootstrap ({n_boots} iterations)...")
-    
-    for i in range(n_boots):
-        print(f"Bootstrap iteration {i+1}/{n_boots}")
-        # Resample indices with replacement
-        indices = np.random.choice(n, size=n, replace=True)
-        x_resampled = x[indices]
-        y_resampled = y[indices]
-        
-        try:
-            spline = fit_monotonic_spline(x_resampled, y_resampled, inner_knots, k=k)
-            boot_splines.append(spline)
-        except Exception as e:
-            print(f"Iteration {i} failed: {e}")
-            continue
-            
-    return boot_splines
+        # Estimate scale (MLE / improper flat prior)
+        Kinv_h = np.linalg.solve(K, h)
+        Kinv_y = np.linalg.solve(K, observations)
+        scale = float(h @ Kinv_y) / float(h @ Kinv_h)
+        beta_post_var = 1.0 / float(h @ Kinv_h)
 
+        # GP on residuals after removing scaled mean
+        residuals = observations - scale * h
+        weights = np.linalg.solve(K, residuals)
 
-def compute_lookup_table_from_bootstrap(boot_splines, x_min, x_max, n_points=100):
-    x_grid = np.linspace(x_min, x_max, n_points)
-    z_grid = np.array([spline(x_grid) for spline in boot_splines])
-    
-    # Compute mean and confidence intervals
-    z_mean = np.mean(z_grid, axis=0)
-    z_lower = np.percentile(z_grid, 2.5, axis=0)
-    z_upper = np.percentile(z_grid, 97.5, axis=0)
-    z_std = np.std(z_grid, axis=0)
+        def _k_joint(x_test):
+            k_ta = kernel(x_test, x_anchor)
+            k_tc = kernel(x_test, x_ends) - kernel(x_test, x_starts)
+            return np.hstack([k_ta, k_tc])
 
-    lookup_df = pd.DataFrame({
-        "x": x_grid,
-        "swc": z_mean,
-        "swc_std": z_std,
-        "swc_upper_95%": z_upper,
-        "swc_lower_95%": z_lower,
-    })
+        def predict_mean(x_test):
+            x_test = np.atleast_1d(x_test)
+            h_test = np.interp(x_test, prior_x, prior_y)
+            return scale * h_test + _k_joint(x_test) @ weights
 
-    
-    return lookup_df
+        def predict_std(x_test):
+            x_test = np.atleast_1d(x_test)
+            kj = _k_joint(x_test)
+            prior_var_diag = np.diag(kernel(x_test, x_test))
+            post_var = prior_var_diag - np.sum(kj * np.linalg.solve(K, kj.T).T, axis=1)
+            # Extra term from uncertainty in beta
+            h_test = np.interp(x_test, prior_x, prior_y)
+            h_tilde = h_test - kj @ Kinv_h
+            post_var += beta_post_var * h_tilde**2
+            return np.sqrt(np.maximum(post_var, 0.0))
 
-def compute_lookup_table_parametric_forward(boot_mod_splines, s_min=0, s_max=1, n_points=1000):
-    # 1. Create a master s_grid to evaluate the 'Average' curve
-    s_grid = np.linspace(s_min, s_max, n_points)
-    
-    # We need to collect X and Z for every bootstrap sample
-    x_samples = []
-    z_samples = []
-    
-    for sx, sz in boot_mod_splines:
-        x_samples.append(sx(s_grid))
-        z_samples.append(sz(s_grid))
-        
-    x_samples = np.array(x_samples)
-    z_samples = np.array(z_samples)
-    
-    # 2. Compute means
-    # Note: These are 'Mean X' and 'Mean Z' for a given 's'
-    x_mean = np.mean(x_samples, axis=0)
-    z_mean = np.mean(z_samples, axis=0)
-    
-    # 3. Compute Standard Deviation of the SWC (z)
-    z_std = np.std(z_samples, axis=0)
-
-    lookup_df = pd.DataFrame({
-        "s": s_grid,
-        "sensor_val": x_mean,         # This is your Sensor Reading
-        "swc": z_mean,       # This is your moisture
-        "swc_std": z_std
-    })
-    
-    return lookup_df
-
-
-def compute_mrt(times, vals):
-    """
-    Computes the Mean Residence Time (MRT) of the sensor transition.
-    Handles datetime64/timedelta64 and is direction-agnostic.
-    
-    Returns:
-        float: MRT in seconds (the 'delta T' of the transition).
-    """
-    # 1. Convert time to numeric seconds
-    if np.issubdtype(times.dtype, np.datetime64) or np.issubdtype(times.dtype, np.timedelta64):
-        t_numeric = (times - times[0]) / np.timedelta64(1, 's')
-    else:
-        t_numeric = times - times[0]
-
-    # 2. Extract boundaries with median filtering for noise robustness
-    v_start = np.median(vals[:5])
-    v_end = np.median(vals[-5:])
-    
-    # If the sensor didn't move, MRT is undefined/zero
-    if np.isclose(v_start, v_end, atol=1e-7):
-        return [], 0.0 
-    
-    # 3. Normalize Values to [0, 1]
-    # This 'flips' the curve so that for both wetting and drying, 
-    # the 'target' is 1 and the 'start' is 0.
-    v_norm = np.clip((vals - v_start) / (v_end - v_start), 0, 1)
-    
-    # 4. Calculate MRT via Integration
-    # MRT = Integral from 0 to T of (1 - v_norm) dt
-    try:
-        # Use trapezoid for NumPy 2.0+, fallback to trapz for older versions
-        auc = np.trapezoid(v_norm, t_numeric)
-    except AttributeError:
-        auc = np.trapz(v_norm, t_numeric)
-        
-    # The MRT is the 'Area Above the Curve'
-    total_duration = t_numeric[-1]
-    mrt = total_duration - auc
-    
-    return vals, mrt
-
-
-def fit_parametric_spline_with_residuals(x, y, xmid, dydx, n_inner_knots, k_spline, w_der, n_boots):
-    """Compute a parametric spline using both x,y data as well as xmid (x_i+1/2) and derivative at midpoint data.
-    
-    Params:
-        x, y, xmid, ydx: arrays
-        n_inner_knots: int spline knots
-        k_spline: int order of spline
-        w_der: weight of derivative samples
-        n_boots: number of bootstrap samples
-    """
-
-    spline_mod_x, spline_mod_y = fit_parametric_monotonic_spline(
-        x, y, xmid, dydx, n_inner_knots, k_spline, w_der
-    )
-
-    boot_mod_splines = bootstrap_parametric_spline(
-        x, y, xmid, dydx, n_inner_knots, k_spline, w_der, n_boots=n_boots)
-
-    # After fitting the parametric splines, we now have to invert from x -> s so that we can calculate y(x)
-    s_fine = np.linspace(0, 1, 1000)
-    x_fine = spline_mod_x(s_fine)
-    x_to_s_map = interp1d(x_fine, s_fine, bounds_error=False, fill_value="extrapolate")
-    s_data = x_to_s_map(x)
-    y_pred = spline_mod_y(s_data)
-    abs_residuals = np.abs(y - y_pred)
-
-    inner_knots = ( np.linspace(0, 1, n_inner_knots)**2 * (x.max() - x.min()) + x.min() ) [1:]
-    inner_knots[-1] = (inner_knots[-1] + inner_knots[-2]) / 2
-
-    residual_spline_mod = fit_monotonic_spline(
-        x,
-        abs_residuals,
-        inner_knots=inner_knots,
-        k=k_spline,
-    )
-    return spline_mod_x, spline_mod_y, boot_mod_splines, residual_spline_mod
+        return predict_mean, predict_std, scale

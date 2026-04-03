@@ -50,12 +50,17 @@ def simulate_moisture(
     return rows
 
 
+def sensor_from_wc(wc_frac, base, wet):
+    """Sensor reading from water content fraction (0=dry→base, 1=full FC→wet)."""
+    return int(base - wc_frac * (base - wet))
+
+
 def simulate_moisture_multi(
     n_events, days_per_cycle=3, base=2200, wet=800, noise_seed=42
 ):
     """Return (readings, watering_times_ms) with n_events watering events.
 
-    Readings are at 10-minute intervals over n_events * days_per_cycle days.
+    Readings are at 30-minute intervals over n_events * days_per_cycle days.
     Each cycle: sensor dries from wet floor back toward base, then drops at watering.
     """
     rng = random.Random(noise_seed)

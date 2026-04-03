@@ -57,7 +57,7 @@ def main() -> int:
         )
         _wait_for_ctrl()
         result = _run(
-            "pytest -q tests/test_api.py tests/test_seed_visualisation.py"
+            "pytest -q tests/test_api.py tests/test_seed_visualisation.py tests/test_water_calibration.py"
         ).returncode
         if interactive:
             print(f"\nStack is up. Frontend: {CTRL_URL}/frontend/app/")
