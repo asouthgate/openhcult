@@ -13,6 +13,7 @@ from hcultutils.species import species_via_ctrl
 from hcultutils.devices import devices_via_ctrl
 from hcultutils.observations import observations_main
 from hcultutils.inference_train import inference_train_main
+from hcultutils.response_curve import inference_train_main
 
 
 class HcultArgumentParser(argparse.ArgumentParser):
@@ -189,16 +190,6 @@ def _add_plants_command(subparsers):
     plants_status.add_argument("status_code", type=str)
     plants_status.add_argument("--note", default=None)
 
-    plants_status_group = plants_sub.add_parser("status")
-    status_sub = plants_status_group.add_subparsers(dest="status_action")
-    status_sub.required = True
-    status_ls = status_sub.add_parser("ls")
-    status_ls.add_argument("plant_name", type=str)
-    status_set = status_sub.add_parser("set")
-    status_set.add_argument("plant_name", type=str)
-    status_set.add_argument("status_code", type=str)
-    status_set.add_argument("--note", default=None)
-
     plants_health = plants_sub.add_parser("health")
     plants_health.add_argument("--plant_name", type=str)
 
@@ -312,12 +303,12 @@ def _dispatch_command(args) -> int:
         return species_via_ctrl(args.ctrl_url, args.action, args)
     if args.command == "plants":
         return plants_via_ctrl(args.ctrl_url, args.action, args)
-    if args.command == "plant":
-        return plants_via_ctrl(args.ctrl_url, args.action, args)
     if args.command == "devices":
         return devices_via_ctrl(args.ctrl_url, args.action, args)
     if args.command == "observations":
         return observations_main(args.ctrl_url, args.action, args)
+    if args.command == "plot_response_curve_estimate":
+        return response_curve_estimate_main(args.ctrl_url, args)
     if args.command == "inference_train":
         return inference_train_main(args.ctrl_url, args)
     return 1

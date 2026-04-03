@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import logging
-import time
 from typing import Iterable, Optional
 
 from .connection import (
@@ -89,23 +88,6 @@ def _parse_observed_at_ms(value):
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return int(parsed.timestamp() * 1000)
-
-
-def add_observation(conn, note, observed_at=None):
-    """Insert an observation and return its id."""
-    cursor = conn.cursor()
-    observed_at_ms = (
-        _parse_observed_at_ms(observed_at)
-        if observed_at is not None
-        else int(time.time() * 1000)
-    )
-    cursor.execute(
-        "INSERT INTO observations (observed_at, note) VALUES (%s, %s) RETURNING id",
-        (observed_at_ms, note),
-    )
-    obs_id = cursor.fetchone()[0]
-    conn.commit()
-    return obs_id
 
 
 def fetch_timeseries(
