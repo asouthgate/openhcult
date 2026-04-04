@@ -1,13 +1,7 @@
 import numpy as np
-import os
 
 from hcultinf.inference import GPWithPriorShape
-
-Y_TEST_FUNCTION_NONORM = (
-    lambda x: x**2 + np.log(x + 1) + np.exp(0.5 * x) + np.sqrt(x) - np.sin(3 * x) + 3.3
-)
-
-Y_TEST_FUNCTION = lambda x: Y_TEST_FUNCTION_NONORM(x) - Y_TEST_FUNCTION_NONORM(0.0)
+from hcultinf.simulation import sample_data, Y_TEST_FUNCTION_NONORM, Y_TEST_FUNCTION
 
 TEST_XMIN = 0.0
 TEST_XMAX = 5.5
@@ -27,20 +21,6 @@ def _get_mixed_prior(xmin, xmax, p):
     return priorx, priory
 
 
-def _sample_data(xmin, xmax, dxmin, dxmax, noise_level, n, y, uniform=False):
-    if uniform:
-        x = np.linspace(xmin, xmax, n)
-    else:
-        x = np.random.uniform(xmin, xmax, n)
-    x = np.clip(x, xmin, xmax)
-    dx = np.random.uniform(dxmin, dxmax, n)
-    ends = np.clip(x + dx, xmin, xmax)
-    dx = ends - x
-    dy = y(x + dx) - y(x)
-    dy += np.random.normal(0, noise_level, n)
-    return x, dx, dy
-
-
 def test_convergence_in_n_bad_prior():
     """Test that, as data increases, the curve estimate approaches the true curve."""
     preverrs = []
@@ -50,7 +30,7 @@ def test_convergence_in_n_bad_prior():
         priory_pts = np.array([0.0, 1.0])
         errs = []
         for _ in range(5):
-            x, dx, dy = _sample_data(
+            x, dx, dy = sample_data(
                 TEST_XMIN,
                 TEST_XMAX,
                 TEST_DXMIN,
@@ -102,7 +82,7 @@ def test_convergence_in_n_bad_prior():
 def test_convergence_in_prior_low_n():
     """Test that, as data increases, the curve estimate approaches the true curve."""
     n = 4
-    x, dx, dy = _sample_data(
+    x, dx, dy = sample_data(
         TEST_XMIN,
         TEST_XMAX,
         TEST_DXMIN,
@@ -153,7 +133,7 @@ def test_convergence_in_prior_low_n():
 def test_performance_realistic_parameters():
     """Test that, as data increases, the curve estimate approaches the true curve."""
     n = 10
-    x, dx, dy = _sample_data(1.5, 3.5, 0.1, 0.9, 1.0, n, Y_TEST_FUNCTION)
+    x, dx, dy = sample_data(1.5, 3.5, 0.1, 0.9, 1.0, n, Y_TEST_FUNCTION)
     anchors_x = [TEST_XMIN]
     anchors_y = [0.0]
     priorx, priory = _get_mixed_prior(TEST_XMIN, TEST_XMAX, 1.0)
@@ -196,7 +176,7 @@ def test_total_estimate_improves_and_std_shrinks_with_coverage():
     half_cov = (TEST_XMAX - TEST_XMIN) * 0.5
     eps = (TEST_XMAX - TEST_XMIN) * 0.1
     for ddx in np.linspace(eps, half_cov - eps, 4):
-        x, dx, dy = _sample_data(
+        x, dx, dy = sample_data(
             TEST_XMIN + ((TEST_XMAX - TEST_XMIN) / 2.0) - ddx,
             TEST_XMIN + ((TEST_XMAX - TEST_XMIN) / 2.0) + ddx,
             0.5,
@@ -256,7 +236,7 @@ def test_total_estimate_improves_and_std_shrinks_with_delta_size():
     prevstds = []
     n = 50
     for dx_max in np.linspace(0.01, 2.0, 4):
-        x, dx, dy = _sample_data(
+        x, dx, dy = sample_data(
             1.5,
             3.5,
             dx_max / 2.0,
