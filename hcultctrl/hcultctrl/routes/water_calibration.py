@@ -16,7 +16,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _ML_RE = re.compile(r"\bml=(\d+(?:\.\d+)?)\b")
-_WINDOW_MS = 10 * 60 * 1000
+_MIN_OFFSET_MS = 10 * 60 * 1000
+_MAX_OFFSET_MS = 60 * 60 * 1000
 
 
 def _volume_ml(note: str) -> float | None:
@@ -81,18 +82,26 @@ def water_calibration(plant: str, conn=Depends(get_db_conn)):
     for t_ms, ml in waterings:
         before = list(
             database.fetch_timeseries(
-                conn, plant=plant, start_ms=t_ms - _WINDOW_MS, end_ms=t_ms, limit=5000
+                conn,
+                plant=plant,
+                start_ms=t_ms - _MAX_OFFSET_MS,
+                end_ms=t_ms - _MIN_OFFSET_MS,
+                limit=5000,
             )
         )
         after = list(
             database.fetch_timeseries(
-                conn, plant=plant, start_ms=t_ms, end_ms=t_ms + _WINDOW_MS, limit=5000
+                conn,
+                plant=plant,
+                start_ms=t_ms + _MIN_OFFSET_MS,
+                end_ms=t_ms + _MAX_OFFSET_MS,
+                limit=5000,
             )
         )
         if not before or not after:
             continue
-        x = float(np.mean([r["voltage_mv"] for r in before]))
-        x_after = float(np.mean([r["voltage_mv"] for r in after]))
+        x = float(before[-1]["voltage_mv"])
+        x_after = float(after[0]["voltage_mv"])
         chords.append((x, x_after - x, ml))
 
     if not chords:

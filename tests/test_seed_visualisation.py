@@ -1,8 +1,8 @@
 import os
 import random
-import time
 import psycopg
-from test_utils import request_json, simulate_moisture_multi, sensor_from_wc
+from hcultinf.simulation import simulate_plant_moisture
+from test_utils import request_json, SENSOR_DRY_MV, SENSOR_WET_MV
 
 SEED_DSN = os.environ.get(
     "OPENHCULT_SEED_DSN",
@@ -15,73 +15,28 @@ _PLANTS = [
         "plant": "monstera-living-room",
         "address": "AA:11:22:33:44:01",
         "sensor": "capacitive1",
-        "base": 2200,
-        "wet": 900,
+        "base": SENSOR_DRY_MV,
+        "wet": SENSOR_WET_MV,
+        "max_swc_ml": 250.0,
+        "dose_frac_range": (0.6, 0.9),
+        "target_wc_range": (0.05, 0.15),
+        "drain_per_day": 0.12,
     },
     {
         "species": "Ficus lyrata",
         "plant": "fiddle-leaf-bedroom",
         "address": "AA:11:22:33:44:02",
         "sensor": "capacitive1",
-        "base": 1800,
-        "wet": 900,
-        "varied": True,
+        "base": SENSOR_DRY_MV,
+        "wet": SENSOR_WET_MV,
+        "max_swc_ml": 120.0,
+        "dose_frac_range": (0.2, 0.4),
+        "target_wc_range": (0.2, 0.5),
+        "drain_per_day": 0.05,
     },
 ]
 
-_N_EVENTS = 100
-_DAYS_PER_CYCLE = 3
 _5MIN_MS = 5 * 60 * 1000
-_FC_ML = 75.0
-_DRAIN_PER_DAY = 0.05  # fraction of FC lost per day
-
-
-def _varied_events(base, wet, rng, n=22):
-    """Irregular watering events using a linear water-content model.
-
-    Water level hovers ~50-90% FC. Drying is linear between events.
-    Returns (readings, watering_times, ml_amounts, before_sensor, after_sensor).
-    """
-    intervals_days = [rng.uniform(2, 7) for _ in range(n)]
-    now_ms = int(time.time() * 1000)
-    total_ms = int(sum(intervals_days) * 24 * 3600 * 1000)
-    start_ms = now_ms - total_ms
-
-    watering_times, before_wcs, after_wcs, ml_amounts = [], [], [], []
-    wc = 0.70
-    t = start_ms
-    for days in intervals_days:
-        t += int(days * 24 * 3600 * 1000)
-        wc = max(0.20, wc - _DRAIN_PER_DAY * days)
-        before_wcs.append(wc)
-        watering_times.append(t)
-        dose = rng.uniform(0.20, 0.40)
-        wc = min(0.95, wc + dose)
-        after_wcs.append(wc)
-        ml_amounts.append(round(dose * _FC_ML))
-
-    # Background readings: linear wc between events, sensor via response fn
-    def wc_at(ts):
-        for i in range(len(watering_times) - 1):
-            if watering_times[i] <= ts < watering_times[i + 1]:
-                frac = (ts - watering_times[i]) / (
-                    watering_times[i + 1] - watering_times[i]
-                )
-                return after_wcs[i] + frac * (before_wcs[i + 1] - after_wcs[i])
-        return after_wcs[-1] if ts >= watering_times[-1] else before_wcs[0]
-
-    step_ms = 30 * 60 * 1000
-    readings = []
-    for i in range(total_ms // step_ms):
-        ts = start_ms + i * step_ms
-        raw = max(
-            600, min(3000, sensor_from_wc(wc_at(ts), base, wet) + rng.randint(-25, 25))
-        )
-        readings.append((ts, raw, int(raw * 3900 / 4095)))
-
-    before_sensor = [sensor_from_wc(wc, base, wet) for wc in before_wcs]
-    after_sensor = [sensor_from_wc(wc, base, wet) for wc in after_wcs]
-    return readings, watering_times, ml_amounts, before_sensor, after_sensor
 
 
 def test_seed_visualisation_data():
@@ -114,30 +69,22 @@ def test_seed_visualisation_data():
                     (plant_id, device_id, p["sensor"]),
                 )
 
-                rng = random.Random(hash(p["plant"]) % 1000)
-                wet = p["wet"]
+                base, wet = p["base"], p["wet"]
 
-                if p.get("varied"):
-                    readings, watering_times, ml_amounts, before_vals, after_vals = (
-                        _varied_events(p["base"], wet, rng)
+                readings, watering_times, ml_amounts, before_vals, after_vals = (
+                    simulate_plant_moisture(
+                        p["max_swc_ml"],
+                        base,
+                        wet,
+                        dose_frac_range=p["dose_frac_range"],
+                        target_fc_range=p["target_wc_range"],
+                        drain_per_day=p["drain_per_day"],
                     )
-                    window_readings = [
-                        (t - _5MIN_MS, bv) for t, bv in zip(watering_times, before_vals)
-                    ] + [
-                        (t + _5MIN_MS, av) for t, av in zip(watering_times, after_vals)
-                    ]
-                else:
-                    readings, watering_times = simulate_moisture_multi(
-                        _N_EVENTS,
-                        days_per_cycle=_DAYS_PER_CYCLE,
-                        base=p["base"],
-                        wet=wet,
-                        noise_seed=hash(p["plant"]) % 1000,
-                    )
-                    ml_amounts = [200] * len(watering_times)
-                    window_readings = [
-                        (t - _5MIN_MS, int(p["base"] * 0.75)) for t in watering_times
-                    ] + [(t + _5MIN_MS, wet + 50) for t in watering_times]
+                )
+
+                window_readings = [
+                    (t - _5MIN_MS, bv) for t, bv in zip(watering_times, before_vals)
+                ] + [(t + _5MIN_MS, av) for t, av in zip(watering_times, after_vals)]
 
                 cur.executemany(
                     "INSERT INTO sensor_readings "
@@ -148,14 +95,14 @@ def test_seed_visualisation_data():
                         for t, v, mv in readings
                     ]
                     + [
-                        (device_id, p["sensor"], v, int(v * 0.95), t, t, t)
+                        (device_id, p["sensor"], v, v, t, t, t)
                         for t, v in window_readings
                     ],
                 )
                 cur.executemany(
                     "INSERT INTO observations (observed_at, note, plant_id) VALUES (%s, %s, %s)",
                     [
-                        (t, f"WATER manual ml={ml}", plant_id)
+                        (t, f"WATER manual ml={round(ml)}", plant_id)
                         for t, ml in zip(watering_times, ml_amounts)
                     ],
                 )

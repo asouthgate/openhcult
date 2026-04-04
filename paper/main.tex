@@ -71,49 +71,55 @@ See Appendix \ref{fig:myfigure} for an example of segmentation for a single segm
 
 Three sources of data are assumed to be available for estimation of the unknown response curve: anchor points (typically only sensor measurement at 0\% FC); sampled watering events of known quantity $\Delta y$ at initial sensor value $x$, and response $\Delta x$ (also referred to as `chord' data); prior calibration curve shape $m(x)$. The prior calibration curve shape is assumed without scale, that is with a maximum of $1.0$, because each vessel of soil has an unknown maximum soil water content $\theta_{max}$ at $100\%$ field capacity. However, the prior response curve can provide information on shape. Together, normalized shape and deltas can be used to estimate the scale $s$ and retrieve the overall inverse response $\hat{Y}(X) = sm(X)$. Our GP prior is then:\\
 
-\[
-Y(X) \sim \mathcal{GP}(sm(X), K(X,X')
-\]
+\begin{equation}
+Y(X) \sim \mathcal{GP}(sm(X), K(X,X'))
+\label{eq:gpprior}
+\end{equation}
 
 We use standard methodology for Gaussian process regression to tackle this problem. The Gaussian process assumes that differences between the modelled function $Y(X_{1})-Y(X_{2})$ have Gaussian distribution, so the input data of differences is well suited with some modifications. We stack the anchor data (generally only $(x_{min}, 0)$, and difference data defining:
 
-\[
-z = \begin{pmatrix} Y_1 \\ Y_2 \\ \vdots \\ Y_m \\ \Delta Y_1 \\ \Delta Y_2 \\ \vdots \\ \Delta Y_n \end{pmatrix}
-\]
+\begin{equation}
+z = \begin{bmatrix} Y_1 \\ Y_2 \\ \vdots \\ Y_m \\ \Delta Y_1 \\ \Delta Y_2 \\ \vdots \\ \Delta Y_n \end{bmatrix}
+\end{equation}
 
 And use the matrix:
 
-\[
+\begin{equation}
 K = \begin{bmatrix}
     K_{aa}       & K_{ac} \\
     K_{ac}^T       & I\sigma^2 + K_{cc} \\
 \end{bmatrix}
-\]
+\label{eq:gpprior}
+\end{equation}
 
 For chord data, given bilinearity of covariance:
 
-\begin{align}
-Cov(\Delta Y_i, \Delta Y_j) & = Cov(Y(X_i) - Y(X_i + \Delta X_i), Y(X_j + \Delta X_j) - Y(X_j)) \\
-& = k(X_i + \Delta X_i, X_j + \Delta X_j) - k(X_i + \Delta X_i, X_j) - k(X_i, X_j + \Delta X_j) + k(X_i, X_j)
-\end{align}
+\begin{equation}
+    \begin{split}
+        K_{cc}(\Delta Y_i, \Delta Y_j) & = K_{cc}(Y(X_i) - Y(X_i + \Delta X_i), Y(X_j + \Delta X_j) - Y(X_j)) \\
+        & = k(X_i + \Delta X_i, X_j + \Delta X_j) - k(X_i + \Delta X_i, X_j) \\ 
+        & - k(X_i, X_j + \Delta X_j) + k(X_i, X_j)
+    \end{split}
+    \label{eq:cov}
+\end{equation}
 
 And for chords and anchors:
 
 \begin{align}
-Cov(Y_k, \Delta Y_j) & = k(X_k, X_j + \Delta X_j) - k(X_k, X_j)
+K_{ac}(Y_k, \Delta Y_j) & = k(X_k, X_j + \Delta X_j) - k(X_k, X_j)
 \end{align}
 
 For the prior shape, we use a curve generated through empirical calibration. We do not expect that this calibration curve necessarily holds for all soil types. The prior noise is also specified in advance from the calibration experiment and variance observed in literature to capture prior belief. The length hyperparameter was chosen as standard from the domain length. The data noise parameter $\sigma^2$ can typically be selected from data, but cannot in our case. The cord data is expected to vary, even in the absence of error, due to variable $\Delta Y$ and random start positions $X$. As such, $\sigma^2$ is estimated through a MLE procedure \hl{cite}. In addition, the scale factor $s$ is estimated through $MLE$ given an improper prior as:
 
-\[
-s = \frac{m^T K^{-1} z}{m^T K^{-1} m}
-\]
+\begin{equation}
+\hat{s} = \frac{m^T K^{-1} z}{m^T K^{-1} m}
+\end{equation}
 
 And then:
 
-\[
+\begin{equation}
 Y_{pred}(x_*) = \hat{s} m(x_*) + k_*^TK^{-1}(z - \hat{s}m)
-\]
+\end{equation}
 
 \section{Results}
 

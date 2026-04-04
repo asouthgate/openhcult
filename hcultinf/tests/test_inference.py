@@ -3,7 +3,7 @@ import pytest
 
 from hcultinf.inference import GPWithPriorShape
 from hcultinf.simulation import (
-    sample_data,
+    simulate_calibration_data_samples,
     Y_TEST_FUNCTION_NONORM,
     Y_TEST_FUNCTION,
     Y_TEST_FUNCTION_DECREASING,
@@ -27,6 +27,7 @@ def _get_mixed_prior(xmin, xmax, p):
     return priorx, priory
 
 
+# 1 for increasing, -1 for decreasing
 @pytest.mark.parametrize("sign", [1, -1])
 def test_convergence_in_n_bad_prior(sign):
     """Test that, as data increases, the curve estimate approaches the true curve."""
@@ -46,7 +47,7 @@ def test_convergence_in_n_bad_prior(sign):
             priory_pts = priory_pts[::-1]
         errs = []
         for _ in range(5):
-            x, dx, dy = sample_data(
+            x, dx, dy = simulate_calibration_data_samples(
                 TEST_XMIN,
                 TEST_XMAX,
                 TEST_DXMIN,
@@ -99,7 +100,7 @@ def test_convergence_in_n_bad_prior(sign):
 def test_convergence_in_prior_low_n():
     """Test that, as data increases, the curve estimate approaches the true curve."""
     n = 4
-    x, dx, dy = sample_data(
+    x, dx, dy = simulate_calibration_data_samples(
         TEST_XMIN,
         TEST_XMAX,
         TEST_DXMIN,
@@ -150,7 +151,9 @@ def test_convergence_in_prior_low_n():
 def test_performance_realistic_parameters():
     """Test that, as data increases, the curve estimate approaches the true curve."""
     n = 10
-    x, dx, dy = sample_data(1.5, 3.5, 0.1, 0.9, 1.0, n, Y_TEST_FUNCTION)
+    x, dx, dy = simulate_calibration_data_samples(
+        1.5, 3.5, 0.1, 0.9, 1.0, n, Y_TEST_FUNCTION
+    )
     anchors_x = [TEST_XMIN]
     anchors_y = [0.0]
     priorx, priory = _get_mixed_prior(TEST_XMIN, TEST_XMAX, 1.0)
@@ -193,7 +196,7 @@ def test_total_estimate_improves_and_std_shrinks_with_coverage():
     half_cov = (TEST_XMAX - TEST_XMIN) * 0.5
     eps = (TEST_XMAX - TEST_XMIN) * 0.1
     for ddx in np.linspace(eps, half_cov - eps, 4):
-        x, dx, dy = sample_data(
+        x, dx, dy = simulate_calibration_data_samples(
             TEST_XMIN + ((TEST_XMAX - TEST_XMIN) / 2.0) - ddx,
             TEST_XMIN + ((TEST_XMAX - TEST_XMIN) / 2.0) + ddx,
             0.5,
@@ -253,7 +256,7 @@ def test_total_estimate_improves_and_std_shrinks_with_delta_size():
     prevstds = []
     n = 50
     for dx_max in np.linspace(0.01, 2.0, 4):
-        x, dx, dy = sample_data(
+        x, dx, dy = simulate_calibration_data_samples(
             1.5,
             3.5,
             dx_max / 2.0,

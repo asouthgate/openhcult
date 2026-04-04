@@ -15,7 +15,7 @@ function timeTicks(tMin, tMax, n) {
   return Array.from({ length: n + 1 }, (_, i) => tMin + i * step)
 }
 
-function valueTicks(vMin, vMax, n) {
+export function valueTicks(vMin, vMax, n) {
   const range = vMax - vMin || 1
   const rawStep = range / n
   const mag = Math.pow(10, Math.floor(Math.log10(rawStep)))

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { TimeseriesChart, PALETTE } from './TimeseriesChart'
+import CalibrationCurve from './CalibrationCurve'
 
 const TIME_RANGES = [
   { label: '6h', hours: 6 },
@@ -34,6 +35,7 @@ export default function App() {
   const [pendingTime, setPendingTime] = useState(null)
   const [pendingPlant, setPendingPlant] = useState('')
   const [pendingMl, setPendingMl] = useState('')
+  const [tab, setTab] = useState('sensors')
   const [loading, setLoading] = useState(false)
   const [showDuplicateModal, setShowDuplicateModal] = useState(false)
   const [calibration, setCalibration] = useState(null)
@@ -162,7 +164,11 @@ export default function App() {
               </button>
             ))}
           </div>
-          <select value={plantFilter} onChange={e => setPlantFilter(e.target.value)}>
+          <div className="range-btns">
+            <button className={tab === 'sensors' ? 'active' : ''} onClick={() => setTab('sensors')}>Sensors</button>
+            <button className={tab === 'calibration' ? 'active' : ''} onClick={() => setTab('calibration')} disabled={!plantFilter}>Calibration</button>
+          </div>
+          <select value={plantFilter} onChange={e => { setPlantFilter(e.target.value); setTab('sensors') }}>
             <option value="">All plants</option>
             {plants.map(p => (
               <option key={p.plant_name} value={p.plant_name}>
@@ -173,25 +179,32 @@ export default function App() {
         </div>
       </div>
 
-      {loading && <div className="loading">Loading…</div>}
+      {tab === 'calibration' && (
+        calibLoading ? <div className="loading">Computing calibration…</div>
+        : calibError ? <div className="empty">{calibError}</div>
+        : !calibration ? <div className="empty">No calibration data for this plant.</div>
+        : <CalibrationCurve calibration={calibration} />
+      )}
 
-      {!loading && series.length === 0 && (
+      {loading && tab === 'sensors' && <div className="loading">Loading…</div>}
+
+      {tab === 'sensors' && !loading && series.length === 0 && (
         <div className="empty">No sensor data in this time range.</div>
       )}
 
-      {(measureMode === 'water' || measureMode === 'water_pct') && !plantFilter && (
+      {tab === 'sensors' && (measureMode === 'water' || measureMode === 'water_pct') && !plantFilter && (
         <div className="empty">Select a plant to view calibrated water estimate.</div>
       )}
 
-      {(measureMode === 'water' || measureMode === 'water_pct') && plantFilter && calibLoading && (
+      {tab === 'sensors' && (measureMode === 'water' || measureMode === 'water_pct') && plantFilter && calibLoading && (
         <div className="loading">Computing calibration…</div>
       )}
 
-      {(measureMode === 'water' || measureMode === 'water_pct') && plantFilter && !calibLoading && !calibration && (
+      {tab === 'sensors' && (measureMode === 'water' || measureMode === 'water_pct') && plantFilter && !calibLoading && !calibration && (
         <div className="empty">{calibError ?? 'No calibration data.'}</div>
       )}
 
-      {series.length > 0 && (!['water', 'water_pct'].includes(measureMode) || (plantFilter && calibration)) && (() => {
+      {tab === 'sensors' && series.length > 0 && (!['water', 'water_pct'].includes(measureMode) || (plantFilter && calibration)) && (() => {
         const isWater = (measureMode === 'water' || measureMode === 'water_pct') && calibration
         const scale = calibration?.scale ?? 1
         const toV = ml => measureMode === 'water_pct' ? ml / scale * 100 : ml

@@ -5,7 +5,8 @@ from urllib.error import HTTPError
 
 import pytest
 
-from test_utils import request_json, simulate_moisture_multi
+from hcultinf.simulation import simulate_plant_moisture
+from test_utils import request_json, SENSOR_DRY_MV, SENSOR_WET_MV
 
 SEED_DSN = os.environ.get(
     "OPENHCULT_SEED_DSN", "postgresql://hcult:hcult@127.0.0.1:5432/hcult"
@@ -68,16 +69,20 @@ def test_water_calibration_with_waterings():
         payload={"device": device_addr, "sensor": "cap1"},
     )
 
-    # Sensor A from calibration: dry ~2310, wet ~895
-    readings_bg, watering_times = simulate_moisture_multi(
-        n_events=10, days_per_cycle=2, base=2310, wet=895
+    readings_bg, watering_times, ml_amounts, before_vals, after_vals = (
+        simulate_plant_moisture(
+            max_swc_ml=75.0,
+            base=SENSOR_DRY_MV,
+            wet=SENSOR_WET_MV,
+            dose_frac_range=(0.4, 0.8),
+            target_fc_range=(0.05, 0.2),
+            drain_per_day=0.1,
+        )
     )
 
-    # Explicit before/after readings within the ±10-min inference window
-    window_readings = []
-    for t_water in watering_times:
-        window_readings.append((t_water - _WINDOW_MS, 2100))  # drying, before watering
-        window_readings.append((t_water + _WINDOW_MS, 920))  # freshly watered
+    window_readings = [
+        (t - _WINDOW_MS, bv) for t, bv in zip(watering_times, before_vals)
+    ] + [(t + _WINDOW_MS, av) for t, av in zip(watering_times, after_vals)]
 
     with psycopg.connect(SEED_DSN) as conn:
         with conn.cursor() as cur:
@@ -89,15 +94,11 @@ def test_water_calibration_with_waterings():
                     (device_id, "cap1", raw, int(raw * 0.95), t, t)
                     for t, raw, mv in readings_bg
                 ]
-                + [
-                    (device_id, "cap1", raw, int(raw * 0.95), t, t)
-                    for t, raw in window_readings
-                ],
+                + [(device_id, "cap1", raw, raw, t, t) for t, raw in window_readings],
             )
         conn.commit()
 
-    ml_per_watering = 200
-    for t_water in watering_times:
+    for t_water, ml in zip(watering_times, ml_amounts):
         observed_at = (
             datetime.fromtimestamp(t_water / 1000, tz=timezone.utc)
             .isoformat()
@@ -107,7 +108,7 @@ def test_water_calibration_with_waterings():
             "/observations",
             method="POST",
             payload={
-                "note": f"WATER manual ml={ml_per_watering}",
+                "note": f"WATER manual ml={round(ml)}",
                 "observed_at": observed_at,
                 "plant_name": plant_name,
             },
