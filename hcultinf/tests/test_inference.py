@@ -1,7 +1,13 @@
 import numpy as np
+import pytest
 
 from hcultinf.inference import GPWithPriorShape
-from hcultinf.simulation import sample_data, Y_TEST_FUNCTION_NONORM, Y_TEST_FUNCTION
+from hcultinf.simulation import (
+    sample_data,
+    Y_TEST_FUNCTION_NONORM,
+    Y_TEST_FUNCTION,
+    Y_TEST_FUNCTION_DECREASING,
+)
 
 TEST_XMIN = 0.0
 TEST_XMAX = 5.5
@@ -21,13 +27,23 @@ def _get_mixed_prior(xmin, xmax, p):
     return priorx, priory
 
 
-def test_convergence_in_n_bad_prior():
+@pytest.mark.parametrize("sign", [1, -1])
+def test_convergence_in_n_bad_prior(sign):
     """Test that, as data increases, the curve estimate approaches the true curve."""
     preverrs = []
     last_pwl = last_x = last_dx = last_dy = None
+    signed_test_function = Y_TEST_FUNCTION if sign > 0 else Y_TEST_FUNCTION_DECREASING
+    if sign < 0:
+        anchorx = np.array([TEST_XMAX])
+        anchory = np.array([0.0])
+    else:
+        anchorx = np.array([TEST_XMIN])
+        anchory = np.array([0.0])
     for n in [4, 32, 256]:
         priorx_pts = np.array([TEST_XMIN, TEST_XMAX])
         priory_pts = np.array([0.0, 1.0])
+        if sign < 0:
+            priory_pts = priory_pts[::-1]
         errs = []
         for _ in range(5):
             x, dx, dy = sample_data(
@@ -37,11 +53,11 @@ def test_convergence_in_n_bad_prior():
                 TEST_DXMAX,
                 TEST_NOISE_LEVEL,
                 n,
-                Y_TEST_FUNCTION,
+                signed_test_function,
             )
             pwl = GPWithPriorShape(length_scale=1.0).fit(
-                np.array([TEST_XMIN]),
-                np.array([0.0]),
+                anchorx,
+                anchory,
                 x,
                 dx,
                 dy,
@@ -50,7 +66,7 @@ def test_convergence_in_n_bad_prior():
             )
             pwlx = np.linspace(TEST_XMIN, TEST_XMAX, 2000)
             _curve_error = np.abs(
-                (Y_TEST_FUNCTION(pwlx) - Y_TEST_FUNCTION(TEST_XMIN))
+                (signed_test_function(pwlx) - signed_test_function(TEST_XMIN))
                 - (pwl(pwlx) - pwl(TEST_XMIN))
             ).mean()
             errs.append(_curve_error)
@@ -60,17 +76,18 @@ def test_convergence_in_n_bad_prior():
 
     plot_x = np.linspace(TEST_XMIN, TEST_XMAX, 500)
     plot_y = np.interp(plot_x, priorx_pts, priory_pts)
+    signstr = "positive" if sign > 0 else "negative"
     last_pwl.plot(
         plot_x,
         plot_y,
-        [TEST_XMIN],
-        [0.0],
+        anchorx,
+        anchory,
         last_x,
         last_dx,
         last_dy,
-        true_y=Y_TEST_FUNCTION(plot_x) - Y_TEST_FUNCTION(TEST_XMIN),
-        out="artifacts/convergence_n_bad_prior.png",
-        title="Test convergence in n with bad prior",
+        true_y=signed_test_function(plot_x) - signed_test_function(plot_x).min(),
+        out=f"artifacts/convergence_n_bad_prior_{signstr}.png",
+        title=f"Test convergence in n with bad prior ({signstr})",
     )
 
     assert all(
