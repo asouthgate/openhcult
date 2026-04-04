@@ -15,9 +15,6 @@ TEST_DXMIN = 0.2
 TEST_DXMAX = 0.5
 TEST_NOISE_LEVEL = 0.5
 
-# See if debug flag is set
-DEBUG_PLOT = os.getenv("TEST_DEBUG_PLOT", "0") == "1"
-
 
 def _get_mixed_prior(xmin, xmax, p):
     priorx = np.linspace(xmin, xmax, 1000)
@@ -44,91 +41,13 @@ def _sample_data(xmin, xmax, dxmin, dxmax, noise_level, n, y, uniform=False):
     return x, dx, dy
 
 
-def _debug_plot(
-    pwl,
-    priorx,
-    priory,
-    anchors_x,
-    anchors_y,
-    x,
-    dx,
-    dy,
-    pwlprevs=None,
-    artifact_name=None,
-):
-
-    if not DEBUG_PLOT and artifact_name is None:
-        return
-
-    import matplotlib.pyplot as plt
-
-    mean, std = pwl.predict(priorx)
-    ci_lower = mean - 1.96 * std
-    ci_upper = mean + 1.96 * std
-
-    for i in range(len(dx)):
-        plt.scatter(
-            [x[i], x[i] + dx[i]],
-            [pwl(x[i]) - pwl(TEST_XMIN), pwl(x[i]) - pwl(TEST_XMIN) + dy[i]],
-        )
-        plt.plot(
-            [x[i], x[i] + dx[i]],
-            [pwl(x[i]) - pwl(TEST_XMIN), pwl(x[i]) - pwl(TEST_XMIN) + dy[i]],
-        )
-
-    plt.scatter(
-        anchors_x,
-        anchors_y,
-        label="anchors",
-    )
-    plt.plot(
-        priorx, Y_TEST_FUNCTION(priorx) - Y_TEST_FUNCTION(priorx.min()), label="true"
-    )
-    plt.plot(
-        priorx,
-        priory * (pwl(priorx).max() - pwl(priorx).min()),
-        label="rescaled prior",
-    )
-    plt.plot(priorx, pwl(priorx) - pwl(priorx.min()), label="GP")
-    plt.fill_between(
-        priorx,
-        ci_lower - mean.min(),
-        ci_upper - mean.min(),
-        color="gray",
-        alpha=0.3,
-        label="95% CI",
-    )
-    plt.plot(priorx, mean - mean.min(), label="GP mean")
-    if pwlprevs is not None:
-        for i, pwlprev in enumerate(pwlprevs):
-            plt.plot(
-                priorx,
-                pwlprev(priorx) - pwlprev(priorx.min()),
-                label=f"prev{i}",
-                alpha=0.5,
-                color="brown",
-                linestyle="--",
-            )
-
-    if artifact_name is not None:
-        # create artifacts directory
-        if not os.path.exists("artifacts"):
-            os.makedirs("artifacts")
-        plt.savefig(f"artifacts/debug_plot_{artifact_name}.png")
-
-    if DEBUG_PLOT:
-        plt.show()
-
-    plt.legend()
-
-
 def test_convergence_in_n_bad_prior():
     """Test that, as data increases, the curve estimate approaches the true curve."""
     preverrs = []
-    for n in [4, 32, 256]:  # Square the number of points, 5 chosen for convenience
-        # Use linear prior (bad)
-        priorx = np.array([TEST_XMIN, TEST_XMAX])
-        priory = np.array([0.0, 1.0])
+    last_pwl = last_x = last_dx = last_dy = None
+    for n in [4, 32, 256]:
+        priorx_pts = np.array([TEST_XMIN, TEST_XMAX])
+        priory_pts = np.array([0.0, 1.0])
         errs = []
         for _ in range(5):
             x, dx, dy = _sample_data(
@@ -140,20 +59,39 @@ def test_convergence_in_n_bad_prior():
                 n,
                 Y_TEST_FUNCTION,
             )
-
             pwl = GPWithPriorShape(length_scale=1.0).fit(
-                np.array([TEST_XMIN]), np.array([0.0]), x, dx, dy, priorx, priory
+                np.array([TEST_XMIN]),
+                np.array([0.0]),
+                x,
+                dx,
+                dy,
+                priorx_pts,
+                priory_pts,
             )
-
             pwlx = np.linspace(TEST_XMIN, TEST_XMAX, 2000)
-
             _curve_error = np.abs(
                 (Y_TEST_FUNCTION(pwlx) - Y_TEST_FUNCTION(TEST_XMIN))
                 - (pwl(pwlx) - pwl(TEST_XMIN))
             ).mean()
             errs.append(_curve_error)
+        last_pwl, last_x, last_dx, last_dy = pwl, x, dx, dy
         curve_error = np.mean(errs)
         preverrs.append(curve_error)
+
+    plot_x = np.linspace(TEST_XMIN, TEST_XMAX, 500)
+    plot_y = np.interp(plot_x, priorx_pts, priory_pts)
+    last_pwl.plot(
+        plot_x,
+        plot_y,
+        [TEST_XMIN],
+        [0.0],
+        last_x,
+        last_dx,
+        last_dy,
+        true_y=Y_TEST_FUNCTION(plot_x) - Y_TEST_FUNCTION(TEST_XMIN),
+        out="artifacts/convergence_n_bad_prior.png",
+        title="Test convergence in n with bad prior",
+    )
 
     assert all(
         np.diff(preverrs) < 0
@@ -163,30 +101,25 @@ def test_convergence_in_n_bad_prior():
 
 def test_convergence_in_prior_low_n():
     """Test that, as data increases, the curve estimate approaches the true curve."""
-    # pwlprev = None
-    n = 4  # has to be high enough that it is much more likely to fit real prior
+    n = 4
     x, dx, dy = _sample_data(
         TEST_XMIN,
         TEST_XMAX,
         TEST_DXMIN,
         TEST_DXMAX,
-        TEST_NOISE_LEVEL
-        * 0.1,  # reduce noise to make it more likely to fit the true prior
+        TEST_NOISE_LEVEL * 0.1,
         n,
         Y_TEST_FUNCTION,
-        uniform=True,  # use uniform sampling to make it more likely to fit the true prior
+        uniform=True,
     )
     pwlprevs = []
     preverrs = []
 
     for p in [1.0, 2 / 3, 1 / 3, 0.0]:
         priorx, priory = _get_mixed_prior(TEST_XMIN, TEST_XMAX, p)
-
-        # for _ in range(5):
         pwl = GPWithPriorShape().fit(
             np.array([TEST_XMIN]), np.array([0.0]), x, dx, dy, priorx, priory
         )
-
         curve_error = (
             (
                 (Y_TEST_FUNCTION(priorx) - Y_TEST_FUNCTION(TEST_XMIN))
@@ -194,9 +127,22 @@ def test_convergence_in_prior_low_n():
             )
             ** 2
         ).mean()
-
         pwlprevs.append(pwl)
         preverrs.append(curve_error)
+
+    pwl.plot(
+        priorx,
+        priory,
+        [TEST_XMIN],
+        [0.0],
+        x,
+        dx,
+        dy,
+        pwlprevs=pwlprevs[:-1],
+        true_y=Y_TEST_FUNCTION(priorx) - Y_TEST_FUNCTION(TEST_XMIN),
+        out="artifacts/convergence_prior_low_n.png",
+        title="Test convergence in prior with low n",
+    )
 
     assert all(
         np.diff(preverrs) < 0
@@ -206,20 +152,11 @@ def test_convergence_in_prior_low_n():
 
 def test_performance_realistic_parameters():
     """Test that, as data increases, the curve estimate approaches the true curve."""
-    # pwlprev = None
     n = 10
-    x, dx, dy = _sample_data(
-        1.5,
-        3.5,
-        0.1,
-        0.9,
-        1.0,
-        n,
-        Y_TEST_FUNCTION,
-    )
+    x, dx, dy = _sample_data(1.5, 3.5, 0.1, 0.9, 1.0, n, Y_TEST_FUNCTION)
     anchors_x = [TEST_XMIN]
     anchors_y = [0.0]
-    priorx, priory = _get_mixed_prior(TEST_XMIN, TEST_XMAX, 0.5)
+    priorx, priory = _get_mixed_prior(TEST_XMIN, TEST_XMAX, 1.0)
 
     pwl = GPWithPriorShape().fit(
         np.array(anchors_x),
@@ -230,8 +167,7 @@ def test_performance_realistic_parameters():
         priorx,
         priory,
     )
-    _debug_plot(
-        pwl,
+    pwl.plot(
         priorx,
         priory,
         anchors_x,
@@ -239,15 +175,15 @@ def test_performance_realistic_parameters():
         x,
         dx,
         dy,
-        pwlprevs=None,
-        artifact_name="realistic_parameters",
+        true_y=Y_TEST_FUNCTION(priorx) - Y_TEST_FUNCTION(TEST_XMIN),
+        out="artifacts/realistic_parameters.png",
+        title="Test performance with realistic parameters",
     )
 
     curve_error = np.abs(
         (Y_TEST_FUNCTION(priorx) - Y_TEST_FUNCTION(TEST_XMIN))
         - (pwl(priorx) - pwl(TEST_XMIN))
     ).mean()
-
     assert curve_error < 0.2 * Y_TEST_FUNCTION(priorx).max()
 
 
@@ -268,7 +204,7 @@ def test_total_estimate_improves_and_std_shrinks_with_coverage():
             0.0,
             n,
             Y_TEST_FUNCTION,
-            uniform=True,  # use uniform sampling to make it more likely to fit the true prior
+            uniform=True,
         )
         anchors_x = [TEST_XMIN]
         anchors_y = [0.0]
@@ -283,18 +219,27 @@ def test_total_estimate_improves_and_std_shrinks_with_coverage():
             priorx,
             priory,
         )
-        # _debug_plot(
-        #     pwl, priorx, priory, anchors_x, anchors_y, x, dx, dy, pwlprevs=pwlprevs
-        # )
-        prevstds.append(
-            pwl.predict(priorx)[1].mean()
-        )  # this is mean of stds, not mean trend
+        prevstds.append(pwl.predict(priorx)[1].mean())
         pwlprevs.append(pwl)
         curve_error = np.abs(
             (Y_TEST_FUNCTION(priorx) - Y_TEST_FUNCTION(TEST_XMIN))
             - (pwl(priorx) - pwl(TEST_XMIN))
         ).mean()
         preverrs.append(curve_error)
+
+    pwl.plot(
+        priorx,
+        priory,
+        anchors_x,
+        anchors_y,
+        x,
+        dx,
+        dy,
+        pwlprevs=pwlprevs[:-1],
+        true_y=Y_TEST_FUNCTION(priorx) - Y_TEST_FUNCTION(TEST_XMIN),
+        out="artifacts/coverage_std_shrinks.png",
+        title="Test estimate improves and std shrinks with coverage",
+    )
 
     assert all(
         np.diff(prevstds) < 0
@@ -319,7 +264,7 @@ def test_total_estimate_improves_and_std_shrinks_with_delta_size():
             0.0,
             n,
             Y_TEST_FUNCTION,
-            uniform=True,  # use uniform sampling to make it more likely to fit the true prior
+            uniform=True,
         )
         anchors_x = [TEST_XMIN]
         anchors_y = [0.0]
@@ -334,18 +279,27 @@ def test_total_estimate_improves_and_std_shrinks_with_delta_size():
             priorx,
             priory,
         )
-        _debug_plot(
-            pwl, priorx, priory, anchors_x, anchors_y, x, dx, dy, pwlprevs=pwlprevs
-        )
-        prevstds.append(
-            pwl.predict(priorx)[1].mean()
-        )  # this is mean of stds, not mean trend
+        prevstds.append(pwl.predict(priorx)[1].mean())
         pwlprevs.append(pwl)
         curve_error = np.abs(
             (Y_TEST_FUNCTION(priorx) - Y_TEST_FUNCTION(TEST_XMIN))
             - (pwl(priorx) - pwl(TEST_XMIN))
         ).mean()
         preverrs.append(curve_error)
+
+    pwl.plot(
+        priorx,
+        priory,
+        anchors_x,
+        anchors_y,
+        x,
+        dx,
+        dy,
+        pwlprevs=pwlprevs[:-1],
+        true_y=Y_TEST_FUNCTION(priorx) - Y_TEST_FUNCTION(TEST_XMIN),
+        out="artifacts/delta_size_std_shrinks.png",
+        title="Test estimate improves and std shrinks with delta size",
+    )
 
     assert all(
         np.diff(prevstds) < 0

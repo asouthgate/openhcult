@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 import numpy as np
 
 
@@ -139,3 +141,135 @@ class GPWithPriorShape:
             return np.sqrt(np.maximum(post_var, 0.0))
 
         return predict_mean, predict_std, scale
+
+    def plot(
+        self,
+        priorx,
+        priory,
+        anchors_x,
+        anchors_y,
+        x,
+        dx,
+        dy,
+        pwlprevs=None,
+        true_y=None,
+        out=None,
+        title=None,
+    ):
+        import matplotlib.pyplot as plt
+
+        priorx = np.asarray(priorx)
+        priory = np.asarray(priory)
+        plot_x = np.linspace(priorx.min(), priorx.max(), 500)
+        plot_prior_y = np.interp(plot_x, priorx, priory)
+        plot_true_y = (
+            np.interp(plot_x, priorx, np.asarray(true_y))
+            if true_y is not None
+            else None
+        )
+        mean_at_x = self(x)
+        mean, std = self.predict(plot_x)
+        fig = plot_response_curve(
+            plot_x,
+            plot_prior_y,
+            mean,
+            std,
+            anchors_x,
+            anchors_y,
+            x,
+            dx,
+            dy,
+            mean_at_x,
+            true_y=plot_true_y,
+        )
+        if pwlprevs is not None:
+            ax = fig.axes[0]
+            ref = mean.min()
+            for i, pwlprev in enumerate(pwlprevs):
+                prev_vals = pwlprev(plot_x)
+                ax.plot(
+                    plot_x,
+                    prev_vals - prev_vals.min(),
+                    label=f"prev{i}",
+                    alpha=0.5,
+                    color="brown",
+                    linestyle="--",
+                )
+            ax.legend()
+        if out is not None:
+            os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+            fig.savefig(out)
+        if title is not None:
+            fig.suptitle(title)
+        if os.environ.get("HCULT_TEST_DEBUG_PLOT", "0") == "1":
+            plt.show()
+
+        plt.close(fig)
+        return fig
+
+
+def plot_response_curve(
+    prior_x,
+    prior_y,
+    mean,
+    std,
+    anchors_x,
+    anchors_y,
+    x,
+    dx,
+    dy,
+    mean_at_x,
+    true_y=None,
+    xlabel="sensor reading",
+    ylabel="SWC",
+):
+    import matplotlib.pyplot as plt
+
+    prior_x = np.asarray(prior_x)
+    prior_y = np.asarray(prior_y)
+    mean = np.asarray(mean)
+    std = np.asarray(std)
+    x = np.asarray(x)
+    dx = np.asarray(dx)
+    dy = np.asarray(dy)
+    mean_at_x = np.asarray(mean_at_x)
+
+    # ref = min(anchors_y) if len(anchors_y) > 0 else mean.min()
+    ci_lower = mean - 1.96 * std
+    ci_upper = mean + 1.96 * std
+
+    fig, ax = plt.subplots()
+
+    for i in range(len(dx)):
+        start_y = mean_at_x[i]
+        label = "chords" if i == 0 else None
+        ax.scatter(
+            [x[i], x[i] + dx[i]],
+            [start_y, start_y + dy[i]],
+            color="steelblue",
+            alpha=0.5,
+        )
+        ax.plot(
+            [x[i], x[i] + dx[i]],
+            [start_y, start_y + dy[i]],
+            color="steelblue",
+            alpha=0.5,
+            label=label,
+        )
+
+    ax.scatter(anchors_x, anchors_y, label="anchors")
+    gp_range = mean.max() - mean.min()
+    ax.plot(prior_x, prior_y * gp_range, label="rescaled prior")
+    ax.fill_between(
+        prior_x, ci_lower, ci_upper, color="gray", alpha=0.3, label="95% CI"
+    )
+    ax.plot(prior_x, mean, label="GP mean")
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+
+    if true_y is not None:
+        ax.plot(prior_x, np.asarray(true_y), label="true")
+
+    ax.legend()
+
+    return fig

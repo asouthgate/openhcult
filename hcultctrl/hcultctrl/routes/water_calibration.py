@@ -43,7 +43,9 @@ def _load_calibration(csv_path: str) -> tuple[np.ndarray, np.ndarray]:
             by_ml: dict[float, list[float]] = {}
             for row in reader:
                 ml = float(row["ml"])
-                for col in ("sensor1_raw", "sensor2_raw"):
+                if ml < 0:
+                    continue
+                for col in ("sensor1_voltage", "sensor2_voltage"):
                     if col in fieldnames:
                         by_ml.setdefault(ml, []).append(float(row[col]))
             for ml, readings in by_ml.items():
@@ -89,8 +91,8 @@ def water_calibration(plant: str, conn=Depends(get_db_conn)):
         )
         if not before or not after:
             continue
-        x = float(np.mean([r["measurement"] for r in before]))
-        x_after = float(np.mean([r["measurement"] for r in after]))
+        x = float(np.mean([r["voltage_mv"] for r in before]))
+        x_after = float(np.mean([r["voltage_mv"] for r in after]))
         chords.append((x, x_after - x, ml))
 
     if not chords:
@@ -120,11 +122,21 @@ def water_calibration(plant: str, conn=Depends(get_db_conn)):
     gp = GPWithPriorShape().fit(
         x_anchor, swc_anchor, x_arr, dx_arr, dy_arr, prior_x, prior_y
     )
-    mean, std = gp.predict(prior_x)
+    plot_x = np.linspace(prior_x.min(), prior_x.max(), 500)
+    plot_prior_y = np.interp(plot_x, prior_x, prior_y)
+    mean, std = gp.predict(plot_x)
+    mean_at_chord_starts = gp(x_arr)
 
     return {
-        "prior_x": prior_x.tolist(),
+        "prior_x": plot_x.tolist(),
+        "prior_y": plot_prior_y.tolist(),
         "mean": mean.tolist(),
         "std": std.tolist(),
         "scale": float(gp.scale),
+        "anchors_x": x_anchor.tolist(),
+        "anchors_y": swc_anchor.tolist(),
+        "chords_x": x_arr.tolist(),
+        "chords_dx": dx_arr.tolist(),
+        "chords_dy": dy_arr.tolist(),
+        "mean_at_chord_starts": mean_at_chord_starts.tolist(),
     }

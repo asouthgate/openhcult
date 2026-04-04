@@ -13,7 +13,7 @@ from hcultutils.species import species_via_ctrl
 from hcultutils.devices import devices_via_ctrl
 from hcultutils.observations import observations_main
 from hcultutils.inference_train import inference_train_main
-from hcultutils.response_curve import inference_train_main
+from hcultutils.response_curve import response_curve_estimate_main
 
 
 class HcultArgumentParser(argparse.ArgumentParser):
@@ -237,6 +237,16 @@ def _add_observations_command(subparsers):
     ls_parser.add_argument("--limit", type=int, default=1000)
 
 
+def _add_response_curve_command(subparsers):
+    parser = subparsers.add_parser("plot_response_curve_estimate")
+    parser.add_argument(
+        "--plant-name", required=True, help="Plant to plot calibration curve for"
+    )
+    parser.add_argument(
+        "--out", default=None, help="Write PNG here instead of showing a window"
+    )
+
+
 def _add_inference_train_command(subparsers):
     parser = subparsers.add_parser("inference_train")
     _add_base_args(parser)
@@ -276,6 +286,7 @@ def _build_parser() -> HcultArgumentParser:
     _add_plants_command(subparsers)
     _add_devices_command(subparsers)
     _add_observations_command(subparsers)
+    _add_response_curve_command(subparsers)
     _add_inference_train_command(subparsers)
     return parser
 
