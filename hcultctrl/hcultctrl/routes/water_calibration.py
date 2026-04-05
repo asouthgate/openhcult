@@ -116,9 +116,8 @@ def water_calibration(plant: str, conn=Depends(get_db_conn)):
 
     csv_path = os.environ.get("HCULT_CALIBRATION_CSV")
     if not csv_path:
-        raise HTTPException(
-            status_code=500, detail="HCULT_CALIBRATION_CSV not configured"
-        )
+        logger.error("HCULT_CALIBRATION_CSV is not configured")
+        raise HTTPException(status_code=500, detail="Calibration data unavailable")
 
     sensor_vals, swc_vals = _load_calibration(csv_path)
     swc_min, swc_max = swc_vals.min(), swc_vals.max()
