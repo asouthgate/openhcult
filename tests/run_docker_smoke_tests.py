@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
+import json
 import os
+import secrets
 import subprocess
 import sys
 import time
@@ -14,15 +16,16 @@ DB_URL = os.environ.get(
 )
 
 
-def _run(cmd, check=True):
-    return subprocess.run(cmd, shell=True, check=check)
+def _run(cmd, check=True, extra_env=None):
+    env = {**os.environ, **(extra_env or {})}
+    return subprocess.run(cmd, shell=True, check=check, env=env)
 
 
 def _wait_for_ctrl():
     start = time.time()
     while True:
         try:
-            with request.urlopen(f"{CTRL_URL}/", timeout=5):
+            with request.urlopen(f"{CTRL_URL}/status", timeout=5):
                 return
         except (error.URLError, ConnectionResetError):
             if time.time() - start > TIMEOUT_S:
@@ -44,6 +47,18 @@ def _wait_for_postgres():
         time.sleep(2)
 
 
+def _setup_auth(password: str) -> None:
+    data = json.dumps({"username": "admin", "password": password}).encode()
+    req = request.Request(
+        f"{CTRL_URL}/auth/setup",
+        data=data,
+        method="POST",
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+    )
+    with request.urlopen(req, timeout=10) as resp:
+        resp.read()
+
+
 def main() -> int:
     interactive = "--interactive" in sys.argv or "-i" in sys.argv
     _run(f"{COMPOSE_CMD} down -v --remove-orphans")
@@ -56,11 +71,17 @@ def main() -> int:
             f"setup.setup_db('{DB_URL}')\""
         )
         _wait_for_ctrl()
+        _run("pytest -q tests/test_unauthenticated.py")
+        password = secrets.token_urlsafe(12)
+        _setup_auth(password)
+        print(f"\nSmoke test credentials: admin / {password}\n")
         result = _run(
-            "pytest -q tests/test_api.py tests/test_seed_visualisation.py tests/test_water_calibration.py"
+            "pytest -q tests/test_api.py tests/test_seed_visualisation.py tests/test_water_calibration.py",
+            extra_env={"OPENHCULT_SMOKE_PASSWORD": password},
         ).returncode
         if interactive:
             print(f"\nStack is up. Frontend: {CTRL_URL}/frontend/app/")
+            print(f"Login: admin / {password}")
             input("Press Enter to tear down.\n")
         return result
     except Exception:

@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone, timedelta
+import getpass
+import json
 import os
 import sys
+import urllib.error as _urlerr
+import urllib.request as _urlreq
 
 from hcultutils import infer_events, plot_timeseries, fetch_data
 from hcultutils.plants import plants_via_ctrl
@@ -14,6 +18,7 @@ from hcultutils.devices import devices_via_ctrl
 from hcultutils.observations import observations_main
 from hcultutils.inference_train import inference_train_main
 from hcultutils.response_curve import response_curve_estimate_main
+from hcultutils.token import save_token
 
 
 class HcultArgumentParser(argparse.ArgumentParser):
@@ -266,6 +271,29 @@ def _add_inference_train_command(subparsers):
     )
 
 
+def _add_auth_url_arg(parser):
+    parser.add_argument(
+        "--ctrl-url",
+        default=os.environ.get("HCULT_CTRL_URL", None),
+        required=True,
+        help="URL for the CTRL node",
+    )
+
+
+def _add_login_command(subparsers):
+    parser = subparsers.add_parser(
+        "login", formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    _add_auth_url_arg(parser)
+
+
+def _add_setup_command(subparsers):
+    parser = subparsers.add_parser(
+        "setup", formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    _add_auth_url_arg(parser)
+
+
 def _build_parser() -> HcultArgumentParser:
     parser = HcultArgumentParser(
         prog="hcultutils",
@@ -279,6 +307,8 @@ def _build_parser() -> HcultArgumentParser:
     )
     subparsers.required = True
 
+    _add_setup_command(subparsers)
+    _add_login_command(subparsers)
     _add_fetch_data_command(subparsers)
     _add_plot_timeseries_command(subparsers)
     _add_infer_events_command(subparsers)
@@ -291,8 +321,60 @@ def _build_parser() -> HcultArgumentParser:
     return parser
 
 
+def _post_auth(url: str, username: str, password: str) -> str:
+    data = json.dumps({"username": username, "password": password}).encode()
+    req = _urlreq.Request(
+        url,
+        data=data,
+        method="POST",
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+    )
+    try:
+        with _urlreq.urlopen(req, timeout=10) as resp:
+            return json.loads(resp.read().decode())["access_token"]
+    except _urlerr.HTTPError as exc:
+        body = exc.read().decode()
+        try:
+            detail = json.loads(body).get("detail", exc.reason)
+        except ValueError:
+            detail = exc.reason
+        raise SystemExit(f"Error {exc.code}: {detail}") from exc
+
+
+def _setup(ctrl_url: str) -> int:
+    base = ctrl_url.rstrip("/")
+    status_req = _urlreq.Request(
+        f"{base}/auth/status", headers={"Accept": "application/json"}
+    )
+    try:
+        with _urlreq.urlopen(status_req, timeout=10) as resp:
+            configured = json.loads(resp.read().decode()).get("configured", False)
+    except _urlerr.URLError as exc:
+        raise SystemExit(f"Could not reach server: {exc.reason}") from exc
+    if configured:
+        raise SystemExit("Already configured — use `hcultutils login` to authenticate.")
+    username = input("Username: ")
+    password = getpass.getpass("Password: ")
+    confirm = getpass.getpass("Confirm password: ")
+    if password != confirm:
+        raise SystemExit("Passwords do not match.")
+    token = _post_auth(f"{base}/auth/setup", username, password)
+    save_token(token)
+    print("Setup complete. You are now logged in.")
+    return 0
+
+
+def _login(ctrl_url: str) -> int:
+    username = input("Username: ")
+    password = getpass.getpass("Password: ")
+    token = _post_auth(f"{ctrl_url.rstrip('/')}/auth/login", username, password)
+    save_token(token)
+    print("Logged in.")
+    return 0
+
+
 def _apply_hours_args(args):
-    if args.hours is None:
+    if getattr(args, "hours", None) is None:
         return
     now = datetime.now(timezone.utc)
     hours_ago = now - timedelta(hours=args.hours)
@@ -300,6 +382,10 @@ def _apply_hours_args(args):
 
 
 def _dispatch_command(args) -> int:
+    if args.command == "setup":
+        return _setup(args.ctrl_url)
+    if args.command == "login":
+        return _login(args.ctrl_url)
     if not args.ctrl_url:
         raise ValueError("Must specify --ctrl-url or define HCULT_CTRL_URL")
     if args.command == "plot_timeseries":

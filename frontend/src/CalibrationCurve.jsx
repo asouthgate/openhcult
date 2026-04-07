@@ -41,7 +41,9 @@ export default function CalibrationCurve({ calibration }) {
           <line key={v} x1={M.left} x2={VW - M.right} y1={scy(v)} y2={scy(v)} className="grid-line" />
         ))}
 
-        <polygon points={`${ciUpperPts} ${ciLowerPts}`} fill="#7eb3c9" opacity="0.2" />
+        <polygon points={`${ciUpperPts} ${ciLowerPts}`} fill="#7eb3c9" opacity="0.35" />
+        <polyline points={ciUpperPts} fill="none" stroke="#7eb3c9" strokeWidth="1" opacity="0.6" />
+        <polyline points={[...prior_x].reverse().map((xi, i) => `${scx(xi).toFixed(1)},${scy(ciLo[prior_x.length - 1 - i]).toFixed(1)}`).join(' ')} fill="none" stroke="#7eb3c9" strokeWidth="1" opacity="0.6" />
 
         <polyline
           points={prior_x.map((xi, i) => `${scx(xi).toFixed(1)},${scy(priorScaled[i]).toFixed(1)}`).join(' ')}

@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { apiFetch } from './api'
 import { TimeseriesChart, PALETTE } from './TimeseriesChart'
 
 const TIME_RANGES = [
@@ -43,9 +44,9 @@ export default function SensorsPane({ plantFilter, calibration }) {
     setPendingTime(null)
 
     Promise.all([
-      fetch(`/timeseries?${params}`).then(r => r.json()),
-      fetch('/plant_sensors?limit=1000').then(r => r.json()),
-      fetch(`/observations?${new URLSearchParams({ start_utc: _toUtc(start), end_utc: _toUtc(end), limit: '10000' })}`).then(r => r.json()),
+      apiFetch(`/timeseries?${params}`).then(r => r.json()),
+      apiFetch('/plant_sensors?limit=1000').then(r => r.json()),
+      apiFetch(`/observations?${new URLSearchParams({ start_utc: _toUtc(start), end_utc: _toUtc(end), limit: '10000' })}`).then(r => r.json()),
     ])
       .then(([ts, ps, obs]) => {
         const labelMap = {}
@@ -92,7 +93,7 @@ export default function SensorsPane({ plantFilter, calibration }) {
   const submitWatering = () => {
     const payload = { note: `WATER manual ml=${pendingMl}`, observed_at: new Date(pendingTime).toISOString() }
     if (pendingPlant) payload.plant_name = pendingPlant
-    fetch('/observations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+    apiFetch('/observations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
       .then(r => r.json()).then(created => { setObservations(prev => [...prev, created]); setPendingTime(null) })
   }
 
@@ -142,7 +143,7 @@ export default function SensorsPane({ plantFilter, calibration }) {
                   <td>{o.note}</td>
                   <td>{o.volume_ml ?? '—'}</td>
                   <td><button onClick={() => {
-                    fetch(`/observations/${o.id}`, { method: 'DELETE' }).then(r => r.ok && setObservations(prev => prev.filter(obs => obs.id !== o.id)))
+                    apiFetch(`/observations/${o.id}`, { method: 'DELETE' }).then(r => r.ok && setObservations(prev => prev.filter(obs => obs.id !== o.id)))
                   }}>Delete</button></td>
                 </tr>
               ))}

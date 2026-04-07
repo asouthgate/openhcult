@@ -1,4 +1,8 @@
+import { useState, useEffect } from 'react'
 import { HashRouter, Routes, Route, Link } from 'react-router-dom'
+import { getToken } from './api'
+import Login from './Login'
+import Setup from './Setup'
 import Sensors from './Sensors'
 
 function Home() {
@@ -13,6 +17,15 @@ function Home() {
 }
 
 export default function App() {
+  const [configured, setConfigured] = useState(null)
+
+  useEffect(() => {
+    fetch('/auth/status').then(r => r.json()).then(d => setConfigured(d.configured))
+  }, [])
+
+  if (configured === null) return null
+  if (!configured) return <Setup />
+  if (!getToken()) return <Login />
   return (
     <HashRouter>
       <Routes>

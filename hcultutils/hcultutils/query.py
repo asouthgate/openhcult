@@ -2,12 +2,15 @@ import json
 import urllib.error as error
 import urllib.request as request
 
-from datetime import datetime, timezone
+from hcultutils.token import load_token
 
 
 def request_ctrl(method: str, url: str, payload: dict | None = None):
     data = None
     headers = {"Accept": "application/json"}
+    token = load_token()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     if payload is not None:
         data = json.dumps(payload).encode("utf-8")
         headers["Content-Type"] = "application/json"
@@ -16,6 +19,10 @@ def request_ctrl(method: str, url: str, payload: dict | None = None):
         with request.urlopen(req, timeout=10) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except error.HTTPError as exc:
+        if exc.code == 401:
+            raise SystemExit(
+                "hcultutils: not authenticated — run `hcultutils login --ctrl-url <url>`"
+            ) from exc
         body = exc.read().decode("utf-8")
         try:
             detail = json.loads(body).get("detail")

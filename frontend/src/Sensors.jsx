@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { apiFetch } from './api'
 import SensorsPane from './SensorsPane'
 import CalibrationPane from './CalibrationPane'
 
@@ -11,14 +12,14 @@ export default function App() {
   const [calibLoading, setCalibLoading] = useState(false)
 
   useEffect(() => {
-    fetch('/plants?limit=1000').then(r => r.json()).then(d => setPlants(d.data ?? []))
+    apiFetch('/plants?limit=1000').then(r => r.json()).then(d => setPlants(d.data ?? []))
   }, [])
 
   useEffect(() => {
     if (!plantFilter) { setCalibration(null); setCalibError(null); return }
     setCalibLoading(true)
     setCalibError(null)
-    fetch(`/water_calibration?plant=${encodeURIComponent(plantFilter)}`)
+    apiFetch(`/water_calibration?plant=${encodeURIComponent(plantFilter)}`)
       .then(r => r.ok ? r.json() : r.json().then(body => Promise.reject(body.detail ?? `HTTP ${r.status}`)))
       .then(d => setCalibration(d))
       .catch(err => { setCalibration(null); setCalibError(String(err)) })

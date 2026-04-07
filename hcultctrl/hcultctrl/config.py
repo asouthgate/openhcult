@@ -5,7 +5,6 @@ from configparser import ConfigParser
 from pathlib import Path
 from typing import Optional
 
-
 DEFAULT_CONFIG_NAME = "openhcult.conf"
 DEFAULT_LOG_DIR = "/var/log/hcult"
 DEFAULT_LOG_STDOUT = True
@@ -99,3 +98,17 @@ def get_ctrl_port() -> int:
         if value.isdigit():
             return int(value)
     return DEFAULT_CTRL_PORT
+
+
+def get_credentials_path() -> Path:
+    config_path = _CONFIG_PATH_OVERRIDE or _default_config_path()
+    return config_path.parent / "credentials.json"
+
+
+def get_auth_token_expiry_hours() -> int:
+    parser, _, _ = _load_config()
+    if "auth" in parser and "token_expiry_hours" in parser["auth"]:
+        value = parser["auth"]["token_expiry_hours"].strip()
+        if value.isdigit():
+            return int(value)
+    return 24

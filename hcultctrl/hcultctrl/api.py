@@ -6,11 +6,13 @@ import logging
 import os
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
+from hcultctrl.auth import require_auth
 from hcultctrl.routes import (
+    auth,
     plants,
     species,
     devices,
@@ -20,14 +22,17 @@ from hcultctrl.routes import (
     water_calibration,
 )
 
+_protected = {"dependencies": [Depends(require_auth)]}
+
 app = FastAPI(title="hcultctrl", version="0.1.0")
-app.include_router(plants.router)
-app.include_router(species.router)
-app.include_router(devices.router)
-app.include_router(observations.router)
-app.include_router(timeseries.router)
-app.include_router(plant_sensors.router)
-app.include_router(water_calibration.router)
+app.include_router(auth.router)
+app.include_router(plants.router, **_protected)
+app.include_router(species.router, **_protected)
+app.include_router(devices.router, **_protected)
+app.include_router(observations.router, **_protected)
+app.include_router(timeseries.router, **_protected)
+app.include_router(plant_sensors.router, **_protected)
+app.include_router(water_calibration.router, **_protected)
 
 
 logger = logging.getLogger(__name__)

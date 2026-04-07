@@ -91,11 +91,11 @@ export function TimeseriesChart({ series, bands = [], observations, rangeMs, onT
           const lower = [...b.points].reverse().map(p => `${x(p.t).toFixed(1)},${y(p.lo).toFixed(1)}`).join(' ')
           return (
             <g key={i}>
-              <polygon points={`${upper} ${lower}`} fill={b.color} opacity="0.15" />
+              <polygon points={`${upper} ${lower}`} fill={b.color} opacity="0.25" />
               <polyline points={b.points.map(p => `${x(p.t).toFixed(1)},${y(p.hi).toFixed(1)}`).join(' ')}
-                fill="none" stroke={b.color} strokeWidth="1" strokeDasharray="3 3" opacity="0.5" />
+                fill="none" stroke={b.color} strokeWidth="1.5" strokeDasharray="3 3" opacity="0.7" />
               <polyline points={b.points.map(p => `${x(p.t).toFixed(1)},${y(p.lo).toFixed(1)}`).join(' ')}
-                fill="none" stroke={b.color} strokeWidth="1" strokeDasharray="3 3" opacity="0.5" />
+                fill="none" stroke={b.color} strokeWidth="1.5" strokeDasharray="3 3" opacity="0.7" />
             </g>
           )
         })}
