@@ -2,6 +2,7 @@
 
 import argparse
 import logging
+import os
 from pathlib import Path
 
 import uvicorn
@@ -55,6 +56,7 @@ def main():
 
     if args.config:
         config.set_config_path(Path(args.config))
+        os.environ["HCULT_CONFIG_PATH"] = args.config
     host = args.host or config.get_ctrl_host()
     port = args.port or config.get_ctrl_port()
     _setup_logging()
@@ -62,8 +64,6 @@ def main():
         "hcultctrl.api:app",
         host=host,
         port=port,
-        reload=True,
-        reload_dirs=["/app"],
         log_config=None,
         log_level="info",
         access_log=True,
