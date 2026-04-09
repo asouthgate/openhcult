@@ -22,6 +22,7 @@ def response_curve_estimate_main(ctrl_url: str, args) -> int:
 
     import matplotlib.pyplot as plt
 
+    pct_fc = getattr(args, "pct_fc", False)
     fig = plot_response_curve(
         prior_x=np.array(data["prior_x"]),
         prior_y=np.array(data["prior_y"]),
@@ -34,7 +35,9 @@ def response_curve_estimate_main(ctrl_url: str, args) -> int:
         dy=np.array(data["chords_dy"]),
         mean_at_x=np.array(data["mean_at_chord_starts"]),
         xlabel="sensor reading",
-        ylabel="SWC (ml)",
+        ylabel="%FC" if pct_fc else "SWC (ml)",
+        pct_fc=pct_fc,
+        scale=data["scale"],
     )
 
     if args.out:

@@ -250,6 +250,12 @@ def _add_response_curve_command(subparsers):
     parser.add_argument(
         "--out", default=None, help="Write PNG here instead of showing a window"
     )
+    parser.add_argument(
+        "--pct-fc",
+        action="store_true",
+        default=False,
+        help="Show Y axis as percent field capacity",
+    )
 
 
 def _add_inference_train_command(subparsers):

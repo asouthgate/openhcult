@@ -10,6 +10,8 @@ export default function App() {
   const [calibration, setCalibration] = useState(null)
   const [calibError, setCalibError] = useState(null)
   const [calibLoading, setCalibLoading] = useState(false)
+  const [offsetMin, setOffsetMin] = useState(10)
+  const [widthMin, setWidthMin] = useState(50)
 
   useEffect(() => {
     apiFetch('/plants?limit=1000').then(r => r.json()).then(d => setPlants(d.data ?? []))
@@ -19,12 +21,17 @@ export default function App() {
     if (!plantFilter) { setCalibration(null); setCalibError(null); return }
     setCalibLoading(true)
     setCalibError(null)
-    apiFetch(`/water_calibration?plant=${encodeURIComponent(plantFilter)}`)
+    const params = new URLSearchParams({
+      plant: plantFilter,
+      offset_ms: offsetMin * 60 * 1000,
+      width_ms: widthMin * 60 * 1000,
+    })
+    apiFetch(`/water_calibration?${params}`)
       .then(r => r.ok ? r.json() : r.json().then(body => Promise.reject(body.detail ?? `HTTP ${r.status}`)))
       .then(d => setCalibration(d))
       .catch(err => { setCalibration(null); setCalibError(String(err)) })
       .finally(() => setCalibLoading(false))
-  }, [plantFilter])
+  }, [plantFilter, offsetMin, widthMin])
 
   return (
     <div className="app">
@@ -43,7 +50,9 @@ export default function App() {
       </div>
 
       {view === 'sensors'
-        ? <SensorsPane plantFilter={plantFilter} calibration={calibration} />
+        ? <SensorsPane plantFilter={plantFilter} calibration={calibration}
+            offsetMin={offsetMin} widthMin={widthMin}
+            onOffsetChange={setOffsetMin} onWidthChange={setWidthMin} />
         : <CalibrationPane plantFilter={plantFilter} calibration={calibration} calibError={calibError} calibLoading={calibLoading} />
       }
     </div>

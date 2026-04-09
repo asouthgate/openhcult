@@ -6,19 +6,21 @@ const VH = 380
 const IW = VW - M.left - M.right
 const IH = VH - M.top - M.bottom
 
-export default function CalibrationCurve({ calibration }) {
+export default function CalibrationCurve({ calibration, showPct = false }) {
   if (!calibration) return null
 
-  const { prior_x, prior_y, mean, std, anchors_x, anchors_y, chords_x, chords_dx, chords_dy, mean_at_chord_starts } = calibration
+  const { prior_x, prior_y, mean, std, anchors_x, anchors_y, chords_x, chords_dx, chords_dy, mean_at_chord_starts, scale } = calibration
+
+  const toY = v => showPct ? (v / scale) * 100 : v
 
   const ref = mean[mean.length - 1]
-  const meanNorm = mean.map(v => v - ref)
-  const ciLo = mean.map((v, i) => v - 1.96 * std[i] - ref)
-  const ciHi = mean.map((v, i) => v + 1.96 * std[i] - ref)
+  const meanNorm = mean.map(v => toY(v - ref))
+  const ciLo = mean.map((v, i) => toY(v - 1.96 * std[i] - ref))
+  const ciHi = mean.map((v, i) => toY(v + 1.96 * std[i] - ref))
   const gpRange = Math.max(...meanNorm) - Math.min(...meanNorm)
   const priorScaled = prior_y.map(v => v * gpRange)
 
-  const chordEndYs = chords_x.map((_, i) => mean_at_chord_starts[i] - ref + chords_dy[i])
+  const chordEndYs = chords_x.map((_, i) => toY(mean_at_chord_starts[i] - ref + chords_dy[i]))
 
   const xMin = Math.min(...prior_x)
   const xMax = Math.max(...prior_x)
@@ -58,8 +60,8 @@ export default function CalibrationCurve({ calibration }) {
         {chords_x.map((xi, i) => {
           const x0 = scx(xi).toFixed(1)
           const x1 = scx(xi + chords_dx[i]).toFixed(1)
-          const y0 = scy(mean_at_chord_starts[i] - ref).toFixed(1)
-          const y1 = scy(mean_at_chord_starts[i] - ref + chords_dy[i]).toFixed(1)
+          const y0 = scy(toY(mean_at_chord_starts[i] - ref)).toFixed(1)
+          const y1 = scy(toY(mean_at_chord_starts[i] - ref + chords_dy[i])).toFixed(1)
           return (
             <g key={i}>
               <line x1={x0} y1={y0} x2={x1} y2={y1} stroke="#7eb3c9" strokeWidth="1.5" opacity="0.5" />
@@ -92,7 +94,7 @@ export default function CalibrationCurve({ calibration }) {
 
         <text x={M.left + IW / 2} y={VH - 6} className="axis-label" textAnchor="middle">sensor reading</text>
         <text x={14} y={M.top + IH / 2} className="axis-label" textAnchor="middle"
-          transform={`rotate(-90, 14, ${M.top + IH / 2})`}>SWC (ml)</text>
+          transform={`rotate(-90, 14, ${M.top + IH / 2})`}>{showPct ? 'SWC (%FC)' : 'SWC (ml)'}</text>
       </svg>
 
       <div className="legend">

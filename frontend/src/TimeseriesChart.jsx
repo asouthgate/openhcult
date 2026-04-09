@@ -34,7 +34,7 @@ function fmtTime(ms, rangeMs) {
   return d.toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
-export function TimeseriesChart({ series, bands = [], observations, rangeMs, onTimePick, pendingTime, yLabel }) {
+export function TimeseriesChart({ series, bands = [], observations, rangeMs, onTimePick, pendingTime, yLabel, eventWindowOffset, eventWindowWidth }) {
   const [cursor, setCursor] = useState(null)
 
   const allT = series.flatMap(s => s.points.map(p => p.t))
@@ -114,15 +114,38 @@ export function TimeseriesChart({ series, bands = [], observations, rangeMs, onT
 
         {(observations ?? []).filter(o => inRange(o.observed_at)).map(o => {
           const confirmed = o.note?.includes('WATER') && !o.note?.includes('AUTO')
+          const t0 = o.observed_at
+          const showWindows = eventWindowOffset != null && eventWindowWidth != null
+          const bStart = t0 - eventWindowOffset - eventWindowWidth
+          const bEnd = t0 - eventWindowOffset
+          const aStart = t0 + eventWindowOffset
+          const aEnd = t0 + eventWindowOffset + eventWindowWidth
+          const clamp = t => Math.max(tMin, Math.min(tMax, t))
           return (
             <g key={o.id}>
+              {showWindows && (
+                <>
+                  <rect
+                    x={x(clamp(bStart))} y={M.top}
+                    width={Math.max(0, x(clamp(bEnd)) - x(clamp(bStart)))}
+                    height={IH}
+                    fill={OBS_COLOR} opacity="0.12"
+                  />
+                  <rect
+                    x={x(clamp(aStart))} y={M.top}
+                    width={Math.max(0, x(clamp(aEnd)) - x(clamp(aStart)))}
+                    height={IH}
+                    fill={OBS_COLOR} opacity="0.12"
+                  />
+                </>
+              )}
               <line
-                x1={x(o.observed_at)} x2={x(o.observed_at)}
+                x1={x(t0)} x2={x(t0)}
                 y1={M.top} y2={M.top + IH}
                 stroke={OBS_COLOR} strokeWidth="1.5" strokeDasharray="4 3" opacity="0.8"
               />
               {confirmed && (
-                <text x={x(o.observed_at)} y={M.top - 4} textAnchor="middle"
+                <text x={x(t0)} y={M.top - 4} textAnchor="middle"
                   fontSize="13" fill={OBS_COLOR} opacity="0.9">★</text>
               )}
             </g>

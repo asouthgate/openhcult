@@ -24,7 +24,7 @@ function _interp(x, xs, ys) {
   return ys[lo] + t * (ys[hi] - ys[lo])
 }
 
-export default function SensorsPane({ plantFilter, calibration }) {
+export default function SensorsPane({ plantFilter, calibration, offsetMin, widthMin, onOffsetChange, onWidthChange }) {
   const [rangeHours, setRangeHours] = useState(48)
   const [measureMode, setMeasureMode] = useState('voltage')
   const [series, setSeries] = useState([])
@@ -110,6 +110,10 @@ export default function SensorsPane({ plantFilter, calibration }) {
             <button key={m} className={measureMode === m ? 'active' : ''} onClick={() => setMeasureMode(m)}>{label}</button>
           ))}
         </div>
+        <div className="window-controls">
+          <label>offset <input type="number" min="0" value={offsetMin} onChange={e => onOffsetChange(Number(e.target.value))} style={{ width: 52 }} /> min</label>
+          <label>width <input type="number" min="1" value={widthMin} onChange={e => onWidthChange(Number(e.target.value))} style={{ width: 52 }} /> min</label>
+        </div>
       </div>
 
       <section className="sensor-pane">
@@ -125,6 +129,8 @@ export default function SensorsPane({ plantFilter, calibration }) {
                 onTimePick={t => { setPendingTime(t); setPendingPlant(plantFilter || ''); setPendingMl('') }}
                 pendingTime={pendingTime}
                 yLabel={measureMode}
+                eventWindowOffset={offsetMin * 60 * 1000}
+                eventWindowWidth={widthMin * 60 * 1000}
               />
         }
       </section>
