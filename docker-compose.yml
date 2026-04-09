@@ -27,6 +27,7 @@ services:
     environment:
       PYTHONPATH: /app/hcultctrl:/app/hcultmon:/app/hcultdb/src:/app/hcultinf
       HCULT_CALIBRATION_CSV: /app/calib/calibration.csv
+      HCULT_CONFIG_PATH: /config/openhcult.conf
     volumes:
       - .:/app
       - ./docker/openhcult.conf:/config/openhcult.conf:ro

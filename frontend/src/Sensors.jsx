@@ -13,6 +13,8 @@ export default function App() {
   const [offsetMin, setOffsetMin] = useState(10)
   const [widthMin, setWidthMin] = useState(50)
   const [gpStdMl, setGpStdMl] = useState(5)
+  const [scalePriorMean, setScalePriorMean] = useState('')
+  const [scalePriorStd, setScalePriorStd] = useState('')
 
   useEffect(() => {
     apiFetch('/plants?limit=1000').then(r => r.json()).then(d => setPlants(d.data ?? []))
@@ -28,12 +30,14 @@ export default function App() {
       width_ms: widthMin * 60 * 1000,
       gp_std_ml: gpStdMl,
     })
+    if (scalePriorMean !== '') params.set('scale_prior_mean', scalePriorMean)
+    if (scalePriorStd !== '') params.set('scale_prior_std', scalePriorStd)
     apiFetch(`/water_calibration?${params}`)
       .then(r => r.ok ? r.json() : r.json().then(body => Promise.reject(body.detail ?? `HTTP ${r.status}`)))
       .then(d => setCalibration(d))
       .catch(err => { setCalibration(null); setCalibError(String(err)) })
       .finally(() => setCalibLoading(false))
-  }, [plantFilter, offsetMin, widthMin, gpStdMl])
+  }, [plantFilter, offsetMin, widthMin, gpStdMl, scalePriorMean, scalePriorStd])
 
   return (
     <div className="app">
@@ -52,6 +56,8 @@ export default function App() {
             <label>offset <input type="number" min="0" value={offsetMin} onChange={e => setOffsetMin(Number(e.target.value))} style={{ width: 52 }} /> min</label>
             <label>width <input type="number" min="1" value={widthMin} onChange={e => setWidthMin(Number(e.target.value))} style={{ width: 52 }} /> min</label>
             <label>GP std <input type="number" min="0.1" step="0.1" value={gpStdMl} onChange={e => setGpStdMl(Number(e.target.value))} style={{ width: 52 }} /> ml</label>
+            <label>scale prior μ <input type="number" min="0" step="10" value={scalePriorMean} onChange={e => setScalePriorMean(e.target.value)} placeholder="off" style={{ width: 60 }} /> ml</label>
+            <label>scale prior σ <input type="number" min="0" step="10" value={scalePriorStd} onChange={e => setScalePriorStd(e.target.value)} placeholder="off" style={{ width: 60 }} /> ml</label>
           </div>
         </div>
       </div>

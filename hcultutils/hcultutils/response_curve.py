@@ -12,15 +12,23 @@ def response_curve_estimate_main(ctrl_url: str, args) -> int:
     if args.out:
         matplotlib.use("Agg")
 
-    url = (
-        f"{ctrl_url.rstrip('/')}/water_calibration"
-        f"?{urllib.parse.urlencode({'plant': args.plant_name, 'gp_std_ml': args.gp_std_ml})}"
-    )
+    params = {
+        "plant": args.plant_name,
+        "gp_std_ml": args.gp_std_ml,
+        "offset_ms": args.offset_min * 60 * 1000,
+        "width_ms": args.width_min * 60 * 1000,
+    }
+    if args.scale_prior_mean is not None:
+        params["scale_prior_mean"] = args.scale_prior_mean
+    if args.scale_prior_std is not None:
+        params["scale_prior_std"] = args.scale_prior_std
+    url = f"{ctrl_url.rstrip('/')}/water_calibration?{urllib.parse.urlencode(params)}"
     data = request_ctrl("GET", url)
 
     import matplotlib.pyplot as plt
 
     pct_fc = getattr(args, "pct_fc", False)
+    nlml = data.get("nlml")
     fig = plot_response_curve(
         prior_x=np.array(data["prior_x"]),
         prior_y=np.array(data["prior_y"]),
@@ -37,6 +45,9 @@ def response_curve_estimate_main(ctrl_url: str, args) -> int:
         pct_fc=pct_fc,
         scale=data["scale"],
     )
+
+    if nlml is not None:
+        fig.suptitle(f"NLML: {nlml:.2f}", fontsize=10)
 
     if args.out:
         fig.savefig(args.out)

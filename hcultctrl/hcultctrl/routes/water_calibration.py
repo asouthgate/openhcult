@@ -62,6 +62,8 @@ def water_calibration(
     offset_ms: int = _DEFAULT_OFFSET_MS,
     width_ms: int = _DEFAULT_WIDTH_MS,
     gp_std_ml: float = 5.0,
+    scale_prior_mean: float | None = None,
+    scale_prior_std: float | None = None,
     conn=Depends(get_db_conn),
 ):
     logger.info(
@@ -138,9 +140,11 @@ def water_calibration(
     x_anchor = np.array([sensor_vals.max()])
     swc_anchor = np.array([0.0])
 
-    gp = GPWithPriorShape(variance=gp_std_ml**2).fit(
-        x_anchor, swc_anchor, x_arr, dx_arr, dy_arr, prior_x, prior_y
-    )
+    gp = GPWithPriorShape(
+        variance=gp_std_ml**2,
+        scale_prior_mean=scale_prior_mean,
+        scale_prior_std=scale_prior_std,
+    ).fit(x_anchor, swc_anchor, x_arr, dx_arr, dy_arr, prior_x, prior_y)
     plot_x = np.linspace(prior_x.min(), prior_x.max(), 500)
     plot_prior_y = np.interp(plot_x, prior_x, prior_y)
     mean, std = gp.predict(plot_x)
@@ -152,6 +156,7 @@ def water_calibration(
         "mean": mean.tolist(),
         "std": std.tolist(),
         "scale": float(gp.scale),
+        "nlml": float(gp.nlml),
         "anchors_x": x_anchor.tolist(),
         "anchors_y": swc_anchor.tolist(),
         "chords_x": x_arr.tolist(),

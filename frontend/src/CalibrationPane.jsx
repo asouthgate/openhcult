@@ -17,6 +17,9 @@ export default function CalibrationPane({ plantFilter, calibration, calibError, 
           <button className={!showPct ? 'active' : ''} onClick={() => setShowPct(false)}>ml</button>
           <button className={showPct ? 'active' : ''} onClick={() => setShowPct(true)}>%FC</button>
         </div>
+        {calibration.nlml != null && (
+          <span style={{ fontSize: 12, opacity: 0.7 }}>NLML: {calibration.nlml.toFixed(2)}</span>
+        )}
       </div>
       <CalibrationCurve calibration={calibration} showPct={showPct} />
     </section>

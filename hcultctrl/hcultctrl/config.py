@@ -23,7 +23,12 @@ def _default_config_path() -> Path:
 def _load_config():
     """Return the parsed repo-level config and its path."""
     repo_root = Path(__file__).resolve().parents[2]
-    config_path = _CONFIG_PATH_OVERRIDE or _default_config_path()
+    env_path = os.environ.get("HCULT_CONFIG_PATH")
+    config_path = (
+        _CONFIG_PATH_OVERRIDE
+        or (Path(env_path) if env_path else None)
+        or _default_config_path()
+    )
     if not config_path.exists():
         raise FileNotFoundError(f"Missing config: {config_path}")
     parser = ConfigParser()

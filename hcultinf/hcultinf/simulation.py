@@ -70,17 +70,19 @@ def simulate_plant_moisture(
 
     fc = sum(target_fc_range) / 2
     readings, watering_times, ml_amounts, before_fcs, after_fcs = [], [], [], [], []
+    next_trigger = rng.uniform(*target_fc_range)
 
     for i in range(n_steps):
         t = start_ms + i * step_ms
         fc = max(0.0, fc - drain_per_day * dt_days)
-        if fc <= target_fc_range[0]:
+        if fc <= next_trigger:
             before_fcs.append(fc)
             watering_times.append(t)
             dose = rng.uniform(*dose_frac_range)
             fc = min(1.0, fc + dose)
             after_fcs.append(fc)
             ml_amounts.append(dose * max_swc_ml)
+            next_trigger = rng.uniform(*target_fc_range)
         mv = max(wet, min(base, response_fn(fc) + rng.randint(-noise, noise)))
         readings.append((t, mv, mv))
 

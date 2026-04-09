@@ -6,18 +6,27 @@ import numpy as np
 
 
 class GPWithPriorShape:
-    def __init__(self, length_scale=None, variance=20.0):
+    def __init__(
+        self,
+        length_scale=None,
+        variance=20.0,
+        scale_prior_mean=None,
+        scale_prior_std=None,
+    ):
         self._length_scale = length_scale
         self._variance = variance
+        self._scale_prior_mean = scale_prior_mean
+        self._scale_prior_std = scale_prior_std
         self._mean = None
         self._std = None
         self.scale = None
+        self.nlml = None
 
     def fit(
         self, x_anchors, swc_anchors, x_starts, delta_x, delta_swc, prior_x, prior_y
     ):
         x_ends = x_starts + delta_x
-        self._mean, self._std, self.scale = self.fit_gp_chords(
+        self._mean, self._std, self.scale, self.nlml = self.fit_gp_chords(
             x_anchors,
             swc_anchors,
             x_starts,
@@ -27,6 +36,8 @@ class GPWithPriorShape:
             prior_y,
             self._length_scale,
             self._variance,
+            self._scale_prior_mean,
+            self._scale_prior_std,
         )
         return self
 
@@ -47,6 +58,8 @@ class GPWithPriorShape:
         prior_y,
         length_scale=None,
         variance=20.0,
+        scale_prior_mean=None,
+        scale_prior_std=None,
     ):
         from scipy.optimize import minimize_scalar
 
@@ -79,6 +92,9 @@ class GPWithPriorShape:
         n_c = len(delta_y)
         n = n_a + n_c
 
+        tau = (1.0 / scale_prior_std**2) if scale_prior_std is not None else 0.0
+        mu_0 = scale_prior_mean if scale_prior_mean is not None else 0.0
+
         def _build_K(log_noise):
             noise = np.exp(log_noise)
             noise_mat = np.zeros((n, n))
@@ -91,14 +107,23 @@ class GPWithPriorShape:
                 L = np.linalg.cholesky(K)
             except np.linalg.LinAlgError:
                 return 1e10
-            # Solve for beta
             Kinv_h = np.linalg.solve(K, h)
             Kinv_y = np.linalg.solve(K, observations)
-            beta = float(h @ Kinv_y) / float(h @ Kinv_h)
+            hKh = float(h @ Kinv_h)
+            hKy = float(h @ Kinv_y)
+            log_det = 2.0 * np.sum(np.log(np.diag(L)))
+            if tau > 0:
+                post_prec = hKh + tau
+                yKy = float(observations @ Kinv_y)
+                return (
+                    0.5 * yKy
+                    - 0.5 * (hKy + mu_0 * tau) ** 2 / post_prec
+                    + 0.5 * log_det
+                    + 0.5 * np.log(post_prec)
+                )
+            beta = hKy / hKh
             residuals = observations - beta * h
             Kinv_r = np.linalg.solve(K, residuals)
-            # log|K| = 2 * sum(log(diag(L)))
-            log_det = 2.0 * np.sum(np.log(np.diag(L)))
             return 0.5 * float(residuals @ Kinv_r) + 0.5 * log_det
 
         # Optimize noise in log space
@@ -111,15 +136,27 @@ class GPWithPriorShape:
         # Build final K with optimized noise
         K = _build_K(result.x)
 
-        # Estimate scale (MLE / improper flat prior)
         Kinv_h = np.linalg.solve(K, h)
         Kinv_y = np.linalg.solve(K, observations)
-        scale = float(h @ Kinv_y) / float(h @ Kinv_h)
-        beta_post_var = 1.0 / float(h @ Kinv_h)
+        hKh = float(h @ Kinv_h)
+        hKy = float(h @ Kinv_y)
+
+        if tau > 0:
+            post_prec = hKh + tau
+            scale = (hKy + mu_0 * tau) / post_prec
+            beta_post_var = 1.0 / post_prec
+        else:
+            scale = hKy / hKh
+            beta_post_var = 1.0 / hKh
 
         # GP on residuals after removing scaled mean
         residuals = observations - scale * h
         weights = np.linalg.solve(K, residuals)
+
+        # Negative log marginal likelihood at optimized params (lower = better fit)
+        L = np.linalg.cholesky(K)
+        log_det = 2.0 * np.sum(np.log(np.diag(L)))
+        nlml = 0.5 * float(residuals @ np.linalg.solve(K, residuals)) + 0.5 * log_det
 
         def _k_joint(x_test):
             k_ta = kernel(x_test, x_anchor)
@@ -142,7 +179,7 @@ class GPWithPriorShape:
             post_var += beta_post_var * h_tilde**2
             return np.sqrt(np.maximum(post_var, 0.0))
 
-        return predict_mean, predict_std, scale
+        return predict_mean, predict_std, scale, nlml
 
     def plot(
         self,
@@ -249,7 +286,7 @@ def plot_response_curve(
     ci_lower = mean - 1.96 * std
     ci_upper = mean + 1.96 * std
 
-    fig, ax = plt.subplots()
+    fig, (ax, ax2) = plt.subplots(1, 2, figsize=(12, 5))
 
     for i in range(len(dx)):
         start_y = mean_at_x[i]
@@ -270,11 +307,11 @@ def plot_response_curve(
 
     ax.scatter(anchors_x, anchors_y, label="anchors")
     gp_range = mean.max() - mean.min()
-    ax.plot(prior_x, prior_y * gp_range, label="rescaled prior")
+    ax.plot(prior_x, prior_y * gp_range, label="rescaled prior", linestyle="--")
     ax.fill_between(
         prior_x, ci_lower, ci_upper, color="gray", alpha=0.3, label="95% CI"
     )
-    ax.plot(prior_x, mean, label="GP mean")
+    ax.plot(prior_x, mean, label="GP mean", linestyle="dotted")
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
 
@@ -283,4 +320,14 @@ def plot_response_curve(
 
     ax.legend()
 
+    ax2.scatter(dx, dy, alpha=0.7)
+    for i, (dxi, dyi) in enumerate(zip(dx, dy)):
+        ax2.annotate(str(i), (dxi, dyi), fontsize=8, alpha=0.6)
+    ax2.axhline(0, color="gray", linewidth=0.8, linestyle="--")
+    ax2.axvline(0, color="gray", linewidth=0.8, linestyle="--")
+    ax2.set_xlabel(f"Δ{xlabel}")
+    ax2.set_ylabel(f"Δ{ylabel}")
+    ax2.set_title("chord Δx vs Δy")
+
+    fig.tight_layout()
     return fig

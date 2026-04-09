@@ -6,6 +6,54 @@ const VH = 380
 const IW = VW - M.left - M.right
 const IH = VH - M.top - M.bottom
 
+const SM = { top: 20, right: 24, bottom: 52, left: 60 }
+const SVW = 340
+const SVH = 280
+const SIW = SVW - SM.left - SM.right
+const SIH = SVH - SM.top - SM.bottom
+
+function ScatterPlot({ dx, dy, xLabel, yLabel }) {
+  if (!dx?.length) return null
+  const xMin = Math.min(...dx), xMax = Math.max(...dx)
+  const yMin = Math.min(...dy), yMax = Math.max(...dy)
+  const xRange = xMax - xMin || 1, yRange = yMax - yMin || 1
+  const sx = v => SM.left + ((v - xMin) / xRange) * SIW
+  const sy = v => SM.top + SIH - ((v - yMin) / yRange) * SIH
+  const xTicks = valueTicks(xMin, xMax, 4)
+  const yTicks = valueTicks(yMin, yMax, 4)
+  const x0 = sx(Math.max(xMin, Math.min(xMax, 0)))
+  const y0 = sy(Math.max(yMin, Math.min(yMax, 0)))
+  return (
+    <svg viewBox={`0 0 ${SVW} ${SVH}`} className="chart-svg" style={{ maxWidth: SVW }}>
+      {yTicks.map(v => <line key={v} x1={SM.left} x2={SVW - SM.right} y1={sy(v)} y2={sy(v)} className="grid-line" />)}
+      <line x1={x0} x2={x0} y1={SM.top} y2={SM.top + SIH} className="grid-line" />
+      <line x1={SM.left} x2={SVW - SM.right} y1={y0} y2={y0} className="grid-line" />
+      {dx.map((dxi, i) => (
+        <g key={i}>
+          <circle cx={sx(dxi)} cy={sy(dy[i])} r="4" fill="#7eb3c9" opacity="0.7" />
+          <text x={sx(dxi) + 5} y={sy(dy[i]) - 4} fontSize="9" fill="#7eb3c9" opacity="0.7">{i}</text>
+        </g>
+      ))}
+      <line x1={SM.left} x2={SVW - SM.right} y1={SM.top + SIH} y2={SM.top + SIH} className="axis-line" />
+      <line x1={SM.left} x2={SM.left} y1={SM.top} y2={SM.top + SIH} className="axis-line" />
+      {xTicks.map(v => (
+        <g key={v}>
+          <line x1={sx(v)} x2={sx(v)} y1={SM.top + SIH} y2={SM.top + SIH + 5} className="axis-line" />
+          <text x={sx(v)} y={SM.top + SIH + 18} className="axis-label" textAnchor="middle">{Math.round(v)}</text>
+        </g>
+      ))}
+      {yTicks.map(v => (
+        <g key={v}>
+          <line x1={SM.left - 5} x2={SM.left} y1={sy(v)} y2={sy(v)} className="axis-line" />
+          <text x={SM.left - 9} y={sy(v) + 4} className="axis-label" textAnchor="end">{v.toFixed(1)}</text>
+        </g>
+      ))}
+      <text x={SM.left + SIW / 2} y={SVH - 6} className="axis-label" textAnchor="middle">{xLabel}</text>
+      <text x={10} y={SM.top + SIH / 2} className="axis-label" textAnchor="middle" transform={`rotate(-90,10,${SM.top + SIH / 2})`}>{yLabel}</text>
+    </svg>
+  )
+}
+
 export default function CalibrationCurve({ calibration, showPct = false }) {
   if (!calibration) return null
 
@@ -103,6 +151,14 @@ export default function CalibrationCurve({ calibration, showPct = false }) {
         <span className="legend-item"><span className="legend-dot" style={{ background: '#c4b87e' }} />prior</span>
         <span className="legend-item"><span className="legend-dot" style={{ background: '#7eb3c9' }} />chords</span>
         <span className="legend-item"><span className="legend-dot" style={{ background: '#d4a9b8' }} />anchor</span>
+      </div>
+      <div style={{ marginTop: 16 }}>
+        <ScatterPlot
+          dx={chords_dx}
+          dy={chords_dy.map(v => showPct ? (v / scale) * 100 : v)}
+          xLabel="Δsensor"
+          yLabel={showPct ? 'Δ%FC' : 'Δml'}
+        />
       </div>
     </div>
   )

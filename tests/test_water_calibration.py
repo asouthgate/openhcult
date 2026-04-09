@@ -77,6 +77,7 @@ def test_water_calibration_with_waterings():
             dose_frac_range=(0.4, 0.8),
             target_fc_range=(0.05, 0.2),
             drain_per_day=0.1,
+            noise=0,
         )
     )
 

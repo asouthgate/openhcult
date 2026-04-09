@@ -262,6 +262,30 @@ def _add_response_curve_command(subparsers):
         default=5.0,
         help="GP residual std in ml — smaller = curve follows prior shape more closely (default 1000)",
     )
+    parser.add_argument(
+        "--offset-min",
+        type=int,
+        default=10,
+        help="Minutes to skip after watering before averaging (default 10)",
+    )
+    parser.add_argument(
+        "--width-min",
+        type=int,
+        default=50,
+        help="Width of the averaging window in minutes (default 50)",
+    )
+    parser.add_argument(
+        "--scale-prior-mean",
+        type=float,
+        default=None,
+        help="Mean of Gaussian prior on scale (field capacity in ml). Prevents unbounded scale.",
+    )
+    parser.add_argument(
+        "--scale-prior-std",
+        type=float,
+        default=None,
+        help="Std of Gaussian prior on scale (ml). Smaller = tighter regularisation.",
+    )
 
 
 def _add_inference_train_command(subparsers):

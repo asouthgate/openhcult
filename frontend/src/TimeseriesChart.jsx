@@ -112,9 +112,9 @@ export function TimeseriesChart({ series, bands = [], observations, rangeMs, onT
           />
         ))}
 
-        {(observations ?? []).filter(o => inRange(o.observed_at)).map(o => {
+        {(observations ?? []).filter(o => inRange(+new Date(o.observed_at))).map(o => {
           const confirmed = o.note?.includes('WATER') && !o.note?.includes('AUTO')
-          const t0 = o.observed_at
+          const t0 = +new Date(o.observed_at)
           const showWindows = eventWindowOffset != null && eventWindowWidth != null
           const bStart = t0 - eventWindowOffset - eventWindowWidth
           const bEnd = t0 - eventWindowOffset
