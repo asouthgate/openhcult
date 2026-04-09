@@ -256,6 +256,12 @@ def _add_response_curve_command(subparsers):
         default=False,
         help="Show Y axis as percent field capacity",
     )
+    parser.add_argument(
+        "--gp-std-ml",
+        type=float,
+        default=5.0,
+        help="GP residual std in ml — smaller = curve follows prior shape more closely (default 1000)",
+    )
 
 
 def _add_inference_train_command(subparsers):

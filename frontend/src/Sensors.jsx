@@ -12,6 +12,7 @@ export default function App() {
   const [calibLoading, setCalibLoading] = useState(false)
   const [offsetMin, setOffsetMin] = useState(10)
   const [widthMin, setWidthMin] = useState(50)
+  const [gpStdMl, setGpStdMl] = useState(5)
 
   useEffect(() => {
     apiFetch('/plants?limit=1000').then(r => r.json()).then(d => setPlants(d.data ?? []))
@@ -25,13 +26,14 @@ export default function App() {
       plant: plantFilter,
       offset_ms: offsetMin * 60 * 1000,
       width_ms: widthMin * 60 * 1000,
+      gp_std_ml: gpStdMl,
     })
     apiFetch(`/water_calibration?${params}`)
       .then(r => r.ok ? r.json() : r.json().then(body => Promise.reject(body.detail ?? `HTTP ${r.status}`)))
       .then(d => setCalibration(d))
       .catch(err => { setCalibration(null); setCalibError(String(err)) })
       .finally(() => setCalibLoading(false))
-  }, [plantFilter, offsetMin, widthMin])
+  }, [plantFilter, offsetMin, widthMin, gpStdMl])
 
   return (
     <div className="app">
@@ -46,13 +48,17 @@ export default function App() {
             <option value="">All plants</option>
             {plants.map(p => <option key={p.plant_name} value={p.plant_name}>{p.plant_name}</option>)}
           </select>
+          <div className="window-controls">
+            <label>offset <input type="number" min="0" value={offsetMin} onChange={e => setOffsetMin(Number(e.target.value))} style={{ width: 52 }} /> min</label>
+            <label>width <input type="number" min="1" value={widthMin} onChange={e => setWidthMin(Number(e.target.value))} style={{ width: 52 }} /> min</label>
+            <label>GP std <input type="number" min="0.1" step="0.1" value={gpStdMl} onChange={e => setGpStdMl(Number(e.target.value))} style={{ width: 52 }} /> ml</label>
+          </div>
         </div>
       </div>
 
       {view === 'sensors'
         ? <SensorsPane plantFilter={plantFilter} calibration={calibration}
-            offsetMin={offsetMin} widthMin={widthMin}
-            onOffsetChange={setOffsetMin} onWidthChange={setWidthMin} />
+            offsetMin={offsetMin} widthMin={widthMin} />
         : <CalibrationPane plantFilter={plantFilter} calibration={calibration} calibError={calibError} calibLoading={calibLoading} />
       }
     </div>

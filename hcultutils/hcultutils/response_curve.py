@@ -1,10 +1,9 @@
-import json
 import urllib.parse
-import urllib.request
 
 import numpy as np
 
 from hcultinf.inference import plot_response_curve
+from hcultutils.query import request_ctrl
 
 
 def response_curve_estimate_main(ctrl_url: str, args) -> int:
@@ -15,10 +14,9 @@ def response_curve_estimate_main(ctrl_url: str, args) -> int:
 
     url = (
         f"{ctrl_url.rstrip('/')}/water_calibration"
-        f"?{urllib.parse.urlencode({'plant': args.plant_name})}"
+        f"?{urllib.parse.urlencode({'plant': args.plant_name, 'gp_std_ml': args.gp_std_ml})}"
     )
-    with urllib.request.urlopen(url, timeout=30) as resp:
-        data = json.loads(resp.read().decode())
+    data = request_ctrl("GET", url)
 
     import matplotlib.pyplot as plt
 

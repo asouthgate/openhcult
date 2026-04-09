@@ -61,6 +61,7 @@ def water_calibration(
     plant: str,
     offset_ms: int = _DEFAULT_OFFSET_MS,
     width_ms: int = _DEFAULT_WIDTH_MS,
+    gp_std_ml: float = 5.0,
     conn=Depends(get_db_conn),
 ):
     logger.info(
@@ -137,7 +138,7 @@ def water_calibration(
     x_anchor = np.array([sensor_vals.max()])
     swc_anchor = np.array([0.0])
 
-    gp = GPWithPriorShape().fit(
+    gp = GPWithPriorShape(variance=gp_std_ml**2).fit(
         x_anchor, swc_anchor, x_arr, dx_arr, dy_arr, prior_x, prior_y
     )
     plot_x = np.linspace(prior_x.min(), prior_x.max(), 500)

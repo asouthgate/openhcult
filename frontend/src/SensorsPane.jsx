@@ -24,7 +24,7 @@ function _interp(x, xs, ys) {
   return ys[lo] + t * (ys[hi] - ys[lo])
 }
 
-export default function SensorsPane({ plantFilter, calibration, offsetMin, widthMin, onOffsetChange, onWidthChange }) {
+export default function SensorsPane({ plantFilter, calibration, offsetMin, widthMin }) {
   const [rangeHours, setRangeHours] = useState(48)
   const [measureMode, setMeasureMode] = useState('voltage')
   const [series, setSeries] = useState([])
@@ -109,10 +109,6 @@ export default function SensorsPane({ plantFilter, calibration, offsetMin, width
           {[['raw', 'Raw'], ['voltage', 'mV'], ['water', 'Water (ml)'], ['water_pct', 'Water (%FC)']].map(([m, label]) => (
             <button key={m} className={measureMode === m ? 'active' : ''} onClick={() => setMeasureMode(m)}>{label}</button>
           ))}
-        </div>
-        <div className="window-controls">
-          <label>offset <input type="number" min="0" value={offsetMin} onChange={e => onOffsetChange(Number(e.target.value))} style={{ width: 52 }} /> min</label>
-          <label>width <input type="number" min="1" value={widthMin} onChange={e => onWidthChange(Number(e.target.value))} style={{ width: 52 }} /> min</label>
         </div>
       </div>
 

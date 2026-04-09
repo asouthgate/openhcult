@@ -6,8 +6,9 @@ import numpy as np
 
 
 class GPWithPriorShape:
-    def __init__(self, length_scale=None):
+    def __init__(self, length_scale=None, variance=20.0):
         self._length_scale = length_scale
+        self._variance = variance
         self._mean = None
         self._std = None
         self.scale = None
@@ -25,6 +26,7 @@ class GPWithPriorShape:
             prior_x,
             prior_y,
             self._length_scale,
+            self._variance,
         )
         return self
 
@@ -44,12 +46,12 @@ class GPWithPriorShape:
         prior_x,
         prior_y,
         length_scale=None,
+        variance=20.0,
     ):
         from scipy.optimize import minimize_scalar
 
         if length_scale is None:
             length_scale = np.median(np.abs(x_ends - x_starts)) * 1.0
-        variance = 20.0
 
         def kernel(x1, x2):
             sq_dist = np.subtract.outer(x1, x2) ** 2
