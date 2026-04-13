@@ -22,6 +22,7 @@ export default function App() {
 
   useEffect(() => {
     if (!plantFilter) { setCalibration(null); setCalibError(null); return }
+    const controller = new AbortController()
     setCalibLoading(true)
     setCalibError(null)
     const params = new URLSearchParams({
@@ -32,11 +33,12 @@ export default function App() {
     })
     if (scalePriorMean !== '') params.set('scale_prior_mean', scalePriorMean)
     if (scalePriorStd !== '') params.set('scale_prior_std', scalePriorStd)
-    apiFetch(`/water_calibration?${params}`)
+    apiFetch(`/water_calibration?${params}`, { signal: controller.signal })
       .then(r => r.ok ? r.json() : r.json().then(body => Promise.reject(body.detail ?? `HTTP ${r.status}`)))
       .then(d => setCalibration(d))
-      .catch(err => { setCalibration(null); setCalibError(String(err)) })
+      .catch(err => { if (err.name !== 'AbortError') { setCalibration(null); setCalibError(String(err)) } })
       .finally(() => setCalibLoading(false))
+    return () => controller.abort()
   }, [plantFilter, offsetMin, widthMin, gpStdMl, scalePriorMean, scalePriorStd])
 
   return (

@@ -92,6 +92,7 @@ def water_calibration(
         )
 
     chords = []
+    chord_times = []
     for t_ms, ml in waterings:
         before = list(
             database.fetch_timeseries(
@@ -113,14 +114,15 @@ def water_calibration(
         )
         if not before or not after:
             continue
-        x = float(np.mean([r["voltage_mv"] for r in before]))
-        x_after = float(np.mean([r["voltage_mv"] for r in after]))
+        x = float(np.median([r["voltage_mv"] for r in before]))
+        x_after = float(np.median([r["voltage_mv"] for r in after]))
         chords.append((x, x_after - x, ml))
+        chord_times.append(t_ms)
 
     if not chords:
         raise HTTPException(
             status_code=400,
-            detail="No sensor data found in ±10 min windows around waterings",
+            detail=f"No sensor data found in windows around waterings (offset={offset_ms//60000}min, width={width_ms//60000}min)",
         )
 
     x_arr = np.array([c[0] for c in chords])
@@ -150,6 +152,12 @@ def water_calibration(
     mean, std = gp.predict(plot_x)
     mean_at_chord_starts = gp(x_arr)
 
+    # Invert GP curve to estimate expected sensor delta for each watering
+    swc_after = mean_at_chord_starts + dy_arr
+    # mean is decreasing with plot_x (high mV = dry = low SWC), so reverse for np.interp
+    estimated_mv_after = np.interp(swc_after, mean[::-1], plot_x[::-1])
+    estimated_dx_arr = estimated_mv_after - x_arr
+
     return {
         "prior_x": plot_x.tolist(),
         "prior_y": plot_prior_y.tolist(),
@@ -163,6 +171,8 @@ def water_calibration(
         "chords_dx": dx_arr.tolist(),
         "chords_dy": dy_arr.tolist(),
         "mean_at_chord_starts": mean_at_chord_starts.tolist(),
+        "estimated_chords_dx": estimated_dx_arr.tolist(),
+        "chord_times": chord_times,
         "offset_ms": offset_ms,
         "width_ms": width_ms,
     }

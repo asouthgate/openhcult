@@ -135,20 +135,31 @@ export default function SensorsPane({ plantFilter, calibration, offsetMin, width
         <div className="table-container">
           <table className="obs-table">
             <thead>
-              <tr><th>Time</th><th>Plant</th><th>Note</th><th>Dose (ml)</th><th></th></tr>
+              <tr><th>Time</th><th>Plant</th><th>Note</th><th>Dose (ml)</th><th>ΔmV (est.)</th><th></th></tr>
             </thead>
             <tbody>
-              {[...observations].reverse().map(o => (
-                <tr key={o.id}>
-                  <td>{new Date(o.observed_at).toLocaleString()}</td>
-                  <td>{o.plant_name ?? '—'}</td>
-                  <td>{o.note}</td>
-                  <td>{o.volume_ml ?? '—'}</td>
-                  <td><button onClick={() => {
-                    apiFetch(`/observations/${o.id}`, { method: 'DELETE' }).then(r => r.ok && setObservations(prev => prev.filter(obs => obs.id !== o.id)))
-                  }}>Delete</button></td>
-                </tr>
-              ))}
+              {(() => {
+                const estMap = {}
+                if (calibration?.chord_times) {
+                  calibration.chord_times.forEach((t, i) => { estMap[t] = calibration.estimated_chords_dx[i] })
+                }
+                return [...observations].reverse().map(o => {
+                  const tMs = new Date(o.observed_at).getTime()
+                  const est = estMap[tMs]
+                  return (
+                    <tr key={o.id}>
+                      <td>{new Date(o.observed_at).toLocaleString()}</td>
+                      <td>{o.plant_name ?? '—'}</td>
+                      <td>{o.note}</td>
+                      <td>{o.volume_ml ?? '—'}</td>
+                      <td>{est != null ? est.toFixed(1) : '—'}</td>
+                      <td><button onClick={() => {
+                        apiFetch(`/observations/${o.id}`, { method: 'DELETE' }).then(r => r.ok && setObservations(prev => prev.filter(obs => obs.id !== o.id)))
+                      }}>Delete</button></td>
+                    </tr>
+                  )
+                })
+              })()}
             </tbody>
           </table>
         </div>
