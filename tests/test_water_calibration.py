@@ -61,13 +61,13 @@ def test_water_calibration_with_waterings():
                 (f"pytest-dev-{uuid.uuid4().hex[:6]}", device_addr),
             )
             device_id = cur.fetchone()[0]
+            cur.execute("SELECT id FROM plants WHERE plant_name = %s", (plant_name,))
+            plant_id = cur.fetchone()[0]
+            cur.execute(
+                "INSERT INTO plant_sensors (plant_id, device_id, sensor, assigned_at) VALUES (%s, %s, %s, 0)",
+                (plant_id, device_id, "cap1"),
+            )
         conn.commit()
-
-    request_json(
-        f"/plants/{plant_name}/assign",
-        method="POST",
-        payload={"device": device_addr, "sensor": "cap1"},
-    )
 
     readings_bg, watering_times, ml_amounts, before_vals, after_vals = (
         simulate_plant_moisture(

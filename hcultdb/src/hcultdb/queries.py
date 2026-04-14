@@ -581,19 +581,16 @@ def assign_plant_sensor(
         (device_id, sensor),
     )
     existing = cursor.fetchone()
+    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
     if existing:
-        close_at = (
-            assigned_at
-            if assigned_at is not None
-            else int(datetime.now(timezone.utc).timestamp() * 1000)
-        )
+        close_at = assigned_at if assigned_at is not None else now_ms
         cursor.execute(
             f"UPDATE plant_sensors SET unassigned_at = {placeholder} WHERE id = {placeholder}",
             (close_at, existing[0]),
         )
         open_at = close_at
     else:
-        open_at = assigned_at if assigned_at is not None else 0
+        open_at = assigned_at if assigned_at is not None else now_ms
     cursor.execute(
         f"INSERT INTO plant_sensors (plant_id, device_id, sensor, assigned_at) "
         f"VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder})",
