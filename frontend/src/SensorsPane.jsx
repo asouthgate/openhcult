@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { apiFetch } from './api'
 import { TimeseriesChart, PALETTE } from './TimeseriesChart'
+import CalibrationParams from './CalibrationParams'
 
 const TIME_RANGES = [
   { label: '6h', hours: 6 },
@@ -24,7 +25,11 @@ function _interp(x, xs, ys) {
   return ys[lo] + t * (ys[hi] - ys[lo])
 }
 
-export default function SensorsPane({ plantFilter, calibration, offsetMin, widthMin }) {
+export default function SensorsPane({
+  plantFilter, sensorFilter, calibration, offsetMin, widthMin,
+  setOffsetMin, setWidthMin, gpStdMl, setGpStdMl,
+  scalePriorMean, setScalePriorMean, scalePriorStd, setScalePriorStd,
+}) {
   const [rangeHours, setRangeHours] = useState(48)
   const [measureMode, setMeasureMode] = useState('voltage')
   const [series, setSeries] = useState([])
@@ -55,6 +60,7 @@ export default function SensorsPane({ plantFilter, calibration, offsetMin, width
         }
         const grouped = {}
         for (const row of ts.data ?? []) {
+          if (sensorFilter && row.sensor !== sensorFilter) continue
           const key = `${row.device_address}:${row.sensor}`
           if (!grouped[key]) grouped[key] = { label: labelMap[key] ?? key, points: [] }
           grouped[key].points.push({ t: row.adjusted_time_ms, raw: row.measurement, mv: row.voltage_mv })
@@ -63,7 +69,7 @@ export default function SensorsPane({ plantFilter, calibration, offsetMin, width
         setObservations((obs.data ?? []).filter(o => !plantFilter || o.plant_name === plantFilter))
       })
       .finally(() => setLoading(false))
-  }, [rangeHours, plantFilter])
+  }, [rangeHours, plantFilter, sensorFilter])
 
   const { mappedSeries, bands } = useMemo(() => {
     const isWater = (measureMode === 'water' || measureMode === 'water_pct') && calibration
@@ -117,7 +123,7 @@ export default function SensorsPane({ plantFilter, calibration, offsetMin, width
           ? <div className="loading">Loading…</div>
           : series.length === 0
             ? <div className="empty">No data in range.</div>
-            : <TimeseriesChart
+            : <><TimeseriesChart
                 series={mappedSeries}
                 bands={bands}
                 observations={observations}
@@ -128,6 +134,16 @@ export default function SensorsPane({ plantFilter, calibration, offsetMin, width
                 eventWindowOffset={offsetMin * 60 * 1000}
                 eventWindowWidth={widthMin * 60 * 1000}
               />
+              <div style={{ marginTop: 16 }}>
+                <CalibrationParams
+                  offsetMin={offsetMin} setOffsetMin={setOffsetMin}
+                  widthMin={widthMin} setWidthMin={setWidthMin}
+                  gpStdMl={gpStdMl} setGpStdMl={setGpStdMl}
+                  scalePriorMean={scalePriorMean} setScalePriorMean={setScalePriorMean}
+                  scalePriorStd={scalePriorStd} setScalePriorStd={setScalePriorStd}
+                />
+              </div>
+            </>
         }
       </section>
 

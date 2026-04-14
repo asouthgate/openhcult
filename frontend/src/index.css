@@ -209,3 +209,25 @@ select {
   background: black;
   color: white;
 }
+
+.param-table {
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  align-self: flex-start;
+  border: 1px solid #333;
+  padding: 4px;
+}
+
+.param-table td {
+  padding: 5px 10px;
+  border-bottom: 1px solid #222;
+}
+
+.param-table td:first-child {
+  color: #aaa;
+  white-space: nowrap;
+}
+
+.param-table tr:last-child td {
+  border-bottom: none;
+}

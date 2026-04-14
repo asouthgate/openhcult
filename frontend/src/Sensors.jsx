@@ -67,26 +67,33 @@ export default function App() {
             <option value="">All plants</option>
             {plants.map(p => <option key={p.plant_name} value={p.plant_name}>{p.plant_name}</option>)}
           </select>
-          {sensorsForPlant.length > 1 && (
+          {sensorsForPlant.length > 0 && (
             <select value={sensorFilter} onChange={e => setSensorFilter(e.target.value)}>
               <option value="">All sensors</option>
               {sensorsForPlant.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
           )}
-          <div className="window-controls">
-            <label>offset <input type="number" min="0" value={offsetMin} onChange={e => setOffsetMin(Number(e.target.value))} style={{ width: 52 }} /> min</label>
-            <label>width <input type="number" min="1" value={widthMin} onChange={e => setWidthMin(Number(e.target.value))} style={{ width: 52 }} /> min</label>
-            <label>GP std <input type="number" min="0.1" step="0.1" value={gpStdMl} onChange={e => setGpStdMl(Number(e.target.value))} style={{ width: 52 }} /> ml</label>
-            <label>scale prior μ <input type="number" min="0" step="10" value={scalePriorMean} onChange={e => setScalePriorMean(e.target.value)} placeholder="off" style={{ width: 60 }} /> ml</label>
-            <label>scale prior σ <input type="number" min="0" step="10" value={scalePriorStd} onChange={e => setScalePriorStd(e.target.value)} placeholder="off" style={{ width: 60 }} /> ml</label>
-          </div>
         </div>
       </div>
 
       {view === 'sensors'
-        ? <SensorsPane plantFilter={plantFilter} calibration={calibration}
-            offsetMin={offsetMin} widthMin={widthMin} />
-        : <CalibrationPane plantFilter={plantFilter} sensorFilter={sensorFilter} calibration={calibration} calibError={calibError} calibLoading={calibLoading} />
+        ? <SensorsPane
+            plantFilter={plantFilter} sensorFilter={sensorFilter} calibration={calibration}
+            offsetMin={offsetMin} setOffsetMin={setOffsetMin}
+            widthMin={widthMin} setWidthMin={setWidthMin}
+            gpStdMl={gpStdMl} setGpStdMl={setGpStdMl}
+            scalePriorMean={scalePriorMean} setScalePriorMean={setScalePriorMean}
+            scalePriorStd={scalePriorStd} setScalePriorStd={setScalePriorStd}
+          />
+        : <CalibrationPane
+            plantFilter={plantFilter} sensorFilter={sensorFilter}
+            calibration={calibration} calibError={calibError} calibLoading={calibLoading}
+            offsetMin={offsetMin} setOffsetMin={setOffsetMin}
+            widthMin={widthMin} setWidthMin={setWidthMin}
+            gpStdMl={gpStdMl} setGpStdMl={setGpStdMl}
+            scalePriorMean={scalePriorMean} setScalePriorMean={setScalePriorMean}
+            scalePriorStd={scalePriorStd} setScalePriorStd={setScalePriorStd}
+          />
       }
     </div>
   )

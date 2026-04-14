@@ -12,7 +12,7 @@ const SVH = 280
 const SIW = SVW - SM.left - SM.right
 const SIH = SVH - SM.top - SM.bottom
 
-function ScatterPlot({ dx, dy, xLabel, yLabel }) {
+export function ScatterPlot({ dx, dy, xLabel, yLabel }) {
   if (!dx?.length) return null
   const xMin = Math.min(...dx), xMax = Math.max(...dx)
   const yMin = Math.min(...dy), yMax = Math.max(...dy)
@@ -151,14 +151,6 @@ export default function CalibrationCurve({ calibration, showPct = false }) {
         <span className="legend-item"><span className="legend-dot" style={{ background: '#c4b87e' }} />prior</span>
         <span className="legend-item"><span className="legend-dot" style={{ background: '#7eb3c9' }} />chords</span>
         <span className="legend-item"><span className="legend-dot" style={{ background: '#d4a9b8' }} />anchor</span>
-      </div>
-      <div style={{ marginTop: 16 }}>
-        <ScatterPlot
-          dx={chords_dx}
-          dy={chords_dy.map(v => showPct ? (v / scale) * 100 : v)}
-          xLabel="Δsensor"
-          yLabel={showPct ? 'Δ%FC' : 'Δml'}
-        />
       </div>
     </div>
   )
