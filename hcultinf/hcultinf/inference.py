@@ -21,12 +21,13 @@ class GPWithPriorShape:
         self._std = None
         self.scale = None
         self.nlml = None
+        self.noise = None
 
     def fit(
         self, x_anchors, swc_anchors, x_starts, delta_x, delta_swc, prior_x, prior_y
     ):
         x_ends = x_starts + delta_x
-        self._mean, self._std, self.scale, self.nlml = self.fit_gp_chords(
+        self._mean, self._std, self.scale, self.nlml, self.noise = self.fit_gp_chords(
             x_anchors,
             swc_anchors,
             x_starts,
@@ -179,7 +180,7 @@ class GPWithPriorShape:
             post_var += beta_post_var * h_tilde**2
             return np.sqrt(np.maximum(post_var, 0.0))
 
-        return predict_mean, predict_std, scale, nlml
+        return predict_mean, predict_std, scale, nlml, np.exp(result.x)
 
     def plot(
         self,
@@ -194,6 +195,7 @@ class GPWithPriorShape:
         true_y=None,
         out=None,
         title=None,
+        show_chords_pane=True,
     ):
         import matplotlib.pyplot as plt
 
@@ -220,6 +222,7 @@ class GPWithPriorShape:
             dy,
             mean_at_x,
             true_y=plot_true_y,
+            show_chords_pane=show_chords_pane,
         )
         if pwlprevs is not None:
             ax = fig.axes[0]
@@ -263,6 +266,7 @@ def plot_response_curve(
     ylabel="SWC",
     pct_fc=False,
     scale=1.0,
+    show_chords_pane=True,
 ):
     import matplotlib.pyplot as plt
 
@@ -286,7 +290,10 @@ def plot_response_curve(
     ci_lower = mean - 1.96 * std
     ci_upper = mean + 1.96 * std
 
-    fig, (ax, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+    if show_chords_pane:
+        fig, (ax, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+    else:
+        fig, ax = plt.subplots(1, 1, figsize=(7, 5))
 
     for i in range(len(dx)):
         start_y = mean_at_x[i]
@@ -320,14 +327,15 @@ def plot_response_curve(
 
     ax.legend()
 
-    ax2.scatter(dx, dy, alpha=0.7)
-    for i, (dxi, dyi) in enumerate(zip(dx, dy)):
-        ax2.annotate(str(i), (dxi, dyi), fontsize=8, alpha=0.6)
-    ax2.axhline(0, color="gray", linewidth=0.8, linestyle="--")
-    ax2.axvline(0, color="gray", linewidth=0.8, linestyle="--")
-    ax2.set_xlabel(f"Δ{xlabel}")
-    ax2.set_ylabel(f"Δ{ylabel}")
-    ax2.set_title("chord Δx vs Δy")
+    if show_chords_pane:
+        ax2.scatter(dx, dy, alpha=0.7)
+        for i, (dxi, dyi) in enumerate(zip(dx, dy)):
+            ax2.annotate(str(i), (dxi, dyi), fontsize=8, alpha=0.6)
+        ax2.axhline(0, color="gray", linewidth=0.8, linestyle="--")
+        ax2.axvline(0, color="gray", linewidth=0.8, linestyle="--")
+        ax2.set_xlabel(f"Δ{xlabel}")
+        ax2.set_ylabel(f"Δ{ylabel}")
+        ax2.set_title("chord Δx vs Δy")
 
     fig.tight_layout()
     return fig
