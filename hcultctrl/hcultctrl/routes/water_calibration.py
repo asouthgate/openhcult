@@ -59,6 +59,7 @@ def _load_calibration(csv_path: str) -> tuple[np.ndarray, np.ndarray]:
 @router.get("/water_calibration")
 def water_calibration(
     plant: str,
+    sensor: str | None = None,
     offset_ms: int = _DEFAULT_OFFSET_MS,
     width_ms: int = _DEFAULT_WIDTH_MS,
     gp_std_ml: float = 5.0,
@@ -67,8 +68,9 @@ def water_calibration(
     conn=Depends(get_db_conn),
 ):
     logger.info(
-        "GET /water_calibration plant=%s offset_ms=%d width_ms=%d",
+        "GET /water_calibration plant=%s sensor=%s offset_ms=%d width_ms=%d",
         plant,
+        sensor,
         offset_ms,
         width_ms,
     )
@@ -98,6 +100,7 @@ def water_calibration(
             database.fetch_timeseries(
                 conn,
                 plant=plant,
+                sensor=sensor,
                 start_ms=t_ms - offset_ms - width_ms,
                 end_ms=t_ms - offset_ms,
                 limit=5000,
@@ -107,6 +110,7 @@ def water_calibration(
             database.fetch_timeseries(
                 conn,
                 plant=plant,
+                sensor=sensor,
                 start_ms=t_ms + offset_ms,
                 end_ms=t_ms + offset_ms + width_ms,
                 limit=5000,
