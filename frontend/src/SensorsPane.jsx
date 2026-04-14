@@ -60,7 +60,7 @@ export default function SensorsPane({
         }
         const grouped = {}
         for (const row of ts.data ?? []) {
-          if (sensorFilter && row.sensor !== sensorFilter) continue
+          if (sensorFilter && `${row.device_address}:${row.sensor}` !== sensorFilter) continue
           const key = `${row.device_address}:${row.sensor}`
           if (!grouped[key]) grouped[key] = { label: labelMap[key] ?? key, points: [] }
           grouped[key].points.push({ t: row.adjusted_time_ms, raw: row.measurement, mv: row.voltage_mv })
@@ -123,7 +123,7 @@ export default function SensorsPane({
           ? <div className="loading">Loading…</div>
           : series.length === 0
             ? <div className="empty">No data in range.</div>
-            : <><TimeseriesChart
+            : <TimeseriesChart
                 series={mappedSeries}
                 bands={bands}
                 observations={observations}
@@ -131,21 +131,20 @@ export default function SensorsPane({
                 onTimePick={t => { setPendingTime(t); setPendingPlant(plantFilter || ''); setPendingMl('') }}
                 pendingTime={pendingTime}
                 yLabel={measureMode}
-                eventWindowOffset={offsetMin * 60 * 1000}
-                eventWindowWidth={widthMin * 60 * 1000}
+                eventWindowOffset={Number(offsetMin) * 60 * 1000}
+                eventWindowWidth={Number(widthMin) * 60 * 1000}
               />
-              <div style={{ marginTop: 16 }}>
-                <CalibrationParams
-                  offsetMin={offsetMin} setOffsetMin={setOffsetMin}
-                  widthMin={widthMin} setWidthMin={setWidthMin}
-                  gpStdMl={gpStdMl} setGpStdMl={setGpStdMl}
-                  scalePriorMean={scalePriorMean} setScalePriorMean={setScalePriorMean}
-                  scalePriorStd={scalePriorStd} setScalePriorStd={setScalePriorStd}
-                />
-              </div>
-            </>
         }
       </section>
+      <div style={{ marginTop: 16 }}>
+        <CalibrationParams
+          offsetMin={offsetMin} setOffsetMin={setOffsetMin}
+          widthMin={widthMin} setWidthMin={setWidthMin}
+          gpStdMl={gpStdMl} setGpStdMl={setGpStdMl}
+          scalePriorMean={scalePriorMean} setScalePriorMean={setScalePriorMean}
+          scalePriorStd={scalePriorStd} setScalePriorStd={setScalePriorStd}
+        />
+      </div>
 
       {observations.length > 0 && (
         <div className="table-container">

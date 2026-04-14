@@ -12,9 +12,9 @@ export default function App() {
   const [calibration, setCalibration] = useState(null)
   const [calibError, setCalibError] = useState(null)
   const [calibLoading, setCalibLoading] = useState(false)
-  const [offsetMin, setOffsetMin] = useState(10)
-  const [widthMin, setWidthMin] = useState(50)
-  const [gpStdMl, setGpStdMl] = useState(5)
+  const [offsetMin, setOffsetMin] = useState('10')
+  const [widthMin, setWidthMin] = useState('50')
+  const [gpStdMl, setGpStdMl] = useState('5')
   const [scalePriorMean, setScalePriorMean] = useState('')
   const [scalePriorStd, setScalePriorStd] = useState('')
 
@@ -24,7 +24,11 @@ export default function App() {
   }, [])
 
   const sensorsForPlant = plantFilter
-    ? plantSensors.filter(ps => ps.plant_name === plantFilter).map(ps => ps.sensor)
+    ? plantSensors.filter(ps => ps.plant_name === plantFilter).map(ps => ({
+        key: `${ps.device_address}:${ps.sensor}`,
+        label: `${ps.device_address} / ${ps.sensor}`,
+        sensor: ps.sensor,
+      }))
     : []
 
   function handlePlantChange(plant) {
@@ -39,11 +43,11 @@ export default function App() {
     setCalibError(null)
     const params = new URLSearchParams({
       plant: plantFilter,
-      offset_ms: offsetMin * 60 * 1000,
-      width_ms: widthMin * 60 * 1000,
-      gp_std_ml: gpStdMl,
+      offset_ms: Number(offsetMin) * 60 * 1000,
+      width_ms: Number(widthMin) * 60 * 1000,
+      gp_std_ml: Number(gpStdMl),
     })
-    if (sensorFilter) params.set('sensor', sensorFilter)
+    if (sensorFilter) params.set('sensor', sensorFilter.split(':')[1])
     if (scalePriorMean !== '') params.set('scale_prior_mean', scalePriorMean)
     if (scalePriorStd !== '') params.set('scale_prior_std', scalePriorStd)
     apiFetch(`/water_calibration?${params}`, { signal: controller.signal })
@@ -70,7 +74,7 @@ export default function App() {
           {sensorsForPlant.length > 0 && (
             <select value={sensorFilter} onChange={e => setSensorFilter(e.target.value)}>
               <option value="">All sensors</option>
-              {sensorsForPlant.map(s => <option key={s} value={s}>{s}</option>)}
+              {sensorsForPlant.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
             </select>
           )}
         </div>

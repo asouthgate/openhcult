@@ -64,8 +64,12 @@ def test_seed_visualisation_data():
                 plant_id = cur.fetchone()[0]
 
                 cur.execute(
-                    "INSERT INTO plant_sensors (plant_id, device_id, sensor) VALUES (%s, %s, %s) "
-                    "ON CONFLICT (plant_id, device_id, sensor) DO NOTHING",
+                    "UPDATE plant_sensors SET unassigned_at = extract(epoch from now())::bigint * 1000 "
+                    "WHERE device_id = %s AND sensor = %s AND unassigned_at IS NULL",
+                    (device_id, p["sensor"]),
+                )
+                cur.execute(
+                    "INSERT INTO plant_sensors (plant_id, device_id, sensor) VALUES (%s, %s, %s)",
                     (plant_id, device_id, p["sensor"]),
                 )
 

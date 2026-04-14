@@ -19,7 +19,7 @@ export default function CalibrationPane({
   return (
     <section className="calibration-pane">
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <h3 style={{ margin: 0 }}>Calibration: {plantFilter}{sensorFilter ? ` / ${sensorFilter}` : ''}</h3>
+        <h3 style={{ margin: 0 }}>Calibration: {plantFilter}{sensorFilter ? ` / ${sensorFilter.split(':')[1]}` : ''}</h3>
         <div className="range-btns">
           <button className={!showPct ? 'active' : ''} onClick={() => setShowPct(false)}>ml</button>
           <button className={showPct ? 'active' : ''} onClick={() => setShowPct(true)}>%FC</button>

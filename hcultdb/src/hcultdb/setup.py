@@ -112,12 +112,26 @@ def _setup_plant_tables(cursor):
             id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
             plant_id INTEGER NOT NULL REFERENCES plants(id) ON DELETE CASCADE,
             device_id INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
-            sensor TEXT NOT NULL
+            sensor TEXT NOT NULL,
+            assigned_at BIGINT NOT NULL DEFAULT 0,
+            unassigned_at BIGINT
         )
         """)
     cursor.execute("""
-        CREATE UNIQUE INDEX IF NOT EXISTS plant_sensors_unique
-        ON plant_sensors (plant_id, device_id, sensor)
+        ALTER TABLE plant_sensors ADD COLUMN IF NOT EXISTS assigned_at BIGINT NOT NULL DEFAULT 0
+        """)
+    cursor.execute("""
+        ALTER TABLE plant_sensors ADD COLUMN IF NOT EXISTS unassigned_at BIGINT
+        """)
+    cursor.execute("DROP INDEX IF EXISTS plant_sensors_unique")
+    cursor.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS plant_sensors_active_unique
+        ON plant_sensors (device_id, sensor)
+        WHERE unassigned_at IS NULL
+        """)
+    cursor.execute("""
+        CREATE OR REPLACE VIEW active_plant_sensors AS
+        SELECT * FROM plant_sensors WHERE unassigned_at IS NULL
         """)
 
 
