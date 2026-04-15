@@ -60,6 +60,7 @@ def _load_calibration(csv_path: str) -> tuple[np.ndarray, np.ndarray]:
 def water_calibration(
     plant: str,
     sensor: str | None = None,
+    device_address: str | None = None,
     offset_ms: int = _DEFAULT_OFFSET_MS,
     width_ms: int = _DEFAULT_WIDTH_MS,
     gp_std_ml: float = 5.0,
@@ -67,10 +68,17 @@ def water_calibration(
     scale_prior_std: float | None = None,
     conn=Depends(get_db_conn),
 ):
+    if sensor and not device_address:
+        raise HTTPException(
+            status_code=400,
+            detail="device_address is required when sensor is specified",
+        )
+
     logger.info(
-        "GET /water_calibration plant=%s sensor=%s offset_ms=%d width_ms=%d",
+        "GET /water_calibration plant=%s sensor=%s device_address=%s offset_ms=%d width_ms=%d",
         plant,
         sensor,
+        device_address,
         offset_ms,
         width_ms,
     )
@@ -101,6 +109,7 @@ def water_calibration(
                 conn,
                 plant=plant,
                 sensor=sensor,
+                device=device_address,
                 start_ms=t_ms - offset_ms - width_ms,
                 end_ms=t_ms - offset_ms,
                 limit=5000,
@@ -111,6 +120,7 @@ def water_calibration(
                 conn,
                 plant=plant,
                 sensor=sensor,
+                device=device_address,
                 start_ms=t_ms + offset_ms,
                 end_ms=t_ms + offset_ms + width_ms,
                 limit=5000,
