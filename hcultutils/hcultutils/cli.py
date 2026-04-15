@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone, timedelta
+import getpass
+import json
 import os
 import sys
+import urllib.error as _urlerr
+import urllib.request as _urlreq
 
 from hcultutils import infer_events, plot_timeseries, fetch_data
 from hcultutils.plants import plants_via_ctrl
@@ -13,6 +17,8 @@ from hcultutils.species import species_via_ctrl
 from hcultutils.devices import devices_via_ctrl
 from hcultutils.observations import observations_main
 from hcultutils.inference_train import inference_train_main
+from hcultutils.response_curve import response_curve_estimate_main
+from hcultutils.token import save_token
 
 
 class HcultArgumentParser(argparse.ArgumentParser):
@@ -189,16 +195,6 @@ def _add_plants_command(subparsers):
     plants_status.add_argument("status_code", type=str)
     plants_status.add_argument("--note", default=None)
 
-    plants_status_group = plants_sub.add_parser("status")
-    status_sub = plants_status_group.add_subparsers(dest="status_action")
-    status_sub.required = True
-    status_ls = status_sub.add_parser("ls")
-    status_ls.add_argument("plant_name", type=str)
-    status_set = status_sub.add_parser("set")
-    status_set.add_argument("plant_name", type=str)
-    status_set.add_argument("status_code", type=str)
-    status_set.add_argument("--note", default=None)
-
     plants_health = plants_sub.add_parser("health")
     plants_health.add_argument("--plant_name", type=str)
 
@@ -246,6 +242,52 @@ def _add_observations_command(subparsers):
     ls_parser.add_argument("--limit", type=int, default=1000)
 
 
+def _add_response_curve_command(subparsers):
+    parser = subparsers.add_parser("plot_response_curve_estimate")
+    parser.add_argument(
+        "--plant-name", required=True, help="Plant to plot calibration curve for"
+    )
+    parser.add_argument(
+        "--out", default=None, help="Write PNG here instead of showing a window"
+    )
+    parser.add_argument(
+        "--pct-fc",
+        action="store_true",
+        default=False,
+        help="Show Y axis as percent field capacity",
+    )
+    parser.add_argument(
+        "--gp-std-ml",
+        type=float,
+        default=5.0,
+        help="GP residual std in ml — smaller = curve follows prior shape more closely (default 1000)",
+    )
+    parser.add_argument(
+        "--offset-min",
+        type=int,
+        default=10,
+        help="Minutes to skip after watering before averaging (default 10)",
+    )
+    parser.add_argument(
+        "--width-min",
+        type=int,
+        default=50,
+        help="Width of the averaging window in minutes (default 50)",
+    )
+    parser.add_argument(
+        "--scale-prior-mean",
+        type=float,
+        default=None,
+        help="Mean of Gaussian prior on scale (field capacity in ml). Prevents unbounded scale.",
+    )
+    parser.add_argument(
+        "--scale-prior-std",
+        type=float,
+        default=None,
+        help="Std of Gaussian prior on scale (ml). Smaller = tighter regularisation.",
+    )
+
+
 def _add_inference_train_command(subparsers):
     parser = subparsers.add_parser("inference_train")
     _add_base_args(parser)
@@ -265,6 +307,29 @@ def _add_inference_train_command(subparsers):
     )
 
 
+def _add_auth_url_arg(parser):
+    parser.add_argument(
+        "--ctrl-url",
+        default=os.environ.get("HCULT_CTRL_URL", None),
+        required=True,
+        help="URL for the CTRL node",
+    )
+
+
+def _add_login_command(subparsers):
+    parser = subparsers.add_parser(
+        "login", formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    _add_auth_url_arg(parser)
+
+
+def _add_setup_command(subparsers):
+    parser = subparsers.add_parser(
+        "setup", formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    _add_auth_url_arg(parser)
+
+
 def _build_parser() -> HcultArgumentParser:
     parser = HcultArgumentParser(
         prog="hcultutils",
@@ -278,6 +343,8 @@ def _build_parser() -> HcultArgumentParser:
     )
     subparsers.required = True
 
+    _add_setup_command(subparsers)
+    _add_login_command(subparsers)
     _add_fetch_data_command(subparsers)
     _add_plot_timeseries_command(subparsers)
     _add_infer_events_command(subparsers)
@@ -285,12 +352,65 @@ def _build_parser() -> HcultArgumentParser:
     _add_plants_command(subparsers)
     _add_devices_command(subparsers)
     _add_observations_command(subparsers)
+    _add_response_curve_command(subparsers)
     _add_inference_train_command(subparsers)
     return parser
 
 
+def _post_auth(url: str, username: str, password: str) -> str:
+    data = json.dumps({"username": username, "password": password}).encode()
+    req = _urlreq.Request(
+        url,
+        data=data,
+        method="POST",
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+    )
+    try:
+        with _urlreq.urlopen(req, timeout=10) as resp:
+            return json.loads(resp.read().decode())["access_token"]
+    except _urlerr.HTTPError as exc:
+        body = exc.read().decode()
+        try:
+            detail = json.loads(body).get("detail", exc.reason)
+        except ValueError:
+            detail = exc.reason
+        raise SystemExit(f"Error {exc.code}: {detail}") from exc
+
+
+def _setup(ctrl_url: str) -> int:
+    base = ctrl_url.rstrip("/")
+    status_req = _urlreq.Request(
+        f"{base}/auth/status", headers={"Accept": "application/json"}
+    )
+    try:
+        with _urlreq.urlopen(status_req, timeout=10) as resp:
+            configured = json.loads(resp.read().decode()).get("configured", False)
+    except _urlerr.URLError as exc:
+        raise SystemExit(f"Could not reach server: {exc.reason}") from exc
+    if configured:
+        raise SystemExit("Already configured — use `hcultutils login` to authenticate.")
+    username = input("Username: ")
+    password = getpass.getpass("Password: ")
+    confirm = getpass.getpass("Confirm password: ")
+    if password != confirm:
+        raise SystemExit("Passwords do not match.")
+    token = _post_auth(f"{base}/auth/setup", username, password)
+    save_token(token)
+    print("Setup complete. You are now logged in.")
+    return 0
+
+
+def _login(ctrl_url: str) -> int:
+    username = input("Username: ")
+    password = getpass.getpass("Password: ")
+    token = _post_auth(f"{ctrl_url.rstrip('/')}/auth/login", username, password)
+    save_token(token)
+    print("Logged in.")
+    return 0
+
+
 def _apply_hours_args(args):
-    if args.hours is None:
+    if getattr(args, "hours", None) is None:
         return
     now = datetime.now(timezone.utc)
     hours_ago = now - timedelta(hours=args.hours)
@@ -298,6 +418,10 @@ def _apply_hours_args(args):
 
 
 def _dispatch_command(args) -> int:
+    if args.command == "setup":
+        return _setup(args.ctrl_url)
+    if args.command == "login":
+        return _login(args.ctrl_url)
     if not args.ctrl_url:
         raise ValueError("Must specify --ctrl-url or define HCULT_CTRL_URL")
     if args.command == "plot_timeseries":
@@ -312,12 +436,12 @@ def _dispatch_command(args) -> int:
         return species_via_ctrl(args.ctrl_url, args.action, args)
     if args.command == "plants":
         return plants_via_ctrl(args.ctrl_url, args.action, args)
-    if args.command == "plant":
-        return plants_via_ctrl(args.ctrl_url, args.action, args)
     if args.command == "devices":
         return devices_via_ctrl(args.ctrl_url, args.action, args)
     if args.command == "observations":
         return observations_main(args.ctrl_url, args.action, args)
+    if args.command == "plot_response_curve_estimate":
+        return response_curve_estimate_main(args.ctrl_url, args)
     if args.command == "inference_train":
         return inference_train_main(args.ctrl_url, args)
     return 1

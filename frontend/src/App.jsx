@@ -1,4 +1,7 @@
+import { useState, useEffect } from 'react'
 import { HashRouter, Routes, Route, Link } from 'react-router-dom'
+import { getToken } from './api'
+import AuthForm from './AuthForm'
 import Sensors from './Sensors'
 
 function Home() {
@@ -13,6 +16,15 @@ function Home() {
 }
 
 export default function App() {
+  const [configured, setConfigured] = useState(null)
+
+  useEffect(() => {
+    fetch('/auth/status').then(r => r.json()).then(d => setConfigured(d.configured))
+  }, [])
+
+  if (configured === null) return null
+  if (!configured) return <AuthForm endpoint="/auth/setup" submitLabel="Create account" withConfirm subtitle="Set up your account to get started." />
+  if (!getToken()) return <AuthForm endpoint="/auth/login" submitLabel="Login" />
   return (
     <HashRouter>
       <Routes>

@@ -13,6 +13,7 @@ ExecStart={{ openhcult_install_dir }}/.venv/bin/python -m hcultctrl -c {{ openhc
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
+Environment=HCULT_CALIBRATION_CSV={{ openhcult_calibration_csv }}
 
 [Install]
 WantedBy=default.target

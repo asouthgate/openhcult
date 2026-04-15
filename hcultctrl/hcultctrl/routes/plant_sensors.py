@@ -30,6 +30,7 @@ def list_plant_sensors(
             "plant_name": row["plant_name"],
             "device_address": row["device_address"],
             "sensor": row["sensor"],
+            "assigned_at": row["assigned_at"],
         }
         for row in rows
     ]

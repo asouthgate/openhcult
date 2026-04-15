@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import logging
-import time
 from typing import Iterable, Optional
 
 from .connection import (
@@ -91,23 +90,6 @@ def _parse_observed_at_ms(value):
     return int(parsed.timestamp() * 1000)
 
 
-def add_observation(conn, note, observed_at=None):
-    """Insert an observation and return its id."""
-    cursor = conn.cursor()
-    observed_at_ms = (
-        _parse_observed_at_ms(observed_at)
-        if observed_at is not None
-        else int(time.time() * 1000)
-    )
-    cursor.execute(
-        "INSERT INTO observations (observed_at, note) VALUES (%s, %s) RETURNING id",
-        (observed_at_ms, note),
-    )
-    obs_id = cursor.fetchone()[0]
-    conn.commit()
-    return obs_id
-
-
 def fetch_timeseries(
     conn,
     *,
@@ -149,6 +131,9 @@ def fetch_timeseries(
         plant_join = """
         JOIN plant_sensors ON plant_sensors.device_id = devices.id
             AND plant_sensors.sensor = sensor_readings.sensor
+            AND sensor_readings.adjusted_time_ms >= plant_sensors.assigned_at
+            AND (plant_sensors.unassigned_at IS NULL
+                 OR sensor_readings.adjusted_time_ms < plant_sensors.unassigned_at)
         JOIN plants ON plants.id = plant_sensors.plant_id
         """
 
@@ -437,7 +422,7 @@ def fetch_plants(
                 )) FILTER (WHERE ps.id IS NOT NULL), '[]') AS sensors
             FROM plants p
             LEFT JOIN species s ON s.id = p.species_id
-            LEFT JOIN plant_sensors ps ON ps.plant_id = p.id
+            LEFT JOIN plant_sensors ps ON ps.plant_id = p.id AND ps.unassigned_at IS NULL
             LEFT JOIN devices d ON ps.device_id = d.id
             GROUP BY p.id, s.name
             ORDER BY p.id ASC
@@ -579,16 +564,38 @@ def delete_plant_by_name(conn, *, plant_name: int) -> None:
         raise ValueError("Plant not found")
 
 
-def assign_plant_sensor(conn, *, plant_id: int, device_id: int, sensor: str) -> None:
-    """Insert a plant-to-device sensor mapping."""
+def assign_plant_sensor(
+    conn, *, plant_id: int, device_id: int, sensor: str, assigned_at: int | None = None
+) -> None:
+    """Assign (device_id, sensor) to plant_id.
+
+    First assignment uses assigned_at=0 so all prior readings are included.
+    Reassignment closes the current row at now and opens a new one from now,
+    so historical readings stay attributed to the previous plant.
+    """
     placeholder = placeholder_for(conn)
     cursor = conn.cursor()
-    query = (
-        "INSERT INTO plant_sensors (plant_id, device_id, sensor) "
-        "VALUES (%s, %s, %s) "
-        "ON CONFLICT (plant_id, device_id, sensor) DO NOTHING"
+    cursor.execute(
+        f"SELECT id FROM plant_sensors "
+        f"WHERE device_id = {placeholder} AND sensor = {placeholder} AND unassigned_at IS NULL",
+        (device_id, sensor),
     )
-    cursor.execute(query, (plant_id, device_id, sensor))
+    existing = cursor.fetchone()
+    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    if existing:
+        close_at = assigned_at if assigned_at is not None else now_ms
+        cursor.execute(
+            f"UPDATE plant_sensors SET unassigned_at = {placeholder} WHERE id = {placeholder}",
+            (close_at, existing[0]),
+        )
+        open_at = close_at
+    else:
+        open_at = assigned_at if assigned_at is not None else now_ms
+    cursor.execute(
+        f"INSERT INTO plant_sensors (plant_id, device_id, sensor, assigned_at) "
+        f"VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder})",
+        (plant_id, device_id, sensor, open_at),
+    )
     conn.commit()
 
 
@@ -596,18 +603,23 @@ def fetch_plant_sensors(
     conn,
     *,
     limit: int = 1000,
+    include_history: bool = False,
 ) -> Iterable[dict]:
-    """Return plant sensor mappings with resolved plant names and device addresses."""
+    """Return plant sensor mappings. Active-only by default; pass include_history=True for all."""
     placeholder = placeholder_for(conn)
+    history_filter = "" if include_history else "AND ps.unassigned_at IS NULL"
     query = f"""
-        SELECT 
-            ps.id, 
-            p.plant_name, 
-            d.address AS device_address, 
-            ps.sensor
+        SELECT
+            ps.id,
+            p.plant_name,
+            d.address AS device_address,
+            ps.sensor,
+            ps.assigned_at,
+            ps.unassigned_at
         FROM plant_sensors ps
         JOIN plants p ON ps.plant_id = p.id
         JOIN devices d ON ps.device_id = d.id
+        WHERE TRUE {history_filter}
         ORDER BY ps.id ASC
         LIMIT {placeholder}
     """

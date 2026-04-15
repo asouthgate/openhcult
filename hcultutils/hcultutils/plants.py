@@ -169,29 +169,6 @@ def _set_status(base_url, plant_name, status_code, note) -> int:
     return 0
 
 
-def _get_status(base_url, status_action, status_code, note) -> int:
-    if status_action == "ls":
-        plant_name = quote(plant_name, safe="")
-        payload = request_ctrl("GET", f"{base_url}/plants/{plant_name}/status")
-        print(json.dumps(payload, indent=2))
-        return 0
-    if status_action == "set":
-        plant_name = quote(plant_name, safe="")
-        payload = {"status_code": status_code}
-        if note:
-            payload["note"] = note
-        created = request_ctrl(
-            "POST", f"{base_url}/plants/{plant_name}/status", payload
-        )
-        print(
-            "Added status {status} to {plant_name}".format(
-                status=created.get("status_code") or status_code,
-                plant_name=created.get("plant_name") or plant_name,
-            )
-        )
-        return 0
-
-
 def plants_via_ctrl(ctrl_url: str, action: str, args) -> int:
     base = ctrl_url.rstrip("/")
     if action == "ls":
@@ -203,9 +180,7 @@ def plants_via_ctrl(ctrl_url: str, action: str, args) -> int:
             base, args.plant_name, args.species_name, args.tag, args.metadata
         )
     if action == "update":
-        return _update_plant(
-            base, args.species_id, args.tag, args.metadata, args.plant_id
-        )
+        return _update_plant(base, args.species_id, args.tag, args.metadata, args.id)
     if action == "rm":
         return _delete_plant(base, args.plant_name)
     if action == "health":
@@ -214,6 +189,4 @@ def plants_via_ctrl(ctrl_url: str, action: str, args) -> int:
         return _assign_plant(base, args.plant_name, args.device, args.sensor)
     if action == "set-status":
         return _set_status(base, args.plant_name, args.status_code, args.note)
-    if action == "status":
-        return _get_status(base, args.status_action, args.status_code, args.note)
     return 0

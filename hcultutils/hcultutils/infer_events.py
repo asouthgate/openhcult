@@ -48,17 +48,10 @@ def _post_observation(ctrl_url: str, note: str, observed_at: str) -> None:
         resp.read()
 
 
-def _has_close_neighbors(sensor, event_time, prev_sensor_times, merge_distance_sec):
-    """
-    Checks if any other sensor has already logged an event within the merge distance.
-    """
-
+def _has_close_neighbors(event_time, prev_sensor_times, merge_distance_sec):
     for prev_time in prev_sensor_times:
-
-        # Check if the time difference is within our threshold
         if abs(event_time - prev_time) <= merge_distance_sec:
             return True
-
     return False
 
 
@@ -84,7 +77,7 @@ def _get_non_duplicate_events(
         for event_time in sensor_event_times:
 
             if not _has_close_neighbors(
-                sensor, event_time, prev_sensor_times, merge_distance_sec
+                event_time, prev_sensor_times, merge_distance_sec
             ):
                 note = "AUTO: " f"{sensor} " f"emwa_tau_minutes={emwa_tau_minutes} "
                 iso_string = str(event_time.astype("datetime64[ms]")) + "Z"

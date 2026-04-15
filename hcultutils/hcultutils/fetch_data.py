@@ -4,15 +4,15 @@
 from __future__ import annotations
 
 import configparser
-import json
 import pickle
 import os
 import urllib.parse
-import urllib.request
 from pathlib import Path
 from typing import Dict, List, Tuple
 import matplotlib
 import numpy as np
+
+from hcultutils.query import request_ctrl
 
 
 def _default_config_path() -> Path:
@@ -58,8 +58,7 @@ def fetch_series_from_ctrl(
 
     base_url = ctrl_url.rstrip("/")
     url = f"{base_url}/timeseries?{urllib.parse.urlencode(params)}"
-    with urllib.request.urlopen(url, timeout=10) as resp:
-        payload = json.load(resp)
+    payload = request_ctrl("GET", url)
 
     if payload.get("count") == limit:
         print(
@@ -100,8 +99,7 @@ def _fetch_observations_from_ctrl(
 
     base_url = ctrl_url.rstrip("/")
     url = f"{base_url}/observations?{urllib.parse.urlencode(params)}"
-    with urllib.request.urlopen(url, timeout=10) as resp:
-        payload = json.load(resp)
+    payload = request_ctrl("GET", url)
 
     observations: List[Tuple[int, np.datetime64, str]] = []
     for row in payload.get("data", []):

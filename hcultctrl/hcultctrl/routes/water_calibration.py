@@ -16,7 +16,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _ML_RE = re.compile(r"\bml=(\d+(?:\.\d+)?)\b")
-_WINDOW_MS = 10 * 60 * 1000
+_DEFAULT_OFFSET_MS = 10 * 60 * 1000
+_DEFAULT_WIDTH_MS = 50 * 60 * 1000
 
 
 def _volume_ml(note: str) -> float | None:
@@ -43,7 +44,9 @@ def _load_calibration(csv_path: str) -> tuple[np.ndarray, np.ndarray]:
             by_ml: dict[float, list[float]] = {}
             for row in reader:
                 ml = float(row["ml"])
-                for col in ("sensor1_raw", "sensor2_raw"):
+                if ml < 0:
+                    continue
+                for col in ("sensor1_voltage", "sensor2_voltage"):
                     if col in fieldnames:
                         by_ml.setdefault(ml, []).append(float(row[col]))
             for ml, readings in by_ml.items():
@@ -54,8 +57,31 @@ def _load_calibration(csv_path: str) -> tuple[np.ndarray, np.ndarray]:
 
 
 @router.get("/water_calibration")
-def water_calibration(plant: str, conn=Depends(get_db_conn)):
-    logger.info("GET /water_calibration plant=%s", plant)
+def water_calibration(
+    plant: str,
+    sensor: str | None = None,
+    device_address: str | None = None,
+    offset_ms: int = _DEFAULT_OFFSET_MS,
+    width_ms: int = _DEFAULT_WIDTH_MS,
+    gp_std_ml: float = 5.0,
+    scale_prior_mean: float | None = None,
+    scale_prior_std: float | None = None,
+    conn=Depends(get_db_conn),
+):
+    if sensor and not device_address:
+        raise HTTPException(
+            status_code=400,
+            detail="device_address is required when sensor is specified",
+        )
+
+    logger.info(
+        "GET /water_calibration plant=%s sensor=%s device_address=%s offset_ms=%d width_ms=%d",
+        plant,
+        sensor,
+        device_address,
+        offset_ms,
+        width_ms,
+    )
 
     obs = list(
         database.fetch_observations_for_plant(conn, plant_name=plant, limit=1000)
@@ -76,27 +102,41 @@ def water_calibration(plant: str, conn=Depends(get_db_conn)):
         )
 
     chords = []
+    chord_times = []
     for t_ms, ml in waterings:
         before = list(
             database.fetch_timeseries(
-                conn, plant=plant, start_ms=t_ms - _WINDOW_MS, end_ms=t_ms, limit=5000
+                conn,
+                plant=plant,
+                sensor=sensor,
+                device=device_address,
+                start_ms=t_ms - offset_ms - width_ms,
+                end_ms=t_ms - offset_ms,
+                limit=5000,
             )
         )
         after = list(
             database.fetch_timeseries(
-                conn, plant=plant, start_ms=t_ms, end_ms=t_ms + _WINDOW_MS, limit=5000
+                conn,
+                plant=plant,
+                sensor=sensor,
+                device=device_address,
+                start_ms=t_ms + offset_ms,
+                end_ms=t_ms + offset_ms + width_ms,
+                limit=5000,
             )
         )
         if not before or not after:
             continue
-        x = float(np.mean([r["measurement"] for r in before]))
-        x_after = float(np.mean([r["measurement"] for r in after]))
+        x = float(np.median([r["voltage_mv"] for r in before]))
+        x_after = float(np.median([r["voltage_mv"] for r in after]))
         chords.append((x, x_after - x, ml))
+        chord_times.append(t_ms)
 
     if not chords:
         raise HTTPException(
             status_code=400,
-            detail="No sensor data found in ±10 min windows around waterings",
+            detail=f"No sensor data found in windows around waterings (offset={offset_ms//60000}min, width={width_ms//60000}min)",
         )
 
     x_arr = np.array([c[0] for c in chords])
@@ -105,9 +145,8 @@ def water_calibration(plant: str, conn=Depends(get_db_conn)):
 
     csv_path = os.environ.get("HCULT_CALIBRATION_CSV")
     if not csv_path:
-        raise HTTPException(
-            status_code=500, detail="HCULT_CALIBRATION_CSV not configured"
-        )
+        logger.error("HCULT_CALIBRATION_CSV is not configured")
+        raise HTTPException(status_code=500, detail="Calibration data unavailable")
 
     sensor_vals, swc_vals = _load_calibration(csv_path)
     swc_min, swc_max = swc_vals.min(), swc_vals.max()
@@ -117,14 +156,37 @@ def water_calibration(plant: str, conn=Depends(get_db_conn)):
     x_anchor = np.array([sensor_vals.max()])
     swc_anchor = np.array([0.0])
 
-    gp = GPWithPriorShape().fit(
-        x_anchor, swc_anchor, x_arr, dx_arr, dy_arr, prior_x, prior_y
-    )
-    mean, std = gp.predict(prior_x)
+    gp = GPWithPriorShape(
+        variance=gp_std_ml**2,
+        scale_prior_mean=scale_prior_mean,
+        scale_prior_std=scale_prior_std,
+    ).fit(x_anchor, swc_anchor, x_arr, dx_arr, dy_arr, prior_x, prior_y)
+    plot_x = np.linspace(prior_x.min(), prior_x.max(), 500)
+    plot_prior_y = np.interp(plot_x, prior_x, prior_y)
+    mean, std = gp.predict(plot_x)
+    mean_at_chord_starts = gp(x_arr)
+
+    # Invert GP curve to estimate expected sensor delta for each watering
+    swc_after = mean_at_chord_starts + dy_arr
+    # mean is decreasing with plot_x (high mV = dry = low SWC), so reverse for np.interp
+    estimated_mv_after = np.interp(swc_after, mean[::-1], plot_x[::-1])
+    estimated_dx_arr = estimated_mv_after - x_arr
 
     return {
-        "prior_x": prior_x.tolist(),
+        "prior_x": plot_x.tolist(),
+        "prior_y": plot_prior_y.tolist(),
         "mean": mean.tolist(),
         "std": std.tolist(),
         "scale": float(gp.scale),
+        "nlml": float(gp.nlml),
+        "anchors_x": x_anchor.tolist(),
+        "anchors_y": swc_anchor.tolist(),
+        "chords_x": x_arr.tolist(),
+        "chords_dx": dx_arr.tolist(),
+        "chords_dy": dy_arr.tolist(),
+        "mean_at_chord_starts": mean_at_chord_starts.tolist(),
+        "estimated_chords_dx": estimated_dx_arr.tolist(),
+        "chord_times": chord_times,
+        "offset_ms": offset_ms,
+        "width_ms": width_ms,
     }
