@@ -31,6 +31,28 @@ export default function CalibrationPane({
       {calibError && <div className="error">{calibError}</div>}
       {calibration && <>
         <CalibrationCurve calibration={calibration} showPct={showPct} />
+        {chord_times?.length > 0 && (() => {
+          const dy = chords_dy.map(v => toWater(v, scale, showPct))
+          const stats = [
+            ['Events', chord_times.length],
+            ['Earliest', new Date(Math.min(...chord_times)).toLocaleString()],
+            ['Latest', new Date(Math.max(...chord_times)).toLocaleString()],
+            ['Δsensor min', Math.min(...chords_dx).toFixed(1) + ' mV'],
+            ['Δsensor max', Math.max(...chords_dx).toFixed(1) + ' mV'],
+            ['Dose min', Math.min(...dy).toFixed(1) + (showPct ? ' %FC' : ' ml')],
+            ['Dose max', Math.max(...dy).toFixed(1) + (showPct ? ' %FC' : ' ml')],
+            ['Dose mean', (dy.reduce((a, b) => a + b, 0) / dy.length).toFixed(1) + (showPct ? ' %FC' : ' ml')],
+          ]
+          return (
+            <table className="obs-table" style={{ marginTop: 16 }}>
+              <tbody>
+                {stats.map(([label, value]) => (
+                  <tr key={label}><td style={{ opacity: 0.6 }}>{label}</td><td>{value}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          )
+        })()}
         {chord_times?.length > 0 && (
           <details style={{ marginTop: 16 }}>
             <summary style={{ cursor: 'pointer', fontSize: 12, opacity: 0.7 }}>Chord events ({chord_times.length})</summary>

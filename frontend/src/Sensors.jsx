@@ -50,7 +50,11 @@ export default function Sensors() {
       width_ms: Number(widthMin) * 60 * 1000,
       gp_std_ml: Number(gpStdMl),
     })
-    if (sensorFilter) params.set('sensor', sensorPart(sensorFilter))
+    if (sensorFilter) {
+      const sep = sensorFilter.lastIndexOf(':')
+      params.set('sensor', sensorFilter.slice(sep + 1))
+      params.set('device_address', sensorFilter.slice(0, sep))
+    }
     if (scalePriorMean !== '') params.set('scale_prior_mean', scalePriorMean)
     if (scalePriorStd !== '') params.set('scale_prior_std', scalePriorStd)
     apiJson(`/water_calibration?${params}`, { signal: controller.signal })

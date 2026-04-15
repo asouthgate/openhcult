@@ -154,7 +154,7 @@ export default function SensorsPane({
             : <TimeseriesChart
                 series={mappedSeries}
                 bands={bands}
-                observations={observations}
+                observations={sensorAssignedAt != null ? observations.filter(o => new Date(o.observed_at).getTime() >= sensorAssignedAt) : observations}
                 rangeMs={rangeHours * 3600 * 1000}
                 onTimePick={t => { setPendingTime(t); setPendingPlant(plantFilter || ''); setPendingMl('') }}
                 pendingTime={pendingTime}
