@@ -1,5 +1,5 @@
 export default function CalibrationParams({ calibParams, setCalibParam }) {
-  const { offsetMin, widthMin, gpStdMl, scalePriorMean, scalePriorStd } = calibParams
+  const { offsetMin, widthMin, gpStdMl, scalePriorMean, scalePriorStd, prior } = calibParams
   return (
     <table className="param-table">
       <tbody>
@@ -27,6 +27,15 @@ export default function CalibrationParams({ calibParams, setCalibParam }) {
           <td>scale prior σ</td>
           <td><input type="number" min="0" step="10" className="param-input-wide" value={scalePriorStd} onChange={e => setCalibParam('scalePriorStd', e.target.value)} placeholder="off" /></td>
           <td>ml</td>
+        </tr>
+        <tr>
+          <td>prior</td>
+          <td colSpan={2}>
+            <div className="range-btns">
+              <button className={prior === 'calibrated' ? 'active' : ''} onClick={() => setCalibParam('prior', 'calibrated')}>calibrated</button>
+              <button className={prior === 'linear' ? 'active' : ''} onClick={() => setCalibParam('prior', 'linear')}>linear</button>
+            </div>
+          </td>
         </tr>
       </tbody>
     </table>

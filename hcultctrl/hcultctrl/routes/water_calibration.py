@@ -66,12 +66,17 @@ def water_calibration(
     gp_std_ml: float = 5.0,
     scale_prior_mean: float | None = None,
     scale_prior_std: float | None = None,
+    prior: str = "calibrated",
     conn=Depends(get_db_conn),
 ):
     if sensor and not device_address:
         raise HTTPException(
             status_code=400,
             detail="device_address is required when sensor is specified",
+        )
+    if prior not in ("calibrated", "linear"):
+        raise HTTPException(
+            status_code=400, detail="prior must be 'calibrated' or 'linear'"
         )
 
     logger.info(
@@ -103,6 +108,7 @@ def water_calibration(
 
     chords = []
     chord_times = []
+    _all_readings = []
     for t_ms, ml in waterings:
         before = list(
             database.fetch_timeseries(
@@ -128,6 +134,7 @@ def water_calibration(
         )
         if not before or not after:
             continue
+        _all_readings.extend([before, after])
         x = float(np.median([r["voltage_mv"] for r in before]))
         x_after = float(np.median([r["voltage_mv"] for r in after]))
         chords.append((x, x_after - x, ml))
@@ -143,17 +150,23 @@ def water_calibration(
     dx_arr = np.array([c[1] for c in chords])
     dy_arr = np.array([c[2] for c in chords])
 
-    csv_path = os.environ.get("HCULT_CALIBRATION_CSV")
-    if not csv_path:
-        logger.error("HCULT_CALIBRATION_CSV is not configured")
-        raise HTTPException(status_code=500, detail="Calibration data unavailable")
+    if prior == "linear":
+        all_mv = [r["voltage_mv"] for readings in _all_readings for r in readings]
+        mv_min, mv_max = float(np.min(all_mv)), float(np.max(all_mv))
+        prior_x = np.linspace(mv_min, mv_max, 500)
+        prior_y = np.interp(prior_x, [mv_min, mv_max], [1.0, 0.0])
+        x_anchor = np.array([mv_max])
+    else:
+        csv_path = os.environ.get("HCULT_CALIBRATION_CSV")
+        if not csv_path:
+            logger.error("HCULT_CALIBRATION_CSV is not configured")
+            raise HTTPException(status_code=500, detail="Calibration data unavailable")
+        sensor_vals, swc_vals = _load_calibration(csv_path)
+        swc_min, swc_max = swc_vals.min(), swc_vals.max()
+        prior_x = sensor_vals
+        prior_y = (swc_vals - swc_min) / (swc_max - swc_min)
+        x_anchor = np.array([sensor_vals.max()])
 
-    sensor_vals, swc_vals = _load_calibration(csv_path)
-    swc_min, swc_max = swc_vals.min(), swc_vals.max()
-    prior_x = sensor_vals
-    prior_y = (swc_vals - swc_min) / (swc_max - swc_min)
-
-    x_anchor = np.array([sensor_vals.max()])
     swc_anchor = np.array([0.0])
 
     gp = GPWithPriorShape(
