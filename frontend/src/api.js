@@ -24,3 +24,12 @@ export async function apiFetch(url, options = {}) {
   }
   return resp
 }
+
+export async function apiJson(url, options = {}) {
+  const resp = await apiFetch(url, options)
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({}))
+    throw new Error(body.detail ?? `HTTP ${resp.status}`)
+  }
+  return resp.json()
+}

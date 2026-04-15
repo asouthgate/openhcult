@@ -231,3 +231,6 @@ select {
 .param-table tr:last-child td {
   border-bottom: none;
 }
+
+.param-input { width: 52px; }
+.param-input-wide { width: 60px; }

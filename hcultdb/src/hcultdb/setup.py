@@ -5,24 +5,7 @@ from pathlib import Path
 from .connection import connect, is_postgres, placeholder as placeholder_for
 
 
-def _connect(db_url: str):
-    return connect(db_url)
-
-
 def _setup_inference_tables(cursor):
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS observations (
-            id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-            observed_at BIGINT NOT NULL,
-            note TEXT NOT NULL,
-            plant_id INTEGER REFERENCES plants(id)
-        )
-        """)
-    cursor.execute("""
-        CREATE UNIQUE INDEX IF NOT EXISTS observations_unique
-        ON observations (observed_at, note, COALESCE(plant_id, -1))
-        """)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS observation_types (
             id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -32,18 +15,17 @@ def _setup_inference_tables(cursor):
         )
         """)
     cursor.execute("""
-        ALTER TABLE observations
-        ADD COLUMN IF NOT EXISTS observation_type_id INTEGER
-        REFERENCES observation_types(id)
+        CREATE TABLE IF NOT EXISTS observations (
+            id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            observed_at BIGINT NOT NULL,
+            note TEXT NOT NULL,
+            plant_id INTEGER REFERENCES plants(id) ON DELETE SET NULL,
+            observation_type_id INTEGER REFERENCES observation_types(id)
+        )
         """)
     cursor.execute("""
-        ALTER TABLE observations
-        DROP CONSTRAINT IF EXISTS observations_plant_id_fkey
-        """)
-    cursor.execute("""
-        ALTER TABLE observations
-        ADD CONSTRAINT observations_plant_id_fkey
-        FOREIGN KEY (plant_id) REFERENCES plants(id) ON DELETE SET NULL
+        CREATE UNIQUE INDEX IF NOT EXISTS observations_unique
+        ON observations (observed_at, note, COALESCE(plant_id, -1))
         """)
 
 
@@ -73,9 +55,6 @@ def _setup_readings_tables(cursor):
             adjusted_time_ms BIGINT,
             FOREIGN KEY (device_id) REFERENCES devices(id)
         )
-        """)
-    cursor.execute("""
-        ALTER TABLE sensor_readings ADD COLUMN IF NOT EXISTS voltage_mv INTEGER
         """)
 
 
@@ -118,13 +97,6 @@ def _setup_plant_tables(cursor):
         )
         """)
     cursor.execute("""
-        ALTER TABLE plant_sensors ADD COLUMN IF NOT EXISTS assigned_at BIGINT NOT NULL DEFAULT 0
-        """)
-    cursor.execute("""
-        ALTER TABLE plant_sensors ADD COLUMN IF NOT EXISTS unassigned_at BIGINT
-        """)
-    cursor.execute("DROP INDEX IF EXISTS plant_sensors_unique")
-    cursor.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS plant_sensors_active_unique
         ON plant_sensors (device_id, sensor)
         WHERE unassigned_at IS NULL
@@ -150,8 +122,7 @@ def _setup_species_tables(cursor):
 
 
 def setup_db(db_url: str):
-    """Create or migrate the database schema and return an open connection."""
-    conn = _connect(db_url)
+    conn = connect(db_url)
     cursor = conn.cursor()
 
     _setup_devices_tables(cursor)

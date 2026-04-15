@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
-import { apiFetch } from './api'
+import { apiJson } from './api'
+import { sensorKey, sensorPart } from './utils'
 import SensorsPane from './SensorsPane'
 import CalibrationPane from './CalibrationPane'
 
-export default function App() {
+export default function Sensors() {
   const [view, setView] = useState('sensors')
   const [plantFilter, setPlantFilter] = useState('')
   const [plants, setPlants] = useState([])
@@ -12,20 +13,20 @@ export default function App() {
   const [calibration, setCalibration] = useState(null)
   const [calibError, setCalibError] = useState(null)
   const [calibLoading, setCalibLoading] = useState(false)
-  const [offsetMin, setOffsetMin] = useState('10')
-  const [widthMin, setWidthMin] = useState('50')
-  const [gpStdMl, setGpStdMl] = useState('5')
-  const [scalePriorMean, setScalePriorMean] = useState('')
-  const [scalePriorStd, setScalePriorStd] = useState('')
+  const [calibParams, setCalibParams] = useState({
+    offsetMin: '10', widthMin: '50', gpStdMl: '5', scalePriorMean: '', scalePriorStd: '',
+  })
+
+  const setCalibParam = (key, val) => setCalibParams(p => ({ ...p, [key]: val }))
 
   useEffect(() => {
-    apiFetch('/plants?limit=1000').then(r => r.json()).then(d => setPlants(d.data ?? []))
-    apiFetch('/plant_sensors').then(r => r.json()).then(d => setPlantSensors(d.data ?? []))
+    apiJson('/plants?limit=1000').then(d => setPlants(d.data ?? []))
+    apiJson('/plant_sensors').then(d => setPlantSensors(d.data ?? []))
   }, [])
 
   const sensorsForPlant = plantFilter
     ? plantSensors.filter(ps => ps.plant_name === plantFilter).map(ps => ({
-        key: `${ps.device_address}:${ps.sensor}`,
+        key: sensorKey(ps.device_address, ps.sensor),
         label: `${ps.device_address} / ${ps.sensor}`,
         sensor: ps.sensor,
         assignedAt: ps.assigned_at ?? 0,
@@ -42,27 +43,27 @@ export default function App() {
     const controller = new AbortController()
     setCalibLoading(true)
     setCalibError(null)
+    const { offsetMin, widthMin, gpStdMl, scalePriorMean, scalePriorStd } = calibParams
     const params = new URLSearchParams({
       plant: plantFilter,
       offset_ms: Number(offsetMin) * 60 * 1000,
       width_ms: Number(widthMin) * 60 * 1000,
       gp_std_ml: Number(gpStdMl),
     })
-    if (sensorFilter) params.set('sensor', sensorFilter.slice(sensorFilter.lastIndexOf(':') + 1))
+    if (sensorFilter) params.set('sensor', sensorPart(sensorFilter))
     if (scalePriorMean !== '') params.set('scale_prior_mean', scalePriorMean)
     if (scalePriorStd !== '') params.set('scale_prior_std', scalePriorStd)
-    apiFetch(`/water_calibration?${params}`, { signal: controller.signal })
-      .then(r => r.ok ? r.json() : r.json().then(body => Promise.reject(body.detail ?? `HTTP ${r.status}`)))
+    apiJson(`/water_calibration?${params}`, { signal: controller.signal })
       .then(d => setCalibration(d))
       .catch(err => { if (err.name !== 'AbortError') { setCalibration(null); setCalibError(String(err)) } })
       .finally(() => setCalibLoading(false))
     return () => controller.abort()
-  }, [plantFilter, sensorFilter, offsetMin, widthMin, gpStdMl, scalePriorMean, scalePriorStd])
+  }, [plantFilter, sensorFilter, calibParams])
 
   return (
     <div className="app">
       <div className="app-header">
-        <h1>Hcult</h1>
+        <h1>HCult</h1>
         <div className="controls">
           <div className="range-btns">
             <button className={view === 'sensors' ? 'active' : ''} onClick={() => setView('sensors')}>Sensors</button>
@@ -85,20 +86,12 @@ export default function App() {
         ? <SensorsPane
             plantFilter={plantFilter} sensorFilter={sensorFilter} calibration={calibration}
             sensorAssignedAt={sensorsForPlant.find(s => s.key === sensorFilter)?.assignedAt ?? null}
-            offsetMin={offsetMin} setOffsetMin={setOffsetMin}
-            widthMin={widthMin} setWidthMin={setWidthMin}
-            gpStdMl={gpStdMl} setGpStdMl={setGpStdMl}
-            scalePriorMean={scalePriorMean} setScalePriorMean={setScalePriorMean}
-            scalePriorStd={scalePriorStd} setScalePriorStd={setScalePriorStd}
+            calibParams={calibParams} setCalibParam={setCalibParam} plantSensors={plantSensors}
           />
         : <CalibrationPane
             plantFilter={plantFilter} sensorFilter={sensorFilter}
             calibration={calibration} calibError={calibError} calibLoading={calibLoading}
-            offsetMin={offsetMin} setOffsetMin={setOffsetMin}
-            widthMin={widthMin} setWidthMin={setWidthMin}
-            gpStdMl={gpStdMl} setGpStdMl={setGpStdMl}
-            scalePriorMean={scalePriorMean} setScalePriorMean={setScalePriorMean}
-            scalePriorStd={scalePriorStd} setScalePriorStd={setScalePriorStd}
+            calibParams={calibParams} setCalibParam={setCalibParam}
           />
       }
     </div>

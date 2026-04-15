@@ -1,14 +1,16 @@
 import { useState } from 'react'
 
-const M = { top: 20, right: 24, bottom: 52, left: 60 }
-const VW = 900
-const VH = 380
-const IW = VW - M.left - M.right
-const IH = VH - M.top - M.bottom
+export const M = { top: 20, right: 24, bottom: 52, left: 60 }
+export const VW = 900
+export const VH = 380
+export const IW = VW - M.left - M.right
+export const IH = VH - M.top - M.bottom
 
-const PALETTE = ['#9fb8a9', '#7eb3c9', '#d4a9b8', '#c4b87e', '#9e8fc4', '#7ec4b3', '#c4a07e', '#b37e9e']
-const OBS_COLOR = '#7eb3c9'
+export const PALETTE = ['#9fb8a9', '#7eb3c9', '#d4a9b8', '#c4b87e', '#9e8fc4', '#7ec4b3', '#c4a07e', '#b37e9e']
+export const OBS_COLOR = '#7eb3c9'
 const PENDING_COLOR = 'white'
+
+const pts = (arr, fx, fy) => arr.map(p => `${fx(p).toFixed(1)},${fy(p).toFixed(1)}`).join(' ')
 
 function timeTicks(tMin, tMax, n) {
   const step = (tMax - tMin) / n
@@ -32,6 +34,34 @@ function fmtTime(ms, rangeMs) {
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   }
   return d.toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+export function SvgAxes({ xTicks, yTicks, x, y, m, vw, iw, ih, formatX, formatY, xLabel, yLabel }) {
+  return (
+    <>
+      <line x1={m.left} x2={vw - m.right} y1={m.top + ih} y2={m.top + ih} className="axis-line" />
+      <line x1={m.left} x2={m.left} y1={m.top} y2={m.top + ih} className="axis-line" />
+      {xTicks.map(v => (
+        <g key={v}>
+          <line x1={x(v)} x2={x(v)} y1={m.top + ih} y2={m.top + ih + 5} className="axis-line" />
+          <text x={x(v)} y={m.top + ih + 18} className="axis-label" textAnchor="middle">{formatX(v)}</text>
+        </g>
+      ))}
+      {yTicks.map(v => (
+        <g key={v}>
+          <line x1={m.left - 5} x2={m.left} y1={y(v)} y2={y(v)} className="axis-line" />
+          <text x={m.left - 9} y={y(v) + 4} className="axis-label" textAnchor="end">{formatY(v)}</text>
+        </g>
+      ))}
+      {xLabel && (
+        <text x={m.left + iw / 2} y={m.top + ih + m.bottom - 6} className="axis-label" textAnchor="middle">{xLabel}</text>
+      )}
+      {yLabel && (
+        <text x={14} y={m.top + ih / 2} className="axis-label" textAnchor="middle"
+          transform={`rotate(-90, 14, ${m.top + ih / 2})`}>{yLabel}</text>
+      )}
+    </>
+  )
 }
 
 export function TimeseriesChart({ series, bands = [], observations, rangeMs, onTimePick, pendingTime, yLabel, eventWindowOffset, eventWindowWidth }) {
@@ -87,15 +117,13 @@ export function TimeseriesChart({ series, bands = [], observations, rangeMs, onT
         ))}
 
         {bands.map((b, i) => {
-          const upper = b.points.map(p => `${x(p.t).toFixed(1)},${y(p.hi).toFixed(1)}`).join(' ')
-          const lower = [...b.points].reverse().map(p => `${x(p.t).toFixed(1)},${y(p.lo).toFixed(1)}`).join(' ')
+          const upper = pts(b.points, p => x(p.t), p => y(p.hi))
+          const lower = pts([...b.points].reverse(), p => x(p.t), p => y(p.lo))
           return (
             <g key={i}>
               <polygon points={`${upper} ${lower}`} fill={b.color} opacity="0.25" />
-              <polyline points={b.points.map(p => `${x(p.t).toFixed(1)},${y(p.hi).toFixed(1)}`).join(' ')}
-                fill="none" stroke={b.color} strokeWidth="1.5" strokeDasharray="3 3" opacity="0.7" />
-              <polyline points={b.points.map(p => `${x(p.t).toFixed(1)},${y(p.lo).toFixed(1)}`).join(' ')}
-                fill="none" stroke={b.color} strokeWidth="1.5" strokeDasharray="3 3" opacity="0.7" />
+              <polyline points={upper} fill="none" stroke={b.color} strokeWidth="1.5" strokeDasharray="3 3" opacity="0.7" />
+              <polyline points={lower} fill="none" stroke={b.color} strokeWidth="1.5" strokeDasharray="3 3" opacity="0.7" />
             </g>
           )
         })}
@@ -103,7 +131,7 @@ export function TimeseriesChart({ series, bands = [], observations, rangeMs, onT
         {series.map(s => (
           <polyline
             key={s.label}
-            points={s.points.map(p => `${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ')}
+            points={pts(s.points, p => x(p.t), p => y(p.v))}
             fill="none"
             stroke={s.color}
             strokeWidth="1.5"
@@ -152,35 +180,13 @@ export function TimeseriesChart({ series, bands = [], observations, rangeMs, onT
           )
         })}
 
-        <line x1={M.left} x2={VW - M.right} y1={M.top + IH} y2={M.top + IH} className="axis-line" />
-        {xTicks.map(t => (
-          <g key={t}>
-            <line x1={x(t)} x2={x(t)} y1={M.top + IH} y2={M.top + IH + 5} className="axis-line" />
-            <text x={x(t)} y={M.top + IH + 18} className="axis-label" textAnchor="middle">
-              {fmtTime(t, rangeMs)}
-            </text>
-          </g>
-        ))}
-
-        <line x1={M.left} x2={M.left} y1={M.top} y2={M.top + IH} className="axis-line" />
-        {yLabel && (
-          <text
-            x={14} y={M.top + IH / 2}
-            className="axis-label"
-            textAnchor="middle"
-            transform={`rotate(-90, 14, ${M.top + IH / 2})`}
-          >
-            {yLabel}
-          </text>
-        )}
-        {yTicks.map(v => (
-          <g key={v}>
-            <line x1={M.left - 5} x2={M.left} y1={y(v)} y2={y(v)} className="axis-line" />
-            <text x={M.left - 9} y={y(v) + 4} className="axis-label" textAnchor="end">
-              {Math.round(v)}
-            </text>
-          </g>
-        ))}
+        <SvgAxes
+          xTicks={xTicks} yTicks={yTicks}
+          x={x} y={y}
+          m={M} vw={VW} iw={IW} ih={IH}
+          formatX={t => fmtTime(t, rangeMs)} formatY={v => Math.round(v)}
+          yLabel={yLabel}
+        />
 
         {cursor && (
           <>
@@ -236,5 +242,3 @@ export function TimeseriesChart({ series, bands = [], observations, rangeMs, onT
     </div>
   )
 }
-
-export { PALETTE }

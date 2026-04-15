@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react'
 import { HashRouter, Routes, Route, Link } from 'react-router-dom'
 import { getToken } from './api'
-import Login from './Login'
-import Setup from './Setup'
+import AuthForm from './AuthForm'
 import Sensors from './Sensors'
 
 function Home() {
@@ -24,8 +23,8 @@ export default function App() {
   }, [])
 
   if (configured === null) return null
-  if (!configured) return <Setup />
-  if (!getToken()) return <Login />
+  if (!configured) return <AuthForm endpoint="/auth/setup" submitLabel="Create account" withConfirm subtitle="Set up your account to get started." />
+  if (!getToken()) return <AuthForm endpoint="/auth/login" submitLabel="Login" />
   return (
     <HashRouter>
       <Routes>

@@ -1,11 +1,11 @@
 import { useState } from 'react'
-import CalibrationCurve, { ScatterPlot } from './CalibrationCurve'
+import { sensorPart, toWater } from './utils'
+import CalibrationCurve from './CalibrationCurve'
+import ScatterPlot from './ScatterPlot'
 import CalibrationParams from './CalibrationParams'
 
 export default function CalibrationPane({
-  plantFilter, sensorFilter, calibration, calibError, calibLoading,
-  offsetMin, setOffsetMin, widthMin, setWidthMin,
-  gpStdMl, setGpStdMl, scalePriorMean, setScalePriorMean, scalePriorStd, setScalePriorStd,
+  plantFilter, sensorFilter, calibration, calibError, calibLoading, calibParams, setCalibParam,
 }) {
   const [showPct, setShowPct] = useState(false)
 
@@ -16,7 +16,7 @@ export default function CalibrationPane({
   return (
     <section className="calibration-pane">
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <h3 style={{ margin: 0 }}>Calibration: {plantFilter}{sensorFilter ? ` / ${sensorFilter.slice(sensorFilter.lastIndexOf(':') + 1)}` : ''}</h3>
+        <h3 style={{ margin: 0 }}>Calibration: {plantFilter}{sensorFilter ? ` / ${sensorPart(sensorFilter)}` : ''}</h3>
         {!calibLoading && calibration && (
           <div className="range-btns">
             <button className={!showPct ? 'active' : ''} onClick={() => setShowPct(false)}>ml</button>
@@ -51,20 +51,14 @@ export default function CalibrationPane({
         <div style={{ display: 'flex', gap: 24, marginTop: 16, alignItems: 'flex-start' }}>
           <ScatterPlot
             dx={chords_dx}
-            dy={chords_dy.map(v => showPct ? (v / scale) * 100 : v)}
+            dy={chords_dy.map(v => toWater(v, scale, showPct))}
             xLabel="Δsensor"
             yLabel={showPct ? 'Δ%FC' : 'Δml'}
           />
         </div>
       </>}
       <div style={{ marginTop: 16 }}>
-        <CalibrationParams
-          offsetMin={offsetMin} setOffsetMin={setOffsetMin}
-          widthMin={widthMin} setWidthMin={setWidthMin}
-          gpStdMl={gpStdMl} setGpStdMl={setGpStdMl}
-          scalePriorMean={scalePriorMean} setScalePriorMean={setScalePriorMean}
-          scalePriorStd={scalePriorStd} setScalePriorStd={setScalePriorStd}
-        />
+        <CalibrationParams calibParams={calibParams} setCalibParam={setCalibParam} />
       </div>
     </section>
   )
