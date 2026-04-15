@@ -67,6 +67,8 @@ def water_calibration(
     scale_prior_mean: float | None = None,
     scale_prior_std: float | None = None,
     prior: str = "calibrated",
+    prior_min: float | None = None,
+    prior_max: float | None = None,
     conn=Depends(get_db_conn),
 ):
     if sensor and not device_address:
@@ -77,6 +79,11 @@ def water_calibration(
     if prior not in ("calibrated", "linear"):
         raise HTTPException(
             status_code=400, detail="prior must be 'calibrated' or 'linear'"
+        )
+    if prior == "linear" and (prior_min is None or prior_max is None):
+        raise HTTPException(
+            status_code=400,
+            detail="prior_min and prior_max are required for linear prior",
         )
 
     logger.info(
@@ -108,7 +115,6 @@ def water_calibration(
 
     chords = []
     chord_times = []
-    _all_readings = []
     for t_ms, ml in waterings:
         before = list(
             database.fetch_timeseries(
@@ -134,7 +140,6 @@ def water_calibration(
         )
         if not before or not after:
             continue
-        _all_readings.extend([before, after])
         x = float(np.median([r["voltage_mv"] for r in before]))
         x_after = float(np.median([r["voltage_mv"] for r in after]))
         chords.append((x, x_after - x, ml))
@@ -151,11 +156,9 @@ def water_calibration(
     dy_arr = np.array([c[2] for c in chords])
 
     if prior == "linear":
-        all_mv = [r["voltage_mv"] for readings in _all_readings for r in readings]
-        mv_min, mv_max = float(np.min(all_mv)), float(np.max(all_mv))
-        prior_x = np.linspace(mv_min, mv_max, 500)
-        prior_y = np.interp(prior_x, [mv_min, mv_max], [1.0, 0.0])
-        x_anchor = np.array([mv_max])
+        prior_x = np.linspace(prior_min, prior_max, 500)
+        prior_y = np.interp(prior_x, [prior_min, prior_max], [1.0, 0.0])
+        x_anchor = np.array([prior_max])
     else:
         csv_path = os.environ.get("HCULT_CALIBRATION_CSV")
         if not csv_path:

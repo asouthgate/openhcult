@@ -1,5 +1,5 @@
 export default function CalibrationParams({ calibParams, setCalibParam }) {
-  const { offsetMin, widthMin, gpStdMl, scalePriorMean, scalePriorStd, prior } = calibParams
+  const { offsetMin, widthMin, gpStdMl, scalePriorMean, scalePriorStd, prior, priorMin, priorMax } = calibParams
   return (
     <table className="param-table">
       <tbody>
@@ -37,6 +37,18 @@ export default function CalibrationParams({ calibParams, setCalibParam }) {
             </div>
           </td>
         </tr>
+        {prior === 'linear' && <>
+          <tr>
+            <td>prior min</td>
+            <td><input type="number" className="param-input" value={priorMin} onChange={e => setCalibParam('priorMin', e.target.value)} placeholder="mV" /></td>
+            <td>mV</td>
+          </tr>
+          <tr>
+            <td>prior max</td>
+            <td><input type="number" className="param-input" value={priorMax} onChange={e => setCalibParam('priorMax', e.target.value)} placeholder="mV" /></td>
+            <td>mV</td>
+          </tr>
+        </>}
       </tbody>
     </table>
   )
