@@ -28,6 +28,7 @@ export default function App() {
         key: `${ps.device_address}:${ps.sensor}`,
         label: `${ps.device_address} / ${ps.sensor}`,
         sensor: ps.sensor,
+        assignedAt: ps.assigned_at ?? 0,
       }))
     : []
 
@@ -47,7 +48,7 @@ export default function App() {
       width_ms: Number(widthMin) * 60 * 1000,
       gp_std_ml: Number(gpStdMl),
     })
-    if (sensorFilter) params.set('sensor', sensorFilter.split(':')[1])
+    if (sensorFilter) params.set('sensor', sensorFilter.slice(sensorFilter.lastIndexOf(':') + 1))
     if (scalePriorMean !== '') params.set('scale_prior_mean', scalePriorMean)
     if (scalePriorStd !== '') params.set('scale_prior_std', scalePriorStd)
     apiFetch(`/water_calibration?${params}`, { signal: controller.signal })
@@ -83,6 +84,7 @@ export default function App() {
       {view === 'sensors'
         ? <SensorsPane
             plantFilter={plantFilter} sensorFilter={sensorFilter} calibration={calibration}
+            sensorAssignedAt={sensorsForPlant.find(s => s.key === sensorFilter)?.assignedAt ?? null}
             offsetMin={offsetMin} setOffsetMin={setOffsetMin}
             widthMin={widthMin} setWidthMin={setWidthMin}
             gpStdMl={gpStdMl} setGpStdMl={setGpStdMl}

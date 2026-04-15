@@ -26,7 +26,7 @@ function _interp(x, xs, ys) {
 }
 
 export default function SensorsPane({
-  plantFilter, sensorFilter, calibration, offsetMin, widthMin,
+  plantFilter, sensorFilter, sensorAssignedAt, calibration, offsetMin, widthMin,
   setOffsetMin, setWidthMin, gpStdMl, setGpStdMl,
   scalePriorMean, setScalePriorMean, scalePriorStd, setScalePriorStd,
 }) {
@@ -146,7 +146,11 @@ export default function SensorsPane({
         />
       </div>
 
-      {observations.length > 0 && (
+      {(() => {
+        const visibleObs = sensorAssignedAt != null
+          ? observations.filter(o => new Date(o.observed_at).getTime() >= sensorAssignedAt)
+          : observations
+        return visibleObs.length > 0 && (
         <div className="table-container">
           <table className="obs-table">
             <thead>
@@ -158,7 +162,7 @@ export default function SensorsPane({
                 if (calibration?.chord_times) {
                   calibration.chord_times.forEach((t, i) => { estMap[t] = calibration.estimated_chords_dx[i] })
                 }
-                return [...observations].reverse().map(o => {
+                return [...visibleObs].reverse().map(o => {
                   const tMs = new Date(o.observed_at).getTime()
                   const est = estMap[tMs]
                   return (
@@ -178,7 +182,8 @@ export default function SensorsPane({
             </tbody>
           </table>
         </div>
-      )}
+        )
+      })()}
 
       {pendingTime && (
         <div className="event-panel">
