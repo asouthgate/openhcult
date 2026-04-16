@@ -14,7 +14,7 @@ export default function Sensors() {
   const [calibError, setCalibError] = useState(null)
   const [calibLoading, setCalibLoading] = useState(false)
   const [calibParams, setCalibParams] = useState({
-    offsetMin: '10', widthMin: '50', gpStdMl: '50', scalePriorMean: '', scalePriorStd: '', prior: 'calibrated', priorMin: '', priorMax: '',
+    offsetMin: '10', widthMin: '50', gpStdMl: '50', scalePriorMean: '', scalePriorStd: '', prior: 'calibrated', priorMin: '', priorMax: '', priorAlpha: '0.5',
   })
 
   const autoStdSet = useRef(false)
@@ -45,7 +45,7 @@ export default function Sensors() {
     const controller = new AbortController()
     setCalibLoading(true)
     setCalibError(null)
-    const { offsetMin, widthMin, gpStdMl, scalePriorMean, scalePriorStd, prior, priorMin, priorMax } = calibParams
+    const { offsetMin, widthMin, gpStdMl, scalePriorMean, scalePriorStd, prior, priorMin, priorMax, priorAlpha } = calibParams
     const params = new URLSearchParams({
       plant: plantFilter,
       offset_ms: Number(offsetMin) * 60 * 1000,
@@ -60,8 +60,11 @@ export default function Sensors() {
     if (scalePriorMean !== '') params.set('scale_prior_mean', scalePriorMean)
     if (scalePriorStd !== '') params.set('scale_prior_std', scalePriorStd)
     if (prior !== 'calibrated') params.set('prior', prior)
-    if (prior === 'linear' && priorMin !== '') params.set('prior_min', priorMin)
-    if (prior === 'linear' && priorMax !== '') params.set('prior_max', priorMax)
+    if (prior === 'linear' || prior === 'power') {
+      if (priorMin !== '') params.set('prior_min', priorMin)
+      if (priorMax !== '') params.set('prior_max', priorMax)
+    }
+    if (prior === 'power' && priorAlpha !== '') params.set('prior_alpha', priorAlpha)
     apiJson(`/water_calibration?${params}`, { signal: controller.signal })
       .then(d => {
         setCalibration(d)

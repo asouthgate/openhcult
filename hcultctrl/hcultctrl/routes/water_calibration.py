@@ -46,9 +46,12 @@ def _load_calibration(csv_path: str) -> tuple[np.ndarray, np.ndarray]:
                 ml = float(row["ml"])
                 if ml < 0:
                     continue
-                for col in ("sensor1_voltage", "sensor2_voltage"):
-                    if col in fieldnames:
-                        by_ml.setdefault(ml, []).append(float(row[col]))
+                if "voltage_mV" in fieldnames:
+                    by_ml.setdefault(ml, []).append(float(row["voltage_mV"]))
+                else:
+                    for col in ("sensor1_voltage", "sensor2_voltage"):
+                        if col in fieldnames:
+                            by_ml.setdefault(ml, []).append(float(row[col]))
             for ml, readings in by_ml.items():
                 sensor_vals.append(float(np.mean(readings)))
                 swc_vals.append(ml)
@@ -69,6 +72,7 @@ def water_calibration(
     prior: str = "calibrated",
     prior_min: float | None = None,
     prior_max: float | None = None,
+    prior_alpha: float = 0.5,
     conn=Depends(get_db_conn),
 ):
     if sensor and not device_address:
@@ -76,14 +80,14 @@ def water_calibration(
             status_code=400,
             detail="device_address is required when sensor is specified",
         )
-    if prior not in ("calibrated", "linear"):
+    if prior not in ("calibrated", "linear", "power"):
         raise HTTPException(
-            status_code=400, detail="prior must be 'calibrated' or 'linear'"
+            status_code=400, detail="prior must be 'calibrated', 'linear', or 'power'"
         )
-    if prior == "linear" and (prior_min is None or prior_max is None):
+    if prior in ("linear", "power") and (prior_min is None or prior_max is None):
         raise HTTPException(
             status_code=400,
-            detail="prior_min and prior_max are required for linear prior",
+            detail="prior_min and prior_max are required for linear and power priors",
         )
 
     logger.info(
@@ -155,9 +159,10 @@ def water_calibration(
     dx_arr = np.array([c[1] for c in chords])
     dy_arr = np.array([c[2] for c in chords])
 
-    if prior == "linear":
+    if prior in ("linear", "power"):
         prior_x = np.linspace(prior_min, prior_max, 500)
-        prior_y = np.interp(prior_x, [prior_min, prior_max], [1.0, 0.0])
+        t = (prior_x - prior_min) / (prior_max - prior_min)
+        prior_y = (1 - t) ** (1.0 if prior == "linear" else prior_alpha)
         x_anchor = np.array([prior_max])
     else:
         csv_path = os.environ.get("HCULT_CALIBRATION_CSV")
