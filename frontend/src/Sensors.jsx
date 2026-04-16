@@ -14,7 +14,7 @@ export default function Sensors() {
   const [calibError, setCalibError] = useState(null)
   const [calibLoading, setCalibLoading] = useState(false)
   const [calibParams, setCalibParams] = useState({
-    offsetMin: '10', widthMin: '50', gpStdMl: '50', scalePriorMean: '', scalePriorStd: '', prior: 'calibrated', priorMin: '', priorMax: '', priorAlpha: '0.5',
+    offsetMin: '10', widthMin: '50', gpStdMl: '50', scalePriorMean: '', scalePriorStd: '', prior: 'power', priorMin: '867', priorMax: '2009', priorAlpha: '5.4523129367441685',
   })
 
   const autoStdSet = useRef(false)
