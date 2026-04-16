@@ -63,7 +63,7 @@ def water_calibration(
     device_address: str | None = None,
     offset_ms: int = _DEFAULT_OFFSET_MS,
     width_ms: int = _DEFAULT_WIDTH_MS,
-    gp_std_ml: float = 5.0,
+    gp_std_ml: float = 50.0,
     scale_prior_mean: float | None = None,
     scale_prior_std: float | None = None,
     prior: str = "calibrated",

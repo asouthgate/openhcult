@@ -14,8 +14,8 @@ export default function CalibrationPane({
   const { chords_dx, chords_dy, chord_times, scale, nlml } = calibration ?? {}
 
   return (
-    <section className="calibration-pane">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+    <section className="pane-grid">
+      <div className="full" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <h3 style={{ margin: 0 }}>Calibration: {plantFilter}{sensorFilter ? ` / ${sensorPart(sensorFilter)}` : ''}</h3>
         {!calibLoading && calibration && (
           <div className="range-btns">
@@ -27,10 +27,12 @@ export default function CalibrationPane({
           <span style={{ fontSize: 12, opacity: 0.7 }}>NLML: {nlml.toFixed(2)}</span>
         )}
       </div>
-      {calibLoading && <div>Computing…</div>}
-      {calibError && <div className="error">{calibError}</div>}
+      {calibLoading && <div className="full">Computing…</div>}
+      {calibError && <div className="full error">{calibError}</div>}
       {calibration && <>
-        <CalibrationCurve calibration={calibration} showPct={showPct} />
+        <div className="full">
+          <CalibrationCurve calibration={calibration} showPct={showPct} />
+        </div>
         {chord_times?.length > 0 && (() => {
           const dy = chords_dy.map(v => toWater(v, scale, showPct))
           const stats = [
@@ -44,7 +46,7 @@ export default function CalibrationPane({
             ['Dose mean', (dy.reduce((a, b) => a + b, 0) / dy.length).toFixed(1) + (showPct ? ' %FC' : ' ml')],
           ]
           return (
-            <table className="obs-table" style={{ marginTop: 16 }}>
+            <table className="obs-table full">
               <tbody>
                 {stats.map(([label, value]) => (
                   <tr key={label}><td style={{ opacity: 0.6 }}>{label}</td><td>{value}</td></tr>
@@ -54,7 +56,7 @@ export default function CalibrationPane({
           )
         })()}
         {chord_times?.length > 0 && (
-          <details style={{ marginTop: 16 }}>
+          <details className="full">
             <summary style={{ cursor: 'pointer', fontSize: 12, opacity: 0.7 }}>Chord events ({chord_times.length})</summary>
             <table className="obs-table" style={{ marginTop: 8 }}>
               <thead><tr><th>Watering time</th><th>Δsensor (mV)</th><th>Dose (ml)</th></tr></thead>
@@ -70,7 +72,9 @@ export default function CalibrationPane({
             </table>
           </details>
         )}
-        <div style={{ display: 'flex', gap: 24, marginTop: 16, alignItems: 'flex-start' }}>
+      </>}
+      {calibration && (
+        <div>
           <ScatterPlot
             dx={chords_dx}
             dy={chords_dy.map(v => toWater(v, scale, showPct))}
@@ -78,8 +82,8 @@ export default function CalibrationPane({
             yLabel={showPct ? 'Δ%FC' : 'Δml'}
           />
         </div>
-      </>}
-      <div style={{ marginTop: 16 }}>
+      )}
+      <div>
         <CalibrationParams calibParams={calibParams} setCalibParam={setCalibParam} />
       </div>
     </section>

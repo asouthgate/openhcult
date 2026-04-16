@@ -234,3 +234,20 @@ select {
 
 .param-input { width: 52px; }
 .param-input-wide { width: 60px; }
+
+.pane-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.pane-grid .full {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 640px) {
+  .pane-grid {
+    grid-template-columns: 1fr;
+  }
+}

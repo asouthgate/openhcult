@@ -132,8 +132,8 @@ export default function SensorsPane({
     apiFetch(`/observations/${id}`, { method: 'DELETE' }).then(r => r.ok && setObservations(prev => prev.filter(o => o.id !== id)))
 
   return (
-    <div>
-      <div className="controls">
+    <div className="pane-grid">
+      <div className="full controls">
         <div className="range-btns">
           {TIME_RANGES.map(r => (
             <button key={r.hours} className={rangeHours === r.hours ? 'active' : ''} onClick={() => setRangeHours(r.hours)}>{r.label}</button>
@@ -146,7 +146,7 @@ export default function SensorsPane({
         </div>
       </div>
 
-      <section className="sensor-pane">
+      <div className="full">
         {loading
           ? <div className="loading">Loading…</div>
           : series.length === 0
@@ -163,20 +163,23 @@ export default function SensorsPane({
                 eventWindowWidth={Number(calibParams.widthMin) * 60 * 1000}
               />
         }
-      </section>
-      <div style={{ marginTop: 16 }}>
+      </div>
+
+      <div>
         <CalibrationParams calibParams={calibParams} setCalibParam={setCalibParam} />
       </div>
 
-      <ObservationsTable
-        observations={observations}
-        sensorAssignedAt={sensorAssignedAt}
-        calibration={calibration}
-        onDelete={deleteObservation}
-      />
+      <div className="full">
+        <ObservationsTable
+          observations={observations}
+          sensorAssignedAt={sensorAssignedAt}
+          calibration={calibration}
+          onDelete={deleteObservation}
+        />
+      </div>
 
       {pendingTime && (
-        <div className="event-panel">
+        <div className="full event-panel">
           <span>Watering at {new Date(pendingTime).toLocaleString()}</span>
           <input type="number" placeholder="ml" value={pendingMl} onChange={e => setPendingMl(e.target.value)} />
           <button onClick={submitWatering} disabled={!pendingMl}>Record</button>

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { apiJson } from './api'
 import { sensorKey, sensorPart } from './utils'
 import SensorsPane from './SensorsPane'
@@ -14,9 +14,10 @@ export default function Sensors() {
   const [calibError, setCalibError] = useState(null)
   const [calibLoading, setCalibLoading] = useState(false)
   const [calibParams, setCalibParams] = useState({
-    offsetMin: '10', widthMin: '50', gpStdMl: '5', scalePriorMean: '', scalePriorStd: '', prior: 'calibrated', priorMin: '', priorMax: '',
+    offsetMin: '10', widthMin: '50', gpStdMl: '50', scalePriorMean: '', scalePriorStd: '', prior: 'calibrated', priorMin: '', priorMax: '',
   })
 
+  const autoStdSet = useRef(false)
   const setCalibParam = (key, val) => setCalibParams(p => ({ ...p, [key]: val }))
 
   useEffect(() => {
@@ -36,6 +37,7 @@ export default function Sensors() {
   function handlePlantChange(plant) {
     setPlantFilter(plant)
     setSensorFilter('')
+    autoStdSet.current = false
   }
 
   useEffect(() => {
@@ -61,7 +63,14 @@ export default function Sensors() {
     if (prior === 'linear' && priorMin !== '') params.set('prior_min', priorMin)
     if (prior === 'linear' && priorMax !== '') params.set('prior_max', priorMax)
     apiJson(`/water_calibration?${params}`, { signal: controller.signal })
-      .then(d => setCalibration(d))
+      .then(d => {
+        setCalibration(d)
+        if (!autoStdSet.current && d.chords_dy?.length > 0) {
+          const mean = d.chords_dy.reduce((a, b) => a + b, 0) / d.chords_dy.length
+          setCalibParam('gpStdMl', String(Math.round(mean)))
+          autoStdSet.current = true
+        }
+      })
       .catch(err => { if (err.name !== 'AbortError') { setCalibration(null); setCalibError(String(err)) } })
       .finally(() => setCalibLoading(false))
     return () => controller.abort()
