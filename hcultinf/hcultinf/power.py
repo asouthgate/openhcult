@@ -51,11 +51,12 @@ class PowerCordCalibrator(CordCalibrator):
         result = least_squares(
             residuals,
             x0=[scale0, power0, y_int0],
-            bounds=([1e-6, 0.1, 0.0], [np.inf, 20.0, 0.99]),
+            bounds=([1e-6, 0.1, 0.0], [1e6, 20.0, 0.1]),
             method="trf",
         )
         scale, power, y_int = result.x
-
+        if not result.success:
+            raise RuntimeError(f"Optimization failed: {result.message}")
         J = result.jac
         n_res, n_par = J.shape
         n_data_obs = len(swc_anchors) + len(delta_swc)
