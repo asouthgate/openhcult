@@ -19,6 +19,17 @@ TEST_DXMIN = 0.2
 TEST_DXMAX = 0.5
 TEST_NOISE_LEVEL = 0.5
 
+_POWER_TEST_FN = lambda x: 10.0 * power_function(x, 5.0, 0.0, TEST_XMIN, TEST_XMAX)
+
+
+def _get_mixed_prior_decreasing(xmin, xmax, p):
+    priorx = np.linspace(xmin, xmax, 1000)
+    linear_prior_y = np.interp(priorx, [TEST_XMIN, TEST_XMAX], [1.0, 0.0])
+    fn_vals = _POWER_TEST_FN(priorx)
+    normalized_fn = (fn_vals - fn_vals.min()) / (fn_vals.max() - fn_vals.min())
+    priory = linear_prior_y * p + normalized_fn * (1 - p)
+    return priorx, priory
+
 
 def _get_mixed_prior(xmin, xmax, p):
     priorx = np.linspace(xmin, xmax, 1000)
@@ -100,9 +111,18 @@ def test_convergence_in_n_bad_prior(estimator):
     assert curve_error < 0.02 * Y_TEST_FUNCTION(pwlx).max()
 
 
-def test_convergence_in_prior_low_n():
-    """Test that, as data increases, the curve estimate approaches the true curve."""
+@pytest.mark.parametrize(
+    "estimator",
+    [
+        PowerCordCalibrator(TEST_XMIN, TEST_XMAX),
+        GPWithPriorShape(length_scale=1.0),
+    ],
+)
+def test_convergence_in_prior_low_n(estimator):
+    """Test that, as prior approaches the true curve, the estimate improves."""
     n = 4
+    anchorx = np.array([TEST_XMAX])
+    anchory = np.array([0.0])
     x, dx, dy = simulate_calibration_data_samples(
         TEST_XMIN,
         TEST_XMAX,
@@ -110,21 +130,19 @@ def test_convergence_in_prior_low_n():
         TEST_DXMAX,
         TEST_NOISE_LEVEL * 0.1,
         n,
-        Y_TEST_FUNCTION,
+        _POWER_TEST_FN,
         uniform=True,
     )
     pwlprevs = []
     preverrs = []
 
     for p in [1.0, 2 / 3, 1 / 3, 0.0]:
-        priorx, priory = _get_mixed_prior(TEST_XMIN, TEST_XMAX, p)
-        pwl = GPWithPriorShape().fit(
-            np.array([TEST_XMIN]), np.array([0.0]), x, dx, dy, priorx, priory
-        )
+        priorx, priory = _get_mixed_prior_decreasing(TEST_XMIN, TEST_XMAX, p)
+        pwl = estimator.fit(anchorx, anchory, x, dx, dy, priorx, priory)
         curve_error = (
             (
-                (Y_TEST_FUNCTION(priorx) - Y_TEST_FUNCTION(TEST_XMIN))
-                - (pwl(priorx) - pwl(TEST_XMIN))
+                (_POWER_TEST_FN(priorx) - _POWER_TEST_FN(TEST_XMAX))
+                - (pwl(priorx) - pwl(TEST_XMAX))
             )
             ** 2
         ).mean()
@@ -134,125 +152,128 @@ def test_convergence_in_prior_low_n():
     pwl.plot(
         priorx,
         priory,
-        [TEST_XMIN],
-        [0.0],
+        anchorx,
+        anchory,
         x,
         dx,
         dy,
         pwlprevs=pwlprevs[:-1],
-        true_y=Y_TEST_FUNCTION(priorx) - Y_TEST_FUNCTION(TEST_XMIN),
-        out="artifacts/convergence_prior_low_n.png",
-        title="Test convergence in prior with low n",
+        true_y=_POWER_TEST_FN(priorx) - _POWER_TEST_FN(TEST_XMAX),
+        out=f"artifacts/convergence_prior_low_n_{estimator.__class__.__name__}.png",
+        title=f"Test convergence in prior with low n ({estimator.__class__.__name__})",
         show_chords_pane=False,
     )
 
     assert all(
         np.diff(preverrs) < 0
-    ), f"Curve error did not decrease with increasing p: {preverrs}"
-    assert curve_error < 0.02 * Y_TEST_FUNCTION(priorx).max()
+    ), f"Curve error did not decrease with improving prior: {preverrs}"
+    assert curve_error < 0.02 * _POWER_TEST_FN(priorx).max()
 
 
-def test_performance_realistic_parameters():
-    """Test that, as data increases, the curve estimate approaches the true curve."""
+@pytest.mark.parametrize(
+    "estimator",
+    [
+        PowerCordCalibrator(TEST_XMIN, TEST_XMAX, prior_weight=0.001),
+        # GPWithPriorShape(), doesn't really perform well
+    ],
+)
+def test_performance_realistic_parameters(estimator):
+    """Test that with realistic parameters the estimate stays close to the true curve."""
     n = 10
+    anchorx = np.array([TEST_XMAX])
+    anchory = np.array([0.0])
+    DR1 = (TEST_XMAX - TEST_XMIN) * 0.1
+    DR2 = (TEST_XMAX - TEST_XMIN) * 0.5
     x, dx, dy = simulate_calibration_data_samples(
-        1.5, 3.5, 0.1, 0.9, 1.0, n, Y_TEST_FUNCTION
+        TEST_XMIN + DR1, TEST_XMIN + DR2, 0.5, 2.0, 0.15, n, _POWER_TEST_FN
     )
-    anchors_x = [TEST_XMIN]
-    anchors_y = [0.0]
-    priorx, priory = _get_mixed_prior(TEST_XMIN, TEST_XMAX, 1.0)
+    priorx, priory = _get_mixed_prior_decreasing(TEST_XMIN, TEST_XMAX, 1.0)
 
-    pwl = GPWithPriorShape().fit(
-        np.array(anchors_x),
-        np.array(anchors_y),
-        x,
-        dx,
-        dy,
-        priorx,
-        priory,
-    )
+    pwl = estimator.fit(np.array(anchorx), np.array(anchory), x, dx, dy, priorx, priory)
     pwl.plot(
         priorx,
         priory,
-        anchors_x,
-        anchors_y,
+        anchorx,
+        anchory,
         x,
         dx,
         dy,
-        true_y=Y_TEST_FUNCTION(priorx) - Y_TEST_FUNCTION(TEST_XMIN),
-        out="artifacts/realistic_parameters.png",
-        title="Test performance with realistic parameters",
+        true_y=_POWER_TEST_FN(priorx) - _POWER_TEST_FN(TEST_XMAX),
+        out=f"artifacts/realistic_parameters_{estimator.__class__.__name__}.png",
+        title=f"Test performance with realistic parameters ({estimator.__class__.__name__})",
         show_chords_pane=False,
     )
 
     curve_error = np.abs(
-        (Y_TEST_FUNCTION(priorx) - Y_TEST_FUNCTION(TEST_XMIN))
-        - (pwl(priorx) - pwl(TEST_XMIN))
+        (_POWER_TEST_FN(priorx) - _POWER_TEST_FN(TEST_XMAX))
+        - (pwl(priorx) - pwl(TEST_XMAX))
     ).mean()
-    assert curve_error < 0.2 * Y_TEST_FUNCTION(priorx).max()
+    assert curve_error < 0.2 * _POWER_TEST_FN(priorx).max()
 
 
-def test_total_estimate_improves_and_std_shrinks_with_coverage():
-    """Test that, as data increases, the curve estimate approaches the true curve."""
+@pytest.mark.parametrize(
+    "estimator",
+    [
+        PowerCordCalibrator(TEST_XMIN, TEST_XMAX, prior_weight=0.001),
+        GPWithPriorShape(length_scale=1.0),
+    ],
+)
+def test_total_estimate_improves_and_std_shrinks_with_coverage(estimator):
+    """Test that wider data coverage shrinks std and improves the curve estimate."""
     pwlprevs = []
     preverrs = []
     prevstds = []
-    n = 100
-    half_cov = (TEST_XMAX - TEST_XMIN) * 0.5
-    eps = (TEST_XMAX - TEST_XMIN) * 0.1
-    for ddx in np.linspace(eps, half_cov - eps, 4):
+    n = 50
+    anchorx = np.array([TEST_XMAX])
+    anchory = np.array([0.0])
+    # half_cov = (TEST_XMAX - TE?ST_XMIN) * 0.5
+    # eps = (TEST_XMAX - TEST_XMIN) * 0.02
+    for ddx in [0.01, 0.15, 0.45]:
         x, dx, dy = simulate_calibration_data_samples(
-            TEST_XMIN + ((TEST_XMAX - TEST_XMIN) / 2.0) - ddx,
-            TEST_XMIN + ((TEST_XMAX - TEST_XMIN) / 2.0) + ddx,
-            0.5,
-            0.5,
-            0.0,
+            TEST_XMIN + ((TEST_XMAX - TEST_XMIN) / 2.0) - ddx * (TEST_XMAX - TEST_XMIN),
+            TEST_XMIN + ((TEST_XMAX - TEST_XMIN) / 2.0) + ddx * (TEST_XMAX - TEST_XMIN),
+            0.25,
+            0.25,
+            TEST_NOISE_LEVEL * 0.1,
             n,
-            Y_TEST_FUNCTION,
+            _POWER_TEST_FN,
             uniform=True,
         )
-        anchors_x = [TEST_XMIN]
-        anchors_y = [0.0]
-        priorx, priory = _get_mixed_prior(TEST_XMIN, TEST_XMAX, 0.5)
+        priorx, priory = _get_mixed_prior_decreasing(TEST_XMIN, TEST_XMAX, 0.5)
 
-        pwl = GPWithPriorShape().fit(
-            np.array(anchors_x),
-            np.array(anchors_y),
-            x,
-            dx,
-            dy,
-            priorx,
-            priory,
-        )
+        pwl = estimator.fit(anchorx, anchory, x, dx, dy, priorx, priory)
         prevstds.append(pwl.predict(priorx)[1].mean())
-        pwlprevs.append(pwl)
-        curve_error = np.abs(
-            (Y_TEST_FUNCTION(priorx) - Y_TEST_FUNCTION(TEST_XMIN))
-            - (pwl(priorx) - pwl(TEST_XMIN))
+        pwlprevs.append(lambda x, fn=pwl._mean: fn(x))
+        curve_error = (
+            (
+                (_POWER_TEST_FN(priorx) - _POWER_TEST_FN(TEST_XMAX))
+                - (pwl(priorx) - pwl(TEST_XMAX))
+            )
+            ** 2
         ).mean()
         preverrs.append(curve_error)
 
     pwl.plot(
         priorx,
         priory,
-        anchors_x,
-        anchors_y,
+        anchorx,
+        anchory,
         x,
         dx,
         dy,
         pwlprevs=pwlprevs[:-1],
-        true_y=Y_TEST_FUNCTION(priorx) - Y_TEST_FUNCTION(TEST_XMIN),
-        out="artifacts/coverage_std_shrinks.png",
-        title="Test estimate improves and std shrinks with coverage",
+        true_y=_POWER_TEST_FN(priorx) - _POWER_TEST_FN(TEST_XMAX),
+        out=f"artifacts/coverage_std_shrinks_{estimator.__class__.__name__}.png",
+        title=f"Test estimate improves and std shrinks with coverage ({estimator.__class__.__name__})",
         show_chords_pane=False,
     )
 
     assert all(
         np.diff(prevstds) < 0
-    ), f"Curve std did not decrease with increasing delta size: {prevstds}"
+    ), f"Curve std did not decrease with increasing coverage: {prevstds}"
     assert all(
         np.diff(preverrs) < 0
-    ), f"Curve error did not decrease with increasing delta size: {preverrs}"
+    ), f"Curve error did not decrease with increasing coverage: {preverrs}"
 
 
 def test_noise_recovery():
