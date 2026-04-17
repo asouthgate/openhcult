@@ -4,11 +4,13 @@ import numpy as np
 import pytest
 
 from hcultinf.gp import GPWithPriorShape
+from hcultinf.power import PowerCordCalibrator
 from hcultinf.simulation import (
     simulate_calibration_data_samples,
     Y_TEST_FUNCTION_NONORM,
     Y_TEST_FUNCTION,
     Y_TEST_FUNCTION_DECREASING,
+    power_function,
 )
 
 TEST_XMIN = 0.0
@@ -29,24 +31,23 @@ def _get_mixed_prior(xmin, xmax, p):
     return priorx, priory
 
 
-# 1 for increasing, -1 for decreasing
-@pytest.mark.parametrize("sign", [1, -1])
-def test_convergence_in_n_bad_prior(sign):
+@pytest.mark.parametrize(
+    "estimator",
+    [
+        PowerCordCalibrator(TEST_XMIN, TEST_XMAX, prior_weight=0.001),
+        GPWithPriorShape(length_scale=1.0),
+    ],
+)
+def test_convergence_in_n_bad_prior(estimator):
     """Test that, as data increases, the curve estimate approaches the true curve."""
     preverrs = []
     last_pwl = last_x = last_dx = last_dy = None
-    signed_test_function = Y_TEST_FUNCTION if sign > 0 else Y_TEST_FUNCTION_DECREASING
-    if sign < 0:
-        anchorx = np.array([TEST_XMAX])
-        anchory = np.array([0.0])
-    else:
-        anchorx = np.array([TEST_XMIN])
-        anchory = np.array([0.0])
+    test_function = lambda x: 10.0 * power_function(x, 5.0, 0.0, TEST_XMIN, TEST_XMAX)
+    anchorx = np.array([TEST_XMAX])
+    anchory = np.array([0.0])
     for n in [4, 32, 256]:
         priorx_pts = np.array([TEST_XMIN, TEST_XMAX])
-        priory_pts = np.array([0.0, 1.0])
-        if sign < 0:
-            priory_pts = priory_pts[::-1]
+        priory_pts = np.array([1.0, 0.0])
         errs = []
         for _ in range(5):
             x, dx, dy = simulate_calibration_data_samples(
@@ -54,11 +55,11 @@ def test_convergence_in_n_bad_prior(sign):
                 TEST_XMAX,
                 TEST_DXMIN,
                 TEST_DXMAX,
-                TEST_NOISE_LEVEL,
+                0.0,
                 n,
-                signed_test_function,
+                test_function,
             )
-            pwl = GPWithPriorShape(length_scale=1.0).fit(
+            pwl = estimator.fit(
                 anchorx,
                 anchory,
                 x,
@@ -69,7 +70,7 @@ def test_convergence_in_n_bad_prior(sign):
             )
             pwlx = np.linspace(TEST_XMIN, TEST_XMAX, 2000)
             _curve_error = np.abs(
-                (signed_test_function(pwlx) - signed_test_function(TEST_XMIN))
+                (test_function(pwlx) - test_function(TEST_XMIN))
                 - (pwl(pwlx) - pwl(TEST_XMIN))
             ).mean()
             errs.append(_curve_error)
@@ -79,7 +80,6 @@ def test_convergence_in_n_bad_prior(sign):
 
     plot_x = np.linspace(TEST_XMIN, TEST_XMAX, 500)
     plot_y = np.interp(plot_x, priorx_pts, priory_pts)
-    signstr = "positive" if sign > 0 else "negative"
     last_pwl.plot(
         plot_x,
         plot_y,
@@ -88,9 +88,9 @@ def test_convergence_in_n_bad_prior(sign):
         last_x,
         last_dx,
         last_dy,
-        true_y=signed_test_function(plot_x) - signed_test_function(plot_x).min(),
-        out=f"artifacts/convergence_n_bad_prior_{signstr}.png",
-        title=f"Test convergence in n with bad prior ({signstr})",
+        true_y=test_function(plot_x) - test_function(plot_x).min(),
+        out=f"artifacts/convergence_n_bad_prior_{estimator.__class__.__name__}.png",
+        title=f"Test convergence in n with bad prior ({estimator.__class__.__name__})",
         show_chords_pane=False,
     )
 

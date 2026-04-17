@@ -7,7 +7,7 @@ from .calibrator import CordCalibrator
 
 
 class PowerCordCalibrator(CordCalibrator):
-    def __init__(self, xmin, xmax, prior_weight=None):
+    def __init__(self, xmin, xmax, prior_weight=1.0):
         super().__init__()
         self._xmin = xmin
         self._xmax = xmax
@@ -38,11 +38,7 @@ class PowerCordCalibrator(CordCalibrator):
         )
 
         n_data = len(swc_anchors) + len(delta_swc)
-        w = (
-            self._prior_weight
-            if self._prior_weight is not None
-            else np.sqrt(n_data / len(prior_x))
-        )
+        w = self._prior_weight
 
         def residuals(params):
             s, p, yi = params

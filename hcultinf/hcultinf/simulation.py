@@ -6,12 +6,26 @@ Y_TEST_FUNCTION_NONORM = (
     lambda x: x**2 + np.log(x + 1) + np.exp(0.5 * x) + np.sqrt(x) - np.sin(3 * x) + 3.3
 )
 
+Y_TEST_FUNCTION_POWER = (
+    lambda x, xmin, xmax: x**2
+    + np.log(x + 1)
+    + np.exp(0.5 * x)
+    + np.sqrt(x)
+    - np.sin(3 * x)
+    + 3.3
+)
+
 Y_TEST_FUNCTION_NONORM_DECREASING = lambda x: -Y_TEST_FUNCTION_NONORM(x) + 50.0
 
 Y_TEST_FUNCTION = lambda x: Y_TEST_FUNCTION_NONORM(x) - Y_TEST_FUNCTION_NONORM(0.0)
 Y_TEST_FUNCTION_DECREASING = lambda x: Y_TEST_FUNCTION_NONORM_DECREASING(
     x
 ) - Y_TEST_FUNCTION_NONORM_DECREASING(0.0)
+
+
+def power_function(x, power, y_int=0.0, xmin=0.0, xmax=1.0):
+    scale = np.clip((xmax - x) / (xmax - xmin), 1e-10, 1.0)
+    return (1.0 - y_int) * scale**power + y_int
 
 
 def simulate_calibration_data_samples(
