@@ -10,7 +10,7 @@ from fastapi import Depends, HTTPException, APIRouter
 
 from hcultctrl.utils import get_db_conn
 from hcultdb import queries as database
-from hcultinf.inference import GPWithPriorShape
+from hcultinf.gp import GPWithPriorShape
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

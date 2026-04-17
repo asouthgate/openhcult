@@ -2,7 +2,7 @@ import urllib.parse
 
 import numpy as np
 
-from hcultinf.inference import plot_response_curve
+from hcultinf.gp import plot_response_curve
 from hcultutils.query import request_ctrl
 
 

@@ -3,7 +3,7 @@ import os
 import numpy as np
 import pytest
 
-from hcultinf.inference import GPWithPriorShape
+from hcultinf.gp import GPWithPriorShape
 from hcultinf.simulation import (
     simulate_calibration_data_samples,
     Y_TEST_FUNCTION_NONORM,
