@@ -14,7 +14,7 @@ export default function Sensors() {
   const [calibError, setCalibError] = useState(null)
   const [calibLoading, setCalibLoading] = useState(false)
   const [calibParams, setCalibParams] = useState({
-    offsetMin: '10', widthMin: '50', gpStdMl: '50', scalePriorMean: '', scalePriorStd: '', prior: 'power', priorMin: '867', priorMax: '2009', priorAlpha: '5.4523129367441685',
+    offsetMin: '10', widthMin: '50', gpStdMl: '50', scalePriorMean: '', scalePriorStd: '', prior: 'power', priorMin: '867', priorMax: '2009', priorAlpha: '5.4523129367441685', estimator: 'gp', priorWeight: '1.0',
   })
 
   const autoStdSet = useRef(false)
@@ -45,20 +45,24 @@ export default function Sensors() {
     const controller = new AbortController()
     setCalibLoading(true)
     setCalibError(null)
-    const { offsetMin, widthMin, gpStdMl, scalePriorMean, scalePriorStd, prior, priorMin, priorMax, priorAlpha } = calibParams
+    const { offsetMin, widthMin, gpStdMl, scalePriorMean, scalePriorStd, prior, priorMin, priorMax, priorAlpha, estimator, priorWeight } = calibParams
     const params = new URLSearchParams({
       plant: plantFilter,
       offset_ms: Number(offsetMin) * 60 * 1000,
       width_ms: Number(widthMin) * 60 * 1000,
-      gp_std_ml: Number(gpStdMl),
     })
     if (sensorFilter) {
       const sep = sensorFilter.lastIndexOf(':')
       params.set('sensor', sensorFilter.slice(sep + 1))
       params.set('device_address', sensorFilter.slice(0, sep))
     }
-    if (scalePriorMean !== '') params.set('scale_prior_mean', scalePriorMean)
-    if (scalePriorStd !== '') params.set('scale_prior_std', scalePriorStd)
+    if (estimator !== 'gp') params.set('estimator', estimator)
+    if (estimator === 'gp') {
+      params.set('gp_std_ml', Number(gpStdMl))
+      if (scalePriorMean !== '') params.set('scale_prior_mean', scalePriorMean)
+      if (scalePriorStd !== '') params.set('scale_prior_std', scalePriorStd)
+    }
+    if (estimator === 'powerlaw' && priorWeight !== '') params.set('prior_weight', priorWeight)
     if (prior !== 'calibrated') params.set('prior', prior)
     if (prior === 'linear' || prior === 'power') {
       if (priorMin !== '') params.set('prior_min', priorMin)

@@ -11,6 +11,7 @@ from fastapi import Depends, HTTPException, APIRouter
 from hcultctrl.utils import get_db_conn
 from hcultdb import queries as database
 from hcultinf.gp import GPWithPriorShape
+from hcultinf.power import PowerCordCalibrator
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -73,6 +74,8 @@ def water_calibration(
     prior_min: float | None = None,
     prior_max: float | None = None,
     prior_alpha: float = 0.5,
+    estimator: str = "gp",
+    prior_weight: float = 1.0,
     conn=Depends(get_db_conn),
 ):
     if sensor and not device_address:
@@ -83,6 +86,10 @@ def water_calibration(
     if prior not in ("calibrated", "linear", "power"):
         raise HTTPException(
             status_code=400, detail="prior must be 'calibrated', 'linear', or 'power'"
+        )
+    if estimator not in ("gp", "powerlaw"):
+        raise HTTPException(
+            status_code=400, detail="estimator must be 'gp' or 'powerlaw'"
         )
     if prior in ("linear", "power") and (prior_min is None or prior_max is None):
         raise HTTPException(
@@ -177,15 +184,22 @@ def water_calibration(
 
     swc_anchor = np.array([0.0])
 
-    gp = GPWithPriorShape(
-        variance=gp_std_ml**2,
-        scale_prior_mean=scale_prior_mean,
-        scale_prior_std=scale_prior_std,
-    ).fit(x_anchor, swc_anchor, x_arr, dx_arr, dy_arr, prior_x, prior_y)
+    if estimator == "powerlaw":
+        cal = PowerCordCalibrator(
+            xmin=float(prior_x.min()),
+            xmax=float(prior_x.max()),
+            prior_weight=prior_weight,
+        ).fit(x_anchor, swc_anchor, x_arr, dx_arr, dy_arr, prior_x, prior_y)
+    else:
+        cal = GPWithPriorShape(
+            variance=gp_std_ml**2,
+            scale_prior_mean=scale_prior_mean,
+            scale_prior_std=scale_prior_std,
+        ).fit(x_anchor, swc_anchor, x_arr, dx_arr, dy_arr, prior_x, prior_y)
     plot_x = np.linspace(prior_x.min(), prior_x.max(), 500)
     plot_prior_y = np.interp(plot_x, prior_x, prior_y)
-    mean, std = gp.predict(plot_x)
-    mean_at_chord_starts = gp(x_arr)
+    mean, std = cal.predict(plot_x)
+    mean_at_chord_starts = cal(x_arr)
 
     # Invert GP curve to estimate expected sensor delta for each watering
     swc_after = mean_at_chord_starts + dy_arr
@@ -198,8 +212,8 @@ def water_calibration(
         "prior_y": plot_prior_y.tolist(),
         "mean": mean.tolist(),
         "std": std.tolist(),
-        "scale": float(gp.scale),
-        "nlml": float(gp.nlml),
+        "scale": float(cal.scale),
+        "nlml": float(cal.nlml),
         "anchors_x": x_anchor.tolist(),
         "anchors_y": swc_anchor.tolist(),
         "chords_x": x_arr.tolist(),

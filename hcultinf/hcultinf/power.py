@@ -33,9 +33,7 @@ class PowerCordCalibrator(CordCalibrator):
             return (1.0 - y_int) * _u(x) ** power + y_int
 
         power0, y_int0 = _fit_prior_shape(prior_x, prior_y, xmin, xmax)
-        scale0 = _init_scale(
-            x_anchors, swc_anchors, x_starts, x_ends, delta_swc, power0, y_int0, _g
-        )
+        scale0 = 1.0
 
         n_data = len(swc_anchors) + len(delta_swc)
         w = self._prior_weight
@@ -109,15 +107,3 @@ def _fit_prior_shape(prior_x, prior_y, xmin, xmax):
         float(np.exp(minimize_scalar(loss, bounds=(-2.0, 3.0), method="bounded").x)),
         y_int,
     )
-
-
-def _init_scale(x_anchors, swc_anchors, x_starts, x_ends, delta_swc, power, y_int, _g):
-    g_anc = _g(x_anchors, power, y_int)
-    ratios = [s / g for s, g in zip(swc_anchors, g_anc) if g > 1e-6 and s > 1e-6]
-    if ratios:
-        return float(np.median(ratios))
-    g_diffs = _g(x_ends, power, y_int) - _g(x_starts, power, y_int)
-    valid = np.abs(g_diffs) > 1e-6
-    if np.any(valid):
-        return float(np.median(delta_swc[valid] / g_diffs[valid]))
-    return 1.0
