@@ -5,6 +5,7 @@ import pytest
 
 from hcultinf.gp import GPWithPriorShape
 from hcultinf.power import PowerCordCalibrator
+from hcultinf.exp import ExponentialCordCalibrator
 from hcultinf.simulation import (
     simulate_calibration_data_samples,
     Y_TEST_FUNCTION_NONORM,
@@ -47,6 +48,7 @@ def _get_mixed_prior(xmin, xmax, p):
     [
         PowerCordCalibrator(TEST_XMIN, TEST_XMAX, prior_weight=0.001),
         GPWithPriorShape(length_scale=1.0),
+        ExponentialCordCalibrator(TEST_XMIN, TEST_XMAX),
     ],
 )
 def test_convergence_in_n_bad_prior(estimator):
