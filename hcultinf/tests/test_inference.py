@@ -58,7 +58,7 @@ def test_convergence_in_n_bad_prior(estimator):
     test_function = lambda x: 10.0 * power_function(x, 5.0, 0.0, TEST_XMIN, TEST_XMAX)
     anchorx = np.array([TEST_XMAX])
     anchory = np.array([0.0])
-    for n in [4, 32, 256]:
+    for n in [4, 16, 256]:
         priorx_pts = np.array([TEST_XMIN, TEST_XMAX])
         priory_pts = np.array([1.0, 0.0])
         errs = []
