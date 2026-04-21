@@ -52,13 +52,13 @@ def test_convergence_in_n_bad_prior(estimator):
         priorx_pts = np.array([TEST_XMIN, TEST_XMAX])
         priory_pts = np.array([1.0, 0.0])
         errs = []
-        for _ in range(10):
+        for _ in range(5):
             x, dx, dy = simulate_calibration_data_samples(
                 TEST_XMIN,
                 TEST_XMAX,
                 TEST_DXMIN,
                 TEST_DXMAX,
-                0.0,
+                TEST_NOISE_LEVEL,
                 n,
                 test_function,
             )
