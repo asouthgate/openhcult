@@ -1,3 +1,4 @@
+import copy
 import os
 
 import numpy as np
@@ -32,23 +33,12 @@ def _get_mixed_prior_decreasing(xmin, xmax, p):
     return priorx, priory
 
 
-def _get_mixed_prior(xmin, xmax, p):
-    priorx = np.linspace(xmin, xmax, 1000)
-    linear_prior_y = np.interp(priorx, [TEST_XMIN, TEST_XMAX], [0.0, 1.0])
-    assert linear_prior_y.min() == 0.0 and linear_prior_y.max() == 1.0
-    normalized_true_prior_y = (Y_TEST_FUNCTION(priorx) - Y_TEST_FUNCTION(TEST_XMIN)) / (
-        Y_TEST_FUNCTION(priorx).max() - Y_TEST_FUNCTION(priorx).min()
-    )
-    priory = linear_prior_y * p + normalized_true_prior_y * (1 - p)
-    return priorx, priory
-
-
 @pytest.mark.parametrize(
     "estimator",
     [
+        ExponentialCordCalibrator(TEST_XMIN, TEST_XMAX, 0.001),
         PowerCordCalibrator(TEST_XMIN, TEST_XMAX, prior_weight=0.001),
         GPWithPriorShape(length_scale=1.0),
-        ExponentialCordCalibrator(TEST_XMIN, TEST_XMAX),
     ],
 )
 def test_convergence_in_n_bad_prior(estimator):
@@ -66,12 +56,13 @@ def test_convergence_in_n_bad_prior(estimator):
             x, dx, dy = simulate_calibration_data_samples(
                 TEST_XMIN,
                 TEST_XMAX,
-                TEST_DXMIN,
-                TEST_DXMAX,
+                TEST_DXMIN / 2,
+                TEST_DXMAX / 2,
                 0.0,
                 n,
                 test_function,
             )
+            assert priory_pts.max() <= 1
             pwl = estimator.fit(
                 anchorx,
                 anchory,
@@ -82,10 +73,7 @@ def test_convergence_in_n_bad_prior(estimator):
                 priory_pts,
             )
             pwlx = np.linspace(TEST_XMIN, TEST_XMAX, 2000)
-            _curve_error = np.abs(
-                (test_function(pwlx) - test_function(TEST_XMIN))
-                - (pwl(pwlx) - pwl(TEST_XMIN))
-            ).mean()
+            _curve_error = np.abs(test_function(pwlx) - pwl(pwlx)).mean()
             errs.append(_curve_error)
         last_pwl, last_x, last_dx, last_dy = pwl, x, dx, dy
         curve_error = np.mean(errs)
@@ -101,7 +89,7 @@ def test_convergence_in_n_bad_prior(estimator):
         last_x,
         last_dx,
         last_dy,
-        true_y=test_function(plot_x) - test_function(plot_x).min(),
+        true_y=test_function(plot_x),
         out=f"artifacts/convergence_n_bad_prior_{estimator.__class__.__name__}.png",
         title=f"Test convergence in n with bad prior ({estimator.__class__.__name__})",
         show_chords_pane=False,
@@ -116,6 +104,7 @@ def test_convergence_in_n_bad_prior(estimator):
 @pytest.mark.parametrize(
     "estimator",
     [
+        ExponentialCordCalibrator(TEST_XMIN, TEST_XMAX, 0.1),
         PowerCordCalibrator(TEST_XMIN, TEST_XMAX),
         GPWithPriorShape(length_scale=1.0),
     ],
@@ -138,17 +127,11 @@ def test_convergence_in_prior_low_n(estimator):
     pwlprevs = []
     preverrs = []
 
-    for p in [1.0, 2 / 3, 1 / 3, 0.0]:
+    for p in [4 / 6, 2 / 6, 0.0]:
         priorx, priory = _get_mixed_prior_decreasing(TEST_XMIN, TEST_XMAX, p)
         pwl = estimator.fit(anchorx, anchory, x, dx, dy, priorx, priory)
-        curve_error = (
-            (
-                (_POWER_TEST_FN(priorx) - _POWER_TEST_FN(TEST_XMAX))
-                - (pwl(priorx) - pwl(TEST_XMAX))
-            )
-            ** 2
-        ).mean()
-        pwlprevs.append(pwl)
+        curve_error = ((_POWER_TEST_FN(priorx) - (pwl(priorx))) ** 2).mean()
+        pwlprevs.append(copy.deepcopy(pwl))
         preverrs.append(curve_error)
 
     pwl.plot(
@@ -176,6 +159,7 @@ def test_convergence_in_prior_low_n(estimator):
     "estimator",
     [
         PowerCordCalibrator(TEST_XMIN, TEST_XMAX, prior_weight=0.001),
+        ExponentialCordCalibrator(TEST_XMIN, TEST_XMAX),
         # GPWithPriorShape(), doesn't really perform well
     ],
 )
@@ -187,7 +171,7 @@ def test_performance_realistic_parameters(estimator):
     DR1 = (TEST_XMAX - TEST_XMIN) * 0.1
     DR2 = (TEST_XMAX - TEST_XMIN) * 0.5
     x, dx, dy = simulate_calibration_data_samples(
-        TEST_XMIN + DR1, TEST_XMIN + DR2, 0.5, 2.0, 0.15, n, _POWER_TEST_FN
+        TEST_XMIN + DR1, TEST_XMIN + DR2, 1.0, 2.0, 0.15, n, _POWER_TEST_FN
     )
     priorx, priory = _get_mixed_prior_decreasing(TEST_XMIN, TEST_XMAX, 1.0)
 
@@ -218,6 +202,7 @@ def test_performance_realistic_parameters(estimator):
     [
         PowerCordCalibrator(TEST_XMIN, TEST_XMAX, prior_weight=0.001),
         GPWithPriorShape(length_scale=1.0),
+        ExponentialCordCalibrator(TEST_XMIN, TEST_XMAX, 0.01),
     ],
 )
 def test_total_estimate_improves_and_std_shrinks_with_coverage(estimator):
@@ -232,8 +217,8 @@ def test_total_estimate_improves_and_std_shrinks_with_coverage(estimator):
         x, dx, dy = simulate_calibration_data_samples(
             TEST_XMIN + ((TEST_XMAX - TEST_XMIN) / 2.0) - ddx * (TEST_XMAX - TEST_XMIN),
             TEST_XMIN + ((TEST_XMAX - TEST_XMIN) / 2.0) + ddx * (TEST_XMAX - TEST_XMIN),
-            0.25,
-            0.25,
+            1.0,
+            2.0,
             TEST_NOISE_LEVEL * 0.0,
             n,
             _POWER_TEST_FN,

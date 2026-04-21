@@ -75,7 +75,7 @@ class CordCalibrator(ABC):
                     plot_x,
                     prev_vals - prev_vals.min(),
                     label=f"prev{i}",
-                    alpha=0.5,
+                    alpha=(i + 1) / (1 + len(pwlprevs)),
                     color="brown",
                     linestyle="--",
                 )
@@ -160,7 +160,7 @@ def plot_response_curve(
     ax.fill_between(
         prior_x, ci_lower, ci_upper, color="gray", alpha=0.3, label="95% CI"
     )
-    ax.plot(prior_x, mean, label="GP mean", linestyle="dotted")
+    ax.plot(prior_x, mean, label="Estimated mean", linestyle="dotted")
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
 

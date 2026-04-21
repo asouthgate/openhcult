@@ -38,7 +38,7 @@ class ExponentialCordCalibrator(CordCalibrator):
 
         # Initial guess for k and y_int based on prior
         k0, y_int0 = _fit_prior_shape_exp(prior_x, prior_y, xmin, xmax)
-        scale0 = 1.0
+        scale0 = 10.0
 
         w = self._prior_weight
 
@@ -48,7 +48,7 @@ class ExponentialCordCalibrator(CordCalibrator):
                 [
                     swc_anchors - s * _g(x_anchors, k, yi),
                     delta_swc - s * (_g(x_ends, k, yi) - _g(x_starts, k, yi)),
-                    w * s * (prior_y - _g(prior_x, k, yi)),
+                    s * w * (prior_y - _g(prior_x, k, yi)),
                 ]
             )
 
@@ -56,7 +56,7 @@ class ExponentialCordCalibrator(CordCalibrator):
         result = least_squares(
             residuals,
             x0=[scale0, k0, y_int0],
-            bounds=([1e-6, 0.01, 0.0], [1e6, 50.0, 0.1]),
+            bounds=([1, 0.001, 0.0], [1e4, 1000.0, 0.01]),
             method="trf",
         )
 
@@ -120,5 +120,5 @@ def _fit_prior_shape_exp(prior_x, prior_y, xmin, xmax):
         return float(np.sum((prior_y - g) ** 2))
 
     # Search for optimal k in a reasonable range
-    res = minimize_scalar(loss, bounds=(0.01, 20.0), method="bounded")
+    res = minimize_scalar(loss, bounds=(0.001, 100.0), method="bounded")
     return float(res.x), y_int
