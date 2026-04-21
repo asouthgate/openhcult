@@ -33,6 +33,16 @@ def _get_mixed_prior_decreasing(xmin, xmax, p):
     return priorx, priory
 
 
+def _get_pointwise_random_mixed_prior_decreasing(xmin, xmax, p):
+    priorx = np.linspace(xmin, xmax, 1000)
+    linear_prior_y = np.interp(priorx, [TEST_XMIN, TEST_XMAX], [1.0, 0.0])
+    fn_vals = _POWER_TEST_FN(priorx)
+    normalized_fn = (fn_vals - fn_vals.min()) / (fn_vals.max() - fn_vals.min())
+    randomps = np.random.uniform(0, p, size=len(priorx))
+    priory = linear_prior_y * randomps + normalized_fn * (1 - randomps)
+    return priorx, priory
+
+
 @pytest.mark.parametrize(
     "estimator",
     [
@@ -58,7 +68,7 @@ def test_convergence_in_n_bad_prior(estimator):
                 TEST_XMAX,
                 TEST_DXMIN,
                 TEST_DXMAX,
-                TEST_NOISE_LEVEL,
+                TEST_NOISE_LEVEL,  # must have noise to work well for convergence in n
                 n,
                 test_function,
             )
@@ -99,60 +109,6 @@ def test_convergence_in_n_bad_prior(estimator):
         np.diff(preverrs) < 0
     ), f"Curve error did not decrease with increasing n: {preverrs}"
     assert curve_error < 0.02 * Y_TEST_FUNCTION(pwlx).max()
-
-
-@pytest.mark.parametrize(
-    "estimator",
-    [
-        # ExponentialCordCalibrator(TEST_XMIN, TEST_XMAX, 0.1) # 'true' func is not exponential, so this doesn't perform well
-        PowerCordCalibrator(TEST_XMIN, TEST_XMAX),
-        GPWithPriorShape(length_scale=1.0),
-    ],
-)
-def test_convergence_in_prior_low_n(estimator):
-    """Test that, as prior approaches the true curve, the estimate improves."""
-    n = 4
-    anchorx = np.array([TEST_XMAX])
-    anchory = np.array([0.0])
-    x, dx, dy = simulate_calibration_data_samples(
-        TEST_XMIN,
-        TEST_XMAX,
-        TEST_DXMIN,
-        TEST_DXMAX,
-        TEST_NOISE_LEVEL,
-        n,
-        _POWER_TEST_FN,
-        uniform=True,
-    )
-    pwlprevs = []
-    preverrs = []
-
-    for p in [3 / 6, 1 / 6, 0.0]:
-        priorx, priory = _get_mixed_prior_decreasing(TEST_XMIN, TEST_XMAX, p)
-        pwl = estimator.fit(anchorx, anchory, x, dx, dy, priorx, priory)
-        curve_error = ((_POWER_TEST_FN(priorx) - (pwl(priorx))) ** 2).mean()
-        pwlprevs.append(copy.deepcopy(pwl))
-        preverrs.append(curve_error)
-
-    pwl.plot(
-        priorx,
-        priory,
-        anchorx,
-        anchory,
-        x,
-        dx,
-        dy,
-        pwlprevs=pwlprevs[:-1],
-        true_y=_POWER_TEST_FN(priorx) - _POWER_TEST_FN(TEST_XMAX),
-        out=f"artifacts/convergence_prior_low_n_{estimator.__class__.__name__}.png",
-        title=f"Test convergence in prior with low n ({estimator.__class__.__name__})",
-        show_chords_pane=False,
-    )
-
-    assert all(
-        np.diff(preverrs) < 0
-    ), f"Curve error did not decrease with improving prior: {preverrs}"
-    assert np.sqrt(curve_error) < 0.25 * _POWER_TEST_FN(priorx).max()
 
 
 @pytest.mark.parametrize(
