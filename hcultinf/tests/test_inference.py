@@ -1,4 +1,3 @@
-import copy
 import os
 
 import numpy as np
@@ -9,9 +8,7 @@ from hcultinf.power import PowerCordCalibrator
 from hcultinf.exp import ExponentialCordCalibrator, exponential_target
 from hcultinf.simulation import (
     simulate_calibration_data_samples,
-    Y_TEST_FUNCTION_NONORM,
     Y_TEST_FUNCTION,
-    Y_TEST_FUNCTION_DECREASING,
     power_function,
 )
 
@@ -21,25 +18,15 @@ TEST_DXMIN = 0.2
 TEST_DXMAX = 0.5
 TEST_NOISE_LEVEL = 0.5
 
-_POWER_TEST_FN = lambda x: 10.0 * power_function(x, 5.0, 0.0, TEST_XMIN, TEST_XMAX)
+TEST_POWER_FUNCTION = lambda x: 10.0 * power_function(x, 5.0, 0.0, TEST_XMIN, TEST_XMAX)
 
 
 def _get_mixed_prior_decreasing(xmin, xmax, p):
     priorx = np.linspace(xmin, xmax, 1000)
     linear_prior_y = np.interp(priorx, [TEST_XMIN, TEST_XMAX], [1.0, 0.0])
-    fn_vals = _POWER_TEST_FN(priorx)
+    fn_vals = TEST_POWER_FUNCTION(priorx)
     normalized_fn = (fn_vals - fn_vals.min()) / (fn_vals.max() - fn_vals.min())
     priory = linear_prior_y * p + normalized_fn * (1 - p)
-    return priorx, priory
-
-
-def _get_pointwise_random_mixed_prior_decreasing(xmin, xmax, p):
-    priorx = np.linspace(xmin, xmax, 1000)
-    linear_prior_y = np.interp(priorx, [TEST_XMIN, TEST_XMAX], [1.0, 0.0])
-    fn_vals = _POWER_TEST_FN(priorx)
-    normalized_fn = (fn_vals - fn_vals.min()) / (fn_vals.max() - fn_vals.min())
-    randomps = np.random.uniform(0, p, size=len(priorx))
-    priory = linear_prior_y * randomps + normalized_fn * (1 - randomps)
     return priorx, priory
 
 
@@ -50,9 +37,7 @@ TEST_POWER_FUNCTION = lambda x: 10.0 * power_function(x, 5.0, 0.0, TEST_XMIN, TE
     "estimator_func_pair",
     [
         (
-            ExponentialCordCalibrator(
-                TEST_XMIN, TEST_XMAX, 1e-8
-            ),  # must be low prior weight or we wont converge
+            ExponentialCordCalibrator(TEST_XMIN, TEST_XMAX, 1e-8),
             lambda x: 10.0
             * exponential_target(x, k=20.0, f_int=0.0, xmin=TEST_XMIN, xmax=TEST_XMAX),
         ),
@@ -81,8 +66,7 @@ def test_convergence_in_n_bad_prior(estimator_func_pair):
                 TEST_XMAX,
                 TEST_DXMAX,
                 TEST_DXMAX,
-                TEST_NOISE_LEVEL
-                / 5,  # must have some noise to work well for convergence in n
+                TEST_NOISE_LEVEL / 5,
                 n,
                 test_function,
                 uniform=True,
@@ -101,7 +85,6 @@ def test_convergence_in_n_bad_prior(estimator_func_pair):
             _curve_error = np.mean(np.abs(test_function(pwlx) - pwl(pwlx)))
             errs.append(_curve_error)
         last_pwl, last_x, last_dx, last_dy = pwl, x, dx, dy
-        # print(errs)
         curve_error = np.mean(errs)
         preverrs.append(curve_error)
 
@@ -132,7 +115,6 @@ def test_convergence_in_n_bad_prior(estimator_func_pair):
     [
         PowerCordCalibrator(TEST_XMIN, TEST_XMAX, prior_weight=0.001),
         ExponentialCordCalibrator(TEST_XMIN, TEST_XMAX),
-        # GPWithPriorShape(), doesn't really perform well
     ],
 )
 def test_performance_realistic_parameters(estimator):
@@ -143,7 +125,7 @@ def test_performance_realistic_parameters(estimator):
     DR1 = (TEST_XMAX - TEST_XMIN) * 0.1
     DR2 = (TEST_XMAX - TEST_XMIN) * 0.5
     x, dx, dy = simulate_calibration_data_samples(
-        TEST_XMIN + DR1, TEST_XMIN + DR2, 1.0, 2.0, 0.15, n, _POWER_TEST_FN
+        TEST_XMIN + DR1, TEST_XMIN + DR2, 1.0, 2.0, 0.15, n, TEST_POWER_FUNCTION
     )
     priorx, priory = _get_mixed_prior_decreasing(TEST_XMIN, TEST_XMAX, 1.0)
 
@@ -156,34 +138,32 @@ def test_performance_realistic_parameters(estimator):
         x,
         dx,
         dy,
-        true_y=_POWER_TEST_FN(priorx) - _POWER_TEST_FN(TEST_XMAX),
+        true_y=TEST_POWER_FUNCTION(priorx) - TEST_POWER_FUNCTION(TEST_XMAX),
         out=f"artifacts/realistic_parameters_{estimator.__class__.__name__}.png",
         title=f"Test performance with realistic parameters ({estimator.__class__.__name__})",
         show_chords_pane=False,
     )
 
     curve_error = np.abs(
-        (_POWER_TEST_FN(priorx) - _POWER_TEST_FN(TEST_XMAX))
+        (TEST_POWER_FUNCTION(priorx) - TEST_POWER_FUNCTION(TEST_XMAX))
         - (pwl(priorx) - pwl(TEST_XMAX))
     ).mean()
-    assert curve_error < 0.2 * _POWER_TEST_FN(priorx).max()
+    assert curve_error < 0.2 * TEST_POWER_FUNCTION(priorx).max()
 
 
 @pytest.mark.parametrize(
     "estimator_func_pair",
     [
         (
-            ExponentialCordCalibrator(
-                TEST_XMIN, TEST_XMAX, 1e-8
-            ),  # must be low prior weight or we wont converge
+            ExponentialCordCalibrator(TEST_XMIN, TEST_XMAX, 1e-8),
             lambda x: 10.0
             * exponential_target(x, k=20.0, f_int=0.0, xmin=TEST_XMIN, xmax=TEST_XMAX),
         ),
         (
             PowerCordCalibrator(TEST_XMIN, TEST_XMAX, prior_weight=0.001),
-            _POWER_TEST_FN,
+            TEST_POWER_FUNCTION,
         ),
-        (GPWithPriorShape(length_scale=1.0), _POWER_TEST_FN),
+        (GPWithPriorShape(length_scale=1.0), TEST_POWER_FUNCTION),
     ],
 )
 def test_total_estimate_improves_and_std_shrinks_with_coverage(estimator_func_pair):
@@ -213,7 +193,7 @@ def test_total_estimate_improves_and_std_shrinks_with_coverage(estimator_func_pa
         pwlprevs.append(lambda x, fn=pwl._mean: fn(x))
         curve_error = (
             (
-                (_POWER_TEST_FN(priorx) - _POWER_TEST_FN(TEST_XMAX))
+                (TEST_POWER_FUNCTION(priorx) - TEST_POWER_FUNCTION(TEST_XMAX))
                 - (pwl(priorx) - pwl(TEST_XMAX))
             )
             ** 2
@@ -229,7 +209,7 @@ def test_total_estimate_improves_and_std_shrinks_with_coverage(estimator_func_pa
         dx,
         dy,
         pwlprevs=pwlprevs[:-1],
-        true_y=_POWER_TEST_FN(priorx) - _POWER_TEST_FN(TEST_XMAX),
+        true_y=TEST_POWER_FUNCTION(priorx) - TEST_POWER_FUNCTION(TEST_XMAX),
         out=f"artifacts/coverage_std_shrinks_{estimator.__class__.__name__}.png",
         title=f"Test estimate improves and std shrinks with coverage ({estimator.__class__.__name__})",
         show_chords_pane=False,
@@ -256,7 +236,7 @@ def test_unbiasedness(estimator):
     n = 30
     priorx, priory = _get_mixed_prior_decreasing(TEST_XMIN, TEST_XMAX, 0.5)
     eval_x = np.linspace(TEST_XMIN, TEST_XMAX, 200)
-    true_y = _POWER_TEST_FN(eval_x)
+    true_y = TEST_POWER_FUNCTION(eval_x)
 
     estimates = np.zeros((R, len(eval_x)))
     for i in range(R):
@@ -267,7 +247,7 @@ def test_unbiasedness(estimator):
             TEST_DXMAX,
             TEST_NOISE_LEVEL,
             n,
-            _POWER_TEST_FN,
+            TEST_POWER_FUNCTION,
             uniform=True,
         )
 

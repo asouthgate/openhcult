@@ -1,16 +1,32 @@
 from __future__ import annotations
 
 import os
-from abc import ABC, abstractmethod
+from abc import ABC
 
 import numpy as np
+
+
+def _u(x, xmin, xmax):
+    return np.clip((xmax - x) / (xmax - xmin), 1e-10, 1.0)
+
+
+def _estimate_covariance(result, n_data_obs):
+    J = result.jac
+    n_par = J.shape[1]
+    data_res = result.fun[:n_data_obs]
+    sigma2 = np.sum(data_res**2) / max(n_data_obs - n_par, 1)
+    J_data = J[:n_data_obs]
+    JtJ = J_data.T @ J_data
+    try:
+        return sigma2 * np.linalg.inv(JtJ)
+    except np.linalg.LinAlgError:
+        return sigma2 * np.linalg.pinv(JtJ)
 
 
 class CordCalibrator(ABC):
     def __init__(self):
         self._mean = None
         self._std = None
-        self._residuals = None
         self.scale = None
         self.nlml = None
         self.noise = None

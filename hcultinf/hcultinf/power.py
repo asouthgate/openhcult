@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 from scipy.optimize import least_squares, minimize_scalar
 
-from .calibrator import CordCalibrator
+from .calibrator import CordCalibrator, _u, _estimate_covariance
 
 
 class PowerCordCalibrator(CordCalibrator):
@@ -26,16 +26,12 @@ class PowerCordCalibrator(CordCalibrator):
 
         xmin, xmax = self._xmin, self._xmax
 
-        def _u(x):
-            return np.clip((xmax - x) / (xmax - xmin), 1e-10, 1.0)
-
         def _g(x, power, y_int):
-            return (1.0 - y_int) * _u(x) ** power + y_int
+            return (1.0 - y_int) * _u(x, xmin, xmax) ** power + y_int
 
         power0, y_int0 = _fit_prior_shape(prior_x, prior_y, xmin, xmax)
         scale0 = 1.0
 
-        n_data = len(swc_anchors) + len(delta_swc)
         w = self._prior_weight
 
         def residuals(params):
@@ -57,17 +53,9 @@ class PowerCordCalibrator(CordCalibrator):
         scale, power, y_int = result.x
         if not result.success:
             raise RuntimeError(f"Optimization failed: {result.message}")
-        J = result.jac
-        n_res, n_par = J.shape
+
         n_data_obs = len(swc_anchors) + len(delta_swc)
-        data_res = result.fun[:n_data_obs]
-        sigma2 = np.sum(data_res**2) / max(n_data_obs - n_par, 1)
-        J_data = J[:n_data_obs]
-        JtJ = J_data.T @ J_data
-        try:
-            pcov = sigma2 * np.linalg.inv(JtJ)
-        except np.linalg.LinAlgError:
-            pcov = sigma2 * np.linalg.pinv(JtJ)
+        pcov = _estimate_covariance(result, n_data_obs)
 
         self.scale = scale
         self.nlml = float(np.sum(result.fun**2))
@@ -78,7 +66,7 @@ class PowerCordCalibrator(CordCalibrator):
 
         def _std(x):
             x = np.atleast_1d(x)
-            u = _u(x)
+            u = _u(x, xmin, xmax)
             g = _g(x, power, y_int)
             grad = np.stack(
                 [

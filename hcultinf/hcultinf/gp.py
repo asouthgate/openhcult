@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from .calibrator import CordCalibrator, plot_response_curve
+from .calibrator import CordCalibrator
 
 
 class GPWithPriorShape(CordCalibrator):
@@ -23,7 +23,7 @@ class GPWithPriorShape(CordCalibrator):
         self, x_anchors, swc_anchors, x_starts, delta_x, delta_swc, prior_x, prior_y
     ):
         x_ends = x_starts + delta_x
-        self._mean, self._std, self.scale, self.nlml, self.noise = self.fit_gp_chords(
+        self._mean, self._std, self.scale, self.nlml, self.noise = self._fit_gp_chords(
             x_anchors,
             swc_anchors,
             x_starts,
@@ -38,7 +38,7 @@ class GPWithPriorShape(CordCalibrator):
         )
         return self
 
-    def fit_gp_chords(
+    def _fit_gp_chords(
         self,
         x_anchor,
         y_anchor,
