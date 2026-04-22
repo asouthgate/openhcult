@@ -17,8 +17,8 @@ export default function CalibrationCurve({ calibration, showPct = false }) {
 
   const chordEndYs = chords_x.map((_, i) => toY(mean_at_chord_starts[i] - ref + chords_dy[i]))
 
-  const xMin = Math.min(...prior_x)
-  const xMax = Math.max(...prior_x)
+  const xMin = Math.min(...prior_x, ...chords_x, ...chords_x.map((x, i) => x + chords_dx[i]))
+  const xMax = Math.max(...prior_x, ...chords_x, ...chords_x.map((x, i) => x + chords_dx[i]))
   const yMin = Math.min(0, ...ciLo, ...chordEndYs)
   const yMax = Math.max(...ciHi, ...chordEndYs)
 

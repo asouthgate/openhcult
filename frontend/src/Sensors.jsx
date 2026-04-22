@@ -40,6 +40,11 @@ export default function Sensors() {
     autoStdSet.current = false
   }
 
+  const handleSensorChange = sensor => {
+    setSensorFilter(sensor)
+    autoStdSet.current = false
+  }
+
   useEffect(() => {
     if (!plantFilter) { setCalibration(null); setCalibError(null); return }
     const controller = new AbortController()
@@ -103,7 +108,7 @@ export default function Sensors() {
             {plants.map(p => <option key={p.plant_name} value={p.plant_name}>{p.plant_name}</option>)}
           </select>
           {sensorsForPlant.length > 0 && (
-            <select value={sensorFilter} onChange={e => setSensorFilter(e.target.value)}>
+            <select value={sensorFilter} onChange={e => handleSensorChange(e.target.value)}>
               <option value="">All sensors</option>
               {sensorsForPlant.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
             </select>
