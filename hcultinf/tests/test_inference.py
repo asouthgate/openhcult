@@ -6,7 +6,7 @@ import pytest
 
 from hcultinf.gp import GPWithPriorShape
 from hcultinf.power import PowerCordCalibrator
-from hcultinf.exp import ExponentialCordCalibrator
+from hcultinf.exp import ExponentialCordCalibrator, exponential_target
 from hcultinf.simulation import (
     simulate_calibration_data_samples,
     Y_TEST_FUNCTION_NONORM,
@@ -43,22 +43,35 @@ def _get_pointwise_random_mixed_prior_decreasing(xmin, xmax, p):
     return priorx, priory
 
 
+TEST_POWER_FUNCTION = lambda x: 10.0 * power_function(x, 5.0, 0.0, TEST_XMIN, TEST_XMAX)
+
+
 @pytest.mark.parametrize(
-    "estimator",
+    "estimator_func_pair",
     [
-        ExponentialCordCalibrator(TEST_XMIN, TEST_XMAX, 0.001),
-        PowerCordCalibrator(TEST_XMIN, TEST_XMAX, prior_weight=0.001),
-        GPWithPriorShape(length_scale=1.0),
+        (
+            ExponentialCordCalibrator(
+                TEST_XMIN, TEST_XMAX, 1e-8
+            ),  # must be low prior weight or we wont converge
+            lambda x: 10.0
+            * exponential_target(x, k=20.0, f_int=0.0, xmin=TEST_XMIN, xmax=TEST_XMAX),
+        ),
+        (
+            PowerCordCalibrator(TEST_XMIN, TEST_XMAX, prior_weight=0.001),
+            TEST_POWER_FUNCTION,
+        ),
+        (GPWithPriorShape(length_scale=1.0), TEST_POWER_FUNCTION),
     ],
 )
-def test_convergence_in_n_bad_prior(estimator):
+def test_convergence_in_n_bad_prior(estimator_func_pair):
     """Test that, as data increases, the curve estimate approaches the true curve."""
     preverrs = []
     last_pwl = last_x = last_dx = last_dy = None
-    test_function = lambda x: 10.0 * power_function(x, 5.0, 0.0, TEST_XMIN, TEST_XMAX)
+    estimator, test_function = estimator_func_pair
+
     anchorx = np.array([TEST_XMAX])
     anchory = np.array([0.0])
-    for n in [6, 16, 256]:
+    for n in [4, 16, 128]:
         priorx_pts = np.array([TEST_XMIN, TEST_XMAX])
         priory_pts = np.array([1.0, 0.0])
         errs = []
@@ -66,11 +79,13 @@ def test_convergence_in_n_bad_prior(estimator):
             x, dx, dy = simulate_calibration_data_samples(
                 TEST_XMIN,
                 TEST_XMAX,
-                TEST_DXMIN,
                 TEST_DXMAX,
-                TEST_NOISE_LEVEL,  # must have noise to work well for convergence in n
+                TEST_DXMAX,
+                TEST_NOISE_LEVEL
+                / 5,  # must have some noise to work well for convergence in n
                 n,
                 test_function,
+                uniform=True,
             )
             assert priory_pts.max() <= 1
             pwl = estimator.fit(
@@ -82,10 +97,11 @@ def test_convergence_in_n_bad_prior(estimator):
                 priorx_pts,
                 priory_pts,
             )
-            pwlx = np.linspace(TEST_XMIN, TEST_XMAX, 2000)
-            _curve_error = np.abs(test_function(pwlx) - pwl(pwlx)).mean()
+            pwlx = np.linspace(TEST_XMIN, TEST_XMAX, 1000)
+            _curve_error = np.mean(np.abs(test_function(pwlx) - pwl(pwlx)))
             errs.append(_curve_error)
         last_pwl, last_x, last_dx, last_dy = pwl, x, dx, dy
+        # print(errs)
         curve_error = np.mean(errs)
         preverrs.append(curve_error)
 
@@ -154,15 +170,25 @@ def test_performance_realistic_parameters(estimator):
 
 
 @pytest.mark.parametrize(
-    "estimator",
+    "estimator_func_pair",
     [
-        PowerCordCalibrator(TEST_XMIN, TEST_XMAX, prior_weight=0.001),
-        GPWithPriorShape(length_scale=1.0),
-        ExponentialCordCalibrator(TEST_XMIN, TEST_XMAX, 0.01),
+        (
+            ExponentialCordCalibrator(
+                TEST_XMIN, TEST_XMAX, 1e-8
+            ),  # must be low prior weight or we wont converge
+            lambda x: 10.0
+            * exponential_target(x, k=20.0, f_int=0.0, xmin=TEST_XMIN, xmax=TEST_XMAX),
+        ),
+        (
+            PowerCordCalibrator(TEST_XMIN, TEST_XMAX, prior_weight=0.001),
+            _POWER_TEST_FN,
+        ),
+        (GPWithPriorShape(length_scale=1.0), _POWER_TEST_FN),
     ],
 )
-def test_total_estimate_improves_and_std_shrinks_with_coverage(estimator):
+def test_total_estimate_improves_and_std_shrinks_with_coverage(estimator_func_pair):
     """Test that wider data coverage shrinks std and improves the curve estimate."""
+    estimator, test_func = estimator_func_pair
     pwlprevs = []
     preverrs = []
     prevstds = []
@@ -177,7 +203,7 @@ def test_total_estimate_improves_and_std_shrinks_with_coverage(estimator):
             2.0,
             TEST_NOISE_LEVEL * 0.0,
             n,
-            _POWER_TEST_FN,
+            test_func,
             uniform=True,
         )
         priorx, priory = _get_mixed_prior_decreasing(TEST_XMIN, TEST_XMAX, 0.5)

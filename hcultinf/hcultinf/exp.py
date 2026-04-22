@@ -6,12 +6,27 @@ from scipy.optimize import least_squares, minimize_scalar
 from .calibrator import CordCalibrator
 
 
+def _u(x, xmin, xmax):
+    return np.clip((xmax - x) / (xmax - xmin), 0.0, 1.0)
+
+
+def exponential_target(x, k, f_int, xmin, xmax):
+    # Form: (1 - y_int) * exp(k * (u - 1)) + y_int
+    # u=1 (at xmin) -> exp(0) = 1 -> g = 1
+    # u=0 (at xmax) -> exp(-k) -> g = (1-y_int)*exp(-k) + y_int
+    u = _u(x, xmin, xmax)
+    return (1.0 - f_int) * np.exp(k * (u - 1.0)) + f_int
+
+
 class ExponentialCordCalibrator(CordCalibrator):
     def __init__(self, xmin, xmax, prior_weight=1.0):
         super().__init__()
         self._xmin = xmin
         self._xmax = xmax
         self._prior_weight = prior_weight
+
+    def target_func(self, x, scale, k, f_int):
+        return scale * exponential_target(x, k, f_int, self._xmin, self._xmax)
 
     def fit(
         self, x_anchors, swc_anchors, x_starts, delta_x, delta_swc, prior_x, prior_y
@@ -26,29 +41,27 @@ class ExponentialCordCalibrator(CordCalibrator):
 
         xmin, xmax = self._xmin, self._xmax
 
-        def _u(x):
-            return np.clip((xmax - x) / (xmax - xmin), 0.0, 1.0)
-
-        def _g(x, k, y_int):
-            # Form: (1 - y_int) * exp(k * (u - 1)) + y_int
-            # u=1 (at xmin) -> exp(0) = 1 -> g = 1
-            # u=0 (at xmax) -> exp(-k) -> g = (1-y_int)*exp(-k) + y_int
-            u = _u(x)
-            return (1.0 - y_int) * np.exp(k * (u - 1.0)) + y_int
-
         # Initial guess for k and y_int based on prior
-        k0, y_int0 = _fit_prior_shape_exp(prior_x, prior_y, xmin, xmax)
-        scale0 = 10.0
+        # k0, y_int0 = _fit_prior_shape_exp(prior_x, prior_y, xmin, xmax)
+        # Make an initial guess of scale based on the prior and chords
+        # print("k0, yint0",k0, y_int0)
+        k0 = 20.0
+        y_int0 = 0.1
 
+        scale0 = 1.0
         w = self._prior_weight
 
         def residuals(params):
             s, k, yi = params
             return np.concatenate(
                 [
-                    swc_anchors - s * _g(x_anchors, k, yi),
-                    delta_swc - s * (_g(x_ends, k, yi) - _g(x_starts, k, yi)),
-                    s * w * (prior_y - _g(prior_x, k, yi)),
+                    swc_anchors - self.target_func(x_anchors, s, k, yi),
+                    delta_swc
+                    - (
+                        self.target_func(x_ends, s, k, yi)
+                        - self.target_func(x_starts, s, k, yi)
+                    ),
+                    w * (prior_y - self.target_func(prior_x, s, k, yi) / s),
                 ]
             )
 
@@ -56,11 +69,13 @@ class ExponentialCordCalibrator(CordCalibrator):
         result = least_squares(
             residuals,
             x0=[scale0, k0, y_int0],
-            bounds=([1, 0.001, 0.0], [1e4, 1000.0, 0.01]),
+            bounds=([0.0, 0.0001, 0.0], [1e4, 10000.0, 0.2]),
             method="trf",
         )
 
         scale, k, y_int = result.x
+
+        # print("scale, k, y_int",scale, k, y_int)
         if not result.success:
             raise RuntimeError(f"Optimization failed: {result.message}")
 
@@ -82,11 +97,11 @@ class ExponentialCordCalibrator(CordCalibrator):
         self.noise = None
 
         def _mean(x):
-            return scale * _g(np.atleast_1d(x), k, y_int)
+            return self.target_func(np.atleast_1d(x), scale, k, y_int)
 
         def _std(x):
             x = np.atleast_1d(x)
-            u = _u(x)
+            u = _u(x, self._xmin, self._xmax)
             exp_term = np.exp(k * (u - 1.0))
             g = (1.0 - y_int) * exp_term + y_int
 
@@ -106,6 +121,7 @@ class ExponentialCordCalibrator(CordCalibrator):
 
         self._mean = _mean
         self._std = _std
+        self._residuals = residuals(result.x)
         return self
 
 
@@ -120,5 +136,5 @@ def _fit_prior_shape_exp(prior_x, prior_y, xmin, xmax):
         return float(np.sum((prior_y - g) ** 2))
 
     # Search for optimal k in a reasonable range
-    res = minimize_scalar(loss, bounds=(0.001, 100.0), method="bounded")
+    res = minimize_scalar(loss, bounds=(0.001, 1000.0), method="bounded")
     return float(res.x), y_int

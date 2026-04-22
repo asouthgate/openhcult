@@ -10,14 +10,10 @@ class CordCalibrator(ABC):
     def __init__(self):
         self._mean = None
         self._std = None
+        self._residuals = None
         self.scale = None
         self.nlml = None
         self.noise = None
-
-    @abstractmethod
-    def fit(
-        self, x_anchors, swc_anchors, x_starts, delta_x, delta_swc, prior_x, prior_y
-    ): ...
 
     def __call__(self, x):
         return self._mean(x)
