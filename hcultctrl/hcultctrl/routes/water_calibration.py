@@ -10,6 +10,7 @@ from fastapi import Depends, HTTPException, APIRouter
 
 from hcultctrl.utils import get_db_conn
 from hcultdb import queries as database
+from hcultinf.exp import ExponentialCordCalibrator
 from hcultinf.gp import GPWithPriorShape
 from hcultinf.power import PowerCordCalibrator
 
@@ -87,9 +88,10 @@ def water_calibration(
         raise HTTPException(
             status_code=400, detail="prior must be 'calibrated', 'linear', or 'power'"
         )
-    if estimator not in ("gp", "powerlaw"):
+    if estimator not in ("gp", "powerlaw", "exponential"):
         raise HTTPException(
-            status_code=400, detail="estimator must be 'gp' or 'powerlaw'"
+            status_code=400,
+            detail="estimator must be 'gp', 'powerlaw', or 'exponential'",
         )
     if prior in ("linear", "power") and (prior_min is None or prior_max is None):
         raise HTTPException(
@@ -188,6 +190,14 @@ def water_calibration(
         cal = PowerCordCalibrator(
             xmin=float(prior_x.min()),
             xmax=float(prior_x.max()),
+            prior_weight=prior_weight,
+        ).fit(x_anchor, swc_anchor, x_arr, dx_arr, dy_arr, prior_x, prior_y)
+    elif estimator == "exponential":
+        exp_xmin = prior_min if prior_min is not None else float(prior_x.min())
+        exp_xmax = prior_max if prior_max is not None else float(prior_x.max())
+        cal = ExponentialCordCalibrator(
+            xmin=exp_xmin,
+            xmax=exp_xmax,
             prior_weight=prior_weight,
         ).fit(x_anchor, swc_anchor, x_arr, dx_arr, dy_arr, prior_x, prior_y)
     else:

@@ -19,6 +19,7 @@ export default function CalibrationParams({ calibParams, setCalibParam }) {
             <div className="range-btns">
               <button className={estimator === 'gp' ? 'active' : ''} onClick={() => setCalibParam('estimator', 'gp')}>GP</button>
               <button className={estimator === 'powerlaw' ? 'active' : ''} onClick={() => setCalibParam('estimator', 'powerlaw')}>power law</button>
+              <button className={estimator === 'exponential' ? 'active' : ''} onClick={() => setCalibParam('estimator', 'exponential')}>exponential</button>
             </div>
           </td>
         </tr>
@@ -39,7 +40,7 @@ export default function CalibrationParams({ calibParams, setCalibParam }) {
             <td>ml</td>
           </tr>
         </>}
-        {estimator === 'powerlaw' && (
+        {(estimator === 'powerlaw' || estimator === 'exponential') && (
           <tr>
             <td>prior weight</td>
             <td><input type="number" min="0.001" step="0.1" className="param-input" value={priorWeight} onChange={e => setCalibParam('priorWeight', e.target.value)} /></td>
