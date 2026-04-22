@@ -85,7 +85,10 @@ export default function Sensors() {
         if (!autoStdSet.current && d.chords_dy?.length > 0) {
           const mean = d.chords_dy.reduce((a, b) => a + b, 0) / d.chords_dy.length
           setCalibParam('gpStdMl', String(Math.round(mean)))
-          if (d.chords_x?.length > 0) setCalibParam('priorMin', String(Math.round(Math.min(...d.chords_x))))
+          if (d.chords_x?.length > 0) {
+            const endpoints = d.chords_x.map((x, i) => x + (d.chords_dx?.[i] ?? 0))
+            setCalibParam('priorMin', String(Math.round(Math.min(...d.chords_x, ...endpoints))))
+          }
           autoStdSet.current = true
         }
       })
