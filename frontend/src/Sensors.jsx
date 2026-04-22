@@ -14,7 +14,7 @@ export default function Sensors() {
   const [calibError, setCalibError] = useState(null)
   const [calibLoading, setCalibLoading] = useState(false)
   const [calibParams, setCalibParams] = useState({
-    offsetMin: '10', widthMin: '50', gpStdMl: '50', scalePriorMean: '', scalePriorStd: '', prior: 'power', priorMin: '867', priorMax: '2009', priorAlpha: '5.4523129367441685', estimator: 'gp', priorWeight: '1.0',
+    offsetMin: '5', widthMin: '50', gpStdMl: '50', scalePriorMean: '', scalePriorStd: '', prior: 'power', priorMin: '867', priorMax: '2009', priorAlpha: '5.4523129367441685', estimator: 'gp', priorWeight: '1.0',
   })
 
   const autoStdSet = useRef(false)
@@ -63,10 +63,15 @@ export default function Sensors() {
       if (scalePriorStd !== '') params.set('scale_prior_std', scalePriorStd)
     }
     if (estimator === 'powerlaw' && priorWeight !== '') params.set('prior_weight', priorWeight)
+    if (estimator === 'exponential' && priorWeight !== '') params.set('prior_weight', priorWeight)
     if (prior !== 'calibrated') params.set('prior', prior)
     if (prior === 'linear' || prior === 'power') {
       if (priorMin !== '') params.set('prior_min', priorMin)
       if (priorMax !== '') params.set('prior_max', priorMax)
+    }
+    if (estimator === 'exponential') {
+      if (priorMin !== '' && !params.has('prior_min')) params.set('prior_min', priorMin)
+      if (priorMax !== '' && !params.has('prior_max')) params.set('prior_max', priorMax)
     }
     if (prior === 'power' && priorAlpha !== '') params.set('prior_alpha', priorAlpha)
     apiJson(`/water_calibration?${params}`, { signal: controller.signal })
@@ -75,6 +80,7 @@ export default function Sensors() {
         if (!autoStdSet.current && d.chords_dy?.length > 0) {
           const mean = d.chords_dy.reduce((a, b) => a + b, 0) / d.chords_dy.length
           setCalibParam('gpStdMl', String(Math.round(mean)))
+          if (d.chords_x?.length > 0) setCalibParam('priorMin', String(Math.round(Math.min(...d.chords_x))))
           autoStdSet.current = true
         }
       })
