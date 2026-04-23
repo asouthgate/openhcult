@@ -40,12 +40,17 @@ TEST_EXPONENTIAL_FUNCTION = lambda x: 10.0 * exponential_target(
 @pytest.mark.parametrize(
     "estimator_func_pair",
     [
-        # (
-        #     ExponentialCordCalibratorMCMC(
-        #         TEST_XMIN, TEST_XMAX, prior_weight=1e-12, xmin_std=0.2, n_burn=10, n_steps=50
-        #     ),
-        #     TEST_EXPONENTIAL_FUNCTION,
-        # ),
+        (
+            ExponentialCordCalibratorMCMC(
+                TEST_XMIN,
+                TEST_XMAX,
+                prior_weight=1e-6,
+                xmin_std=0.2,
+                n_burn=100,
+                n_steps=150,
+            ),
+            TEST_EXPONENTIAL_FUNCTION,
+        ),
         (
             ExponentialCordCalibrator(TEST_XMIN, TEST_XMAX, 1e-8),
             TEST_EXPONENTIAL_FUNCTION,
@@ -278,15 +283,63 @@ def test_unbiasedness(estimator):
 #         xmin_true + 0.1, TEST_XMAX - 0.1, 0.5, 1.0, 0.15, n, TEST_POWER_FUNCTION
 #     )
 
-#     cal = ExponentialCordCalibratorMCMC(
-#         xmin_true, TEST_XMAX, xmin_std=0.3, n_burn=200, n_steps=400
-#     ).fit(anchorx, anchory, x, dx, dy, priorx, priory)
 
-#     xmin_samples = cal._fit_samples[:, 5]
-#     assert (
-#         xmin_samples.std() > 0.01
-#     ), f"xmin should vary in posterior: std={xmin_samples.std():.4f}"
-#     assert (
-#         abs(xmin_samples.mean() - xmin_true) < 1.0
-#     ), f"xmin posterior mean should be near true: {xmin_samples.mean():.4f} vs {xmin_true}"
-#     assert cal.noise > 0, "Noise parameter should be positive"
+def test_mcmc_curve_convergence():
+    xmin, xmax = 3.0, 8.5
+    true_k, true_f_int, true_scale = 20.0, 0.0, 10.0
+    true_func = lambda x: true_scale * exponential_target(
+        x, true_k, true_f_int, xmin, xmax
+    )
+    g_func = lambda x: exponential_target(x, true_k, true_f_int, xmin, xmax)
+
+    anchorx = np.array([xmax])
+    anchory = np.array([0.0])
+    prior_x = np.linspace(xmin, xmax, 100)
+    prior_y = g_func(prior_x)
+    eval_x = np.linspace(xmin, xmax, 500)
+    true_y = true_func(eval_x)
+
+    errors = []
+    last_cal = None
+    last_x = last_dx = last_dy = None
+    for n in [4, 16, 64, 128]:
+        x, dx, dy = simulate_calibration_data_samples(
+            xmin,
+            xmax,
+            0.5,
+            0.5,
+            0.1,
+            n,
+            true_func,
+            uniform=True,
+        )
+        cal = ExponentialCordCalibratorMCMC(
+            xmin,
+            xmax,
+            prior_weight=1.0,
+            xmin_std=0.2,
+            n_burn=300,
+            n_steps=500,
+        )
+        cal.fit(anchorx, anchory, x, dx, dy, prior_x, prior_y)
+        pred = cal(eval_x)
+        mae = np.nanmean(np.abs(pred - true_y))
+        errors.append(mae)
+        last_cal, last_x, last_dx, last_dy = cal, x, dx, dy
+
+    plot_x = np.linspace(xmin, xmax, 500)
+    plot_prior_y = np.interp(plot_x, prior_x, prior_y)
+    last_cal.plot(
+        plot_x,
+        plot_prior_y,
+        anchorx,
+        anchory,
+        last_x,
+        last_dx,
+        last_dy,
+        true_y=true_func(plot_x),
+        out="artifacts/mcmc_curve_convergence.png",
+        title=f"MCMC curve convergence (errors={[f'{e:.4f}' for e in errors]})",
+        show_chords_pane=False,
+    )
+    assert errors[-1] < 0.15, f"Errors at each n: {errors}"

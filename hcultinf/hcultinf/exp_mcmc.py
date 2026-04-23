@@ -102,23 +102,28 @@ def samples_at(x, scale_s, k_s, f_int_s, xmin_arr, xmax):
     g = exponential_target(
         x[None, :], k_s[:, None], f_int_s[:, None], xmin_arr[:, None], xmax
     )
-    return scale_s[:, None] * g
+    result = scale_s[:, None] * g
+    out_of_domain = x[None, :] < xmin_arr[:, None]
+    result[out_of_domain] = np.nan
+    return result
 
 
 def samples_mean(x, scale_s, k_s, f_int_s, xmin_arr, xmax):
-    return np.mean(samples_at(x, scale_s, k_s, f_int_s, xmin_arr, xmax), axis=0)
+    vals = samples_at(x, scale_s, k_s, f_int_s, xmin_arr, xmax)
+    with np.errstate(all="ignore"):
+        return np.nanmean(vals, axis=0)
 
 
 def samples_ci_low(x, scale_s, k_s, f_int_s, xmin_arr, xmax):
-    return np.percentile(
-        samples_at(x, scale_s, k_s, f_int_s, xmin_arr, xmax), 2.5, axis=0
-    )
+    vals = samples_at(x, scale_s, k_s, f_int_s, xmin_arr, xmax)
+    with np.errstate(all="ignore"):
+        return np.nanpercentile(vals, 2.5, axis=0)
 
 
 def samples_ci_high(x, scale_s, k_s, f_int_s, xmin_arr, xmax):
-    return np.percentile(
-        samples_at(x, scale_s, k_s, f_int_s, xmin_arr, xmax), 97.5, axis=0
-    )
+    vals = samples_at(x, scale_s, k_s, f_int_s, xmin_arr, xmax)
+    with np.errstate(all="ignore"):
+        return np.nanpercentile(vals, 97.5, axis=0)
 
 
 class ExponentialCordCalibratorMCMC(CordCalibrator):
@@ -127,7 +132,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         xmin,
         xmax,
         prior_weight=1.0,
-        xmin_std=0.0,
+        xmin_std=0.2,
         n_walkers=32,
         n_burn=500,
         n_steps=1000,
