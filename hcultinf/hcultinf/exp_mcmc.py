@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import numpy as np
 import emcee
-from scipy.optimize import least_squares
 
 from .calibrator import CordCalibrator
-from .exp import exponential_target
+from .exp import ExponentialCordCalibrator, exponential_target
 
 
 class ExponentialCordCalibratorMCMC(CordCalibrator):
@@ -53,25 +52,10 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             return exponential_target(x, k, f_int, xmin, xmax)
 
         try:
-            mle = least_squares(
-                lambda p: np.concatenate(
-                    [
-                        swc_anchors - p[0] * _g(x_anchors, p[1], p[2], xmin_hat),
-                        delta_swc
-                        - p[0]
-                        * (
-                            _g(x_ends, p[1], p[2], xmin_hat)
-                            - _g(x_starts, p[1], p[2], xmin_hat)
-                        ),
-                        self._prior_weight
-                        * (prior_y - _g(prior_x, p[1], p[2], xmin_hat)),
-                    ]
-                ),
-                x0=[1.0, 20.0, 0.1],
-                bounds=([0.0, 0.0001, 0.0], [1e4, 10000.0, 0.2]),
-                method="trf",
+            quick = ExponentialCordCalibrator(xmin_hat, xmax, self._prior_weight).fit(
+                x_anchors, swc_anchors, x_starts, delta_x, delta_swc, prior_x, prior_y
             )
-            scale0, k0, f_int0 = mle.x
+            scale0, k0, f_int0 = quick.scale, quick.k, quick.f_int
         except RuntimeError:
             scale0, k0, f_int0 = 1.0, 20.0, 0.1
 

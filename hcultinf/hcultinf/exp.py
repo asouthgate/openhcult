@@ -59,8 +59,7 @@ class ExponentialCordCalibrator(CordCalibrator):
             method="trf",
         )
 
-        scale, k, y_int = result.x
-        # print(scale, k, y_int)
+        scale, k, f_int = result.x
         if not result.success:
             raise RuntimeError(f"Optimization failed: {result.message}")
 
@@ -68,22 +67,24 @@ class ExponentialCordCalibrator(CordCalibrator):
         pcov = _estimate_covariance(result, n_data_obs)
 
         self.scale = scale
+        self.k = k
+        self.f_int = f_int
         self.nlml = float(np.sum(result.fun**2))
         self.noise = None
 
         def _mean(x):
-            return self.target_func(np.atleast_1d(x), scale, k, y_int)
+            return self.target_func(np.atleast_1d(x), scale, k, f_int)
 
         def _std_internal(x):
             x = np.atleast_1d(x)
             u = _u(x, self._xmin, self._xmax)
             exp_term = np.exp(k * (u - 1.0))
-            g = (1.0 - y_int) * exp_term + y_int
+            g = (1.0 - f_int) * exp_term + f_int
 
             grad = np.stack(
                 [
                     g,
-                    scale * (1.0 - y_int) * (u - 1.0) * exp_term,
+                    scale * (1.0 - f_int) * (u - 1.0) * exp_term,
                     scale * (1.0 - exp_term),
                 ],
                 axis=1,

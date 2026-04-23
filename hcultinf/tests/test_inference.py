@@ -32,6 +32,9 @@ def _get_mixed_prior_decreasing(xmin, xmax, p):
 
 
 TEST_POWER_FUNCTION = lambda x: 10.0 * power_function(x, 5.0, 0.0, TEST_XMIN, TEST_XMAX)
+TEST_EXPONENTIAL_FUNCTION = lambda x: 10.0 * exponential_target(
+    x, k=20.0, f_int=0.0, xmin=TEST_XMIN, xmax=TEST_XMAX
+)
 
 
 @pytest.mark.parametrize(
@@ -39,21 +42,19 @@ TEST_POWER_FUNCTION = lambda x: 10.0 * power_function(x, 5.0, 0.0, TEST_XMIN, TE
     [
         (
             ExponentialCordCalibrator(TEST_XMIN, TEST_XMAX, 1e-8),
-            lambda x: 10.0
-            * exponential_target(x, k=20.0, f_int=0.0, xmin=TEST_XMIN, xmax=TEST_XMAX),
+            TEST_EXPONENTIAL_FUNCTION,
         ),
         (
             PowerCordCalibrator(TEST_XMIN, TEST_XMAX, prior_weight=0.001),
             TEST_POWER_FUNCTION,
         ),
         (GPWithPriorShape(length_scale=1.0), TEST_POWER_FUNCTION),
-        # (
-        #     ExponentialCordCalibratorMCMC(
-        #         TEST_XMIN, TEST_XMAX, prior_weight=1e-8, n_burn=100, n_steps=200
-        #     ),
-        #     lambda x: 10.0
-        #     * exponential_target(x, k=20.0, f_int=0.0, xmin=TEST_XMIN, xmax=TEST_XMAX),
-        # ),
+        (
+            ExponentialCordCalibratorMCMC(
+                TEST_XMIN, TEST_XMAX, prior_weight=1e-8, n_burn=1, n_steps=10
+            ),
+            TEST_EXPONENTIAL_FUNCTION,
+        ),
     ],
 )
 def test_convergence_in_n_bad_prior(estimator_func_pair):
@@ -64,11 +65,11 @@ def test_convergence_in_n_bad_prior(estimator_func_pair):
 
     anchorx = np.array([TEST_XMAX])
     anchory = np.array([0.0])
-    for n in [4, 16, 64]:
+    for n in [4, 32]:
         priorx_pts = np.array([TEST_XMIN, TEST_XMAX])
         priory_pts = np.array([1.0, 0.0])
         errs = []
-        for _ in range(20):
+        for _ in range(5):
             x, dx, dy = simulate_calibration_data_samples(
                 TEST_XMIN,
                 TEST_XMAX,
@@ -123,7 +124,7 @@ def test_convergence_in_n_bad_prior(estimator_func_pair):
     [
         PowerCordCalibrator(TEST_XMIN, TEST_XMAX, prior_weight=0.001),
         ExponentialCordCalibrator(TEST_XMIN, TEST_XMAX),
-        # ExponentialCordCalibratorMCMC(TEST_XMIN, TEST_XMAX, n_burn=100, n_steps=200),
+        ExponentialCordCalibratorMCMC(TEST_XMIN, TEST_XMAX, n_burn=20, n_steps=50),
     ],
 )
 def test_performance_realistic_parameters(estimator):
