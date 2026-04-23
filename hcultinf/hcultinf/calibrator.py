@@ -26,7 +26,8 @@ def _estimate_covariance(result, n_data_obs):
 class CordCalibrator(ABC):
     def __init__(self):
         self._mean = None
-        self._std = None
+        self._ci_low = None
+        self._ci_high = None
         self.scale = None
         self.nlml = None
         self.noise = None
@@ -35,7 +36,7 @@ class CordCalibrator(ABC):
         return self._mean(x)
 
     def predict(self, x):
-        return self._mean(x), self._std(x)
+        return self._mean(x), self._ci_low(x), self._ci_high(x)
 
     def plot(
         self,
@@ -64,12 +65,13 @@ class CordCalibrator(ABC):
             else None
         )
         mean_at_x = self(x)
-        mean, std = self.predict(plot_x)
+        mean, ci_low, ci_high = self.predict(plot_x)
         fig = plot_response_curve(
             plot_x,
             plot_prior_y,
             mean,
-            std,
+            ci_low,
+            ci_high,
             anchors_x,
             anchors_y,
             x,
@@ -108,7 +110,8 @@ def plot_response_curve(
     prior_x,
     prior_y,
     mean,
-    std,
+    ci_low,
+    ci_high,
     anchors_x,
     anchors_y,
     x,
@@ -127,7 +130,8 @@ def plot_response_curve(
     prior_x = np.asarray(prior_x)
     prior_y = np.asarray(prior_y)
     mean = np.asarray(mean)
-    std = np.asarray(std)
+    ci_low = np.asarray(ci_low)
+    ci_high = np.asarray(ci_high)
     x = np.asarray(x)
     dx = np.asarray(dx)
     dy = np.asarray(dy)
@@ -135,14 +139,12 @@ def plot_response_curve(
 
     if pct_fc:
         mean = mean / scale * 100
-        std = std / scale * 100
+        ci_low = ci_low / scale * 100
+        ci_high = ci_high / scale * 100
         dy = dy / scale * 100
         mean_at_x = mean_at_x / scale * 100
         if true_y is not None:
             true_y = np.asarray(true_y) / scale * 100
-
-    ci_lower = mean - 1.96 * std
-    ci_upper = mean + 1.96 * std
 
     if show_chords_pane:
         fig, (ax, ax2) = plt.subplots(1, 2, figsize=(12, 5))
@@ -169,9 +171,7 @@ def plot_response_curve(
     ax.scatter(anchors_x, anchors_y, label="anchors")
     gp_range = mean.max() - mean.min()
     ax.plot(prior_x, prior_y * gp_range, label="rescaled prior", linestyle="--")
-    ax.fill_between(
-        prior_x, ci_lower, ci_upper, color="gray", alpha=0.3, label="95% CI"
-    )
+    ax.fill_between(prior_x, ci_low, ci_high, color="gray", alpha=0.3, label="95% CI")
     ax.plot(prior_x, mean, label="Estimated mean", linestyle="dotted")
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)

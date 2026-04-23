@@ -15,5 +15,6 @@ authors = [
 
 dependencies = [
     "numpy",
-    "scipy"
+    "scipy",
+    "emcee",
 ]

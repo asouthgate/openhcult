@@ -23,18 +23,20 @@ class GPWithPriorShape(CordCalibrator):
         self, x_anchors, swc_anchors, x_starts, delta_x, delta_swc, prior_x, prior_y
     ):
         x_ends = x_starts + delta_x
-        self._mean, self._std, self.scale, self.nlml, self.noise = self._fit_gp_chords(
-            x_anchors,
-            swc_anchors,
-            x_starts,
-            x_ends,
-            delta_swc,
-            prior_x,
-            prior_y,
-            self._length_scale,
-            self._variance,
-            self._scale_prior_mean,
-            self._scale_prior_std,
+        self._mean, self._ci_low, self._ci_high, self.scale, self.nlml, self.noise = (
+            self._fit_gp_chords(
+                x_anchors,
+                swc_anchors,
+                x_starts,
+                x_ends,
+                delta_swc,
+                prior_x,
+                prior_y,
+                self._length_scale,
+                self._variance,
+                self._scale_prior_mean,
+                self._scale_prior_std,
+            )
         )
         return self
 
@@ -163,4 +165,17 @@ class GPWithPriorShape(CordCalibrator):
             post_var += beta_post_var * h_tilde**2
             return np.sqrt(np.maximum(post_var, 0.0))
 
-        return predict_mean, predict_std, scale, nlml, np.exp(result.x)
+        def predict_ci_low(x_test):
+            return predict_mean(x_test) - 1.96 * predict_std(x_test)
+
+        def predict_ci_high(x_test):
+            return predict_mean(x_test) + 1.96 * predict_std(x_test)
+
+        return (
+            predict_mean,
+            predict_ci_low,
+            predict_ci_high,
+            scale,
+            nlml,
+            np.exp(result.x),
+        )

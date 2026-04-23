@@ -6,6 +6,7 @@ import pytest
 from hcultinf.gp import GPWithPriorShape
 from hcultinf.power import PowerCordCalibrator
 from hcultinf.exp import ExponentialCordCalibrator, exponential_target
+from hcultinf.exp_mcmc import ExponentialCordCalibratorMCMC
 from hcultinf.simulation import (
     simulate_calibration_data_samples,
     Y_TEST_FUNCTION,
@@ -46,6 +47,13 @@ TEST_POWER_FUNCTION = lambda x: 10.0 * power_function(x, 5.0, 0.0, TEST_XMIN, TE
             TEST_POWER_FUNCTION,
         ),
         (GPWithPriorShape(length_scale=1.0), TEST_POWER_FUNCTION),
+        # (
+        #     ExponentialCordCalibratorMCMC(
+        #         TEST_XMIN, TEST_XMAX, prior_weight=1e-8, n_burn=100, n_steps=200
+        #     ),
+        #     lambda x: 10.0
+        #     * exponential_target(x, k=20.0, f_int=0.0, xmin=TEST_XMIN, xmax=TEST_XMAX),
+        # ),
     ],
 )
 def test_convergence_in_n_bad_prior(estimator_func_pair):
@@ -115,6 +123,7 @@ def test_convergence_in_n_bad_prior(estimator_func_pair):
     [
         PowerCordCalibrator(TEST_XMIN, TEST_XMAX, prior_weight=0.001),
         ExponentialCordCalibrator(TEST_XMIN, TEST_XMAX),
+        # ExponentialCordCalibratorMCMC(TEST_XMIN, TEST_XMAX, n_burn=100, n_steps=200),
     ],
 )
 def test_performance_realistic_parameters(estimator):
@@ -189,7 +198,7 @@ def test_total_estimate_improves_and_std_shrinks_with_coverage(estimator_func_pa
         priorx, priory = _get_mixed_prior_decreasing(TEST_XMIN, TEST_XMAX, 0.5)
 
         pwl = estimator.fit(anchorx, anchory, x, dx, dy, priorx, priory)
-        prevstds.append(pwl.predict(priorx)[1].mean())
+        prevstds.append((pwl.predict(priorx)[2] - pwl.predict(priorx)[1]).mean())
         pwlprevs.append(lambda x, fn=pwl._mean: fn(x))
         curve_error = (
             (
@@ -285,3 +294,70 @@ def test_unbiasedness(estimator):
     assert (
         bias < 0.05 * true_y.max()
     ), f"Mean absolute bias {bias:.4f} exceeds threshold"
+
+
+# def test_mcmc_std_does_not_collapse_with_n():
+#     n = 50
+#     anchorx = np.array([TEST_XMAX])
+#     anchory = np.array([0.0])
+#     priorx, priory = _get_mixed_prior_decreasing(TEST_XMIN, TEST_XMAX, 0.5)
+
+#     stds_single, stds_double = [], []
+#     for _ in range(3):
+#         x, dx, dy = simulate_calibration_data_samples(
+#             TEST_XMIN, TEST_XMAX, 1.0, 2.0, 0.15, n, TEST_POWER_FUNCTION
+#         )
+#         cal = ExponentialCordCalibratorMCMC(
+#             TEST_XMIN, TEST_XMAX, n_burn=100, n_steps=200
+#         ).fit(anchorx, anchory, x, dx, dy, priorx, priory)
+#         _, ci_low, ci_high = cal.predict(priorx)
+#         stds_single.append((ci_high - ci_low).mean())
+
+#     for _ in range(3):
+#         x1, dx1, dy1 = simulate_calibration_data_samples(
+#             TEST_XMIN, TEST_XMAX, 1.0, 2.0, 0.15, n, TEST_POWER_FUNCTION
+#         )
+#         x2, dx2, dy2 = simulate_calibration_data_samples(
+#             TEST_XMIN, TEST_XMAX, 1.0, 2.0, 0.15, n, TEST_POWER_FUNCTION
+#         )
+#         x = np.concatenate([x1, x2])
+#         dx = np.concatenate([dx1, dx2])
+#         dy = np.concatenate([dy1, dy2])
+#         cal = ExponentialCordCalibratorMCMC(
+#             TEST_XMIN, TEST_XMAX, n_burn=100, n_steps=200
+#         ).fit(anchorx, anchory, x, dx, dy, priorx, priory)
+#         _, ci_low, ci_high = cal.predict(priorx)
+#         stds_double.append((ci_high - ci_low).mean())
+
+#     mean_single = np.mean(stds_single)
+#     mean_double = np.mean(stds_double)
+#     assert mean_double > 0, "MCMC std collapsed to zero"
+#     assert (
+#         mean_double / mean_single > 0.3
+#     ), f"Std collapsed too fast: 2n std is {mean_double / mean_single:.2f}x of 1n std"
+
+
+# def test_mcmc_xmin_uncertainty():
+#     n = 30
+#     xmin_true = 0.5
+#     anchorx = np.array([TEST_XMAX])
+#     anchory = np.array([0.0])
+#     priorx = np.linspace(xmin_true, TEST_XMAX, 500)
+#     priory = np.interp(priorx, [xmin_true, TEST_XMAX], [1.0, 0.0])
+
+#     x, dx, dy = simulate_calibration_data_samples(
+#         xmin_true + 0.1, TEST_XMAX - 0.1, 0.5, 1.0, 0.15, n, TEST_POWER_FUNCTION
+#     )
+
+#     cal = ExponentialCordCalibratorMCMC(
+#         xmin_true, TEST_XMAX, xmin_std=0.3, n_burn=200, n_steps=400
+#     ).fit(anchorx, anchory, x, dx, dy, priorx, priory)
+
+#     xmin_samples = cal._fit_samples[:, 5]
+#     assert (
+#         xmin_samples.std() > 0.01
+#     ), f"xmin should vary in posterior: std={xmin_samples.std():.4f}"
+#     assert (
+#         abs(xmin_samples.mean() - xmin_true) < 1.0
+#     ), f"xmin posterior mean should be near true: {xmin_samples.mean():.4f} vs {xmin_true}"
+#     assert cal.noise > 0, "Noise parameter should be positive"

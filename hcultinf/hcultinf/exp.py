@@ -74,7 +74,7 @@ class ExponentialCordCalibrator(CordCalibrator):
         def _mean(x):
             return self.target_func(np.atleast_1d(x), scale, k, y_int)
 
-        def _std(x):
+        def _std_internal(x):
             x = np.atleast_1d(x)
             u = _u(x, self._xmin, self._xmax)
             exp_term = np.exp(k * (u - 1.0))
@@ -90,6 +90,13 @@ class ExponentialCordCalibrator(CordCalibrator):
             )
             return np.sqrt(np.maximum(np.sum((grad @ pcov) * grad, axis=1), 0.0))
 
+        def _ci_low(x):
+            return _mean(x) - 1.96 * _std_internal(x)
+
+        def _ci_high(x):
+            return _mean(x) + 1.96 * _std_internal(x)
+
         self._mean = _mean
-        self._std = _std
+        self._ci_low = _ci_low
+        self._ci_high = _ci_high
         return self

@@ -40,7 +40,10 @@ def simulate_calibration_data_samples(
     ends = np.clip(x + dx, xmin, xmax)
     dx = ends - x
     dy = y(x + dx) - y(x)
+    # dy = -dy
+    # dx = -dx
     dy += np.random.normal(0, noise_level, n)
+    # dy = np.maximum(dy, 0.01)
     return x, dx, dy
 
 

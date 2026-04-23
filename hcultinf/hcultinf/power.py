@@ -64,7 +64,7 @@ class PowerCordCalibrator(CordCalibrator):
         def _mean(x):
             return scale * _g(np.atleast_1d(x), power, y_int)
 
-        def _std(x):
+        def _std_internal(x):
             x = np.atleast_1d(x)
             u = _u(x, xmin, xmax)
             g = _g(x, power, y_int)
@@ -78,8 +78,15 @@ class PowerCordCalibrator(CordCalibrator):
             )
             return np.sqrt(np.maximum(np.sum((grad @ pcov) * grad, axis=1), 0.0))
 
+        def _ci_low(x):
+            return _mean(x) - 1.96 * _std_internal(x)
+
+        def _ci_high(x):
+            return _mean(x) + 1.96 * _std_internal(x)
+
         self._mean = _mean
-        self._std = _std
+        self._ci_low = _ci_low
+        self._ci_high = _ci_high
         return self
 
 
