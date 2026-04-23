@@ -99,8 +99,9 @@ def mcmc_log_posterior(
 
 def samples_at(x, scale_s, k_s, f_int_s, xmin_arr, xmax):
     x = np.atleast_1d(x)
-    u = np.clip((xmax - x[None, :]) / (xmax - xmin_arr[:, None]), 1e-10, 1.0)
-    g = (1.0 - f_int_s[:, None]) * np.exp(k_s[:, None] * (u - 1.0)) + f_int_s[:, None]
+    g = exponential_target(
+        x[None, :], k_s[:, None], f_int_s[:, None], xmin_arr[:, None], xmax
+    )
     return scale_s[:, None] * g
 
 
@@ -152,7 +153,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         self._init_xmin_nsigma = init_xmin_nsigma
         self._n_thin_target = n_thin_target
 
-    def fit(
+    def _prepare_fit_data(
         self, x_anchors, swc_anchors, x_starts, delta_x, delta_swc, prior_x, prior_y
     ):
         x_anchors = np.asarray(x_anchors)
@@ -178,26 +179,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         )
         scale0, k0, f_int0 = quick.scale, quick.k, quick.f_int
 
-        n_dim = 4 + (1 if xmin_varies else 0)
-
-        p0 = np.array([scale0, k0, f_int0, np.log(self._sigma_init)])
-        if xmin_varies:
-            p0 = np.append(p0, xmin_hat)
-        s = self._init_spread
-        spread = np.array(
-            [
-                s * scale0,
-                s * k0,
-                s * f_int0,
-                s,
-            ]
-        )
-        if xmin_varies:
-            spread = np.append(spread, self._init_xmin_nsigma * self._xmin_std)
-
-        pos = p0 + spread * np.random.randn(self._n_walkers, n_dim)
-
-        posterior_args = dict(
+        return dict(
             x_anchors=x_anchors,
             swc_anchors=swc_anchors,
             x_starts=x_starts,
@@ -205,46 +187,109 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             delta_swc=delta_swc,
             prior_x=prior_x,
             prior_y=prior_y,
+            scale0=scale0,
+            k0=k0,
+            f_int0=f_int0,
             xmin_hat=xmin_hat,
             xmax=xmax,
             xmin_varies=xmin_varies,
-            xmin_std=self._xmin_std,
             sigma_anchor=sigma_anchor,
             sigma_prior=sigma_prior,
         )
 
+    def _init_walker_pos(self, data):
+        scale0 = data["scale0"]
+        k0 = data["k0"]
+        f_int0 = data["f_int0"]
+        xmin_hat = data["xmin_hat"]
+        xmin_varies = data["xmin_varies"]
+
+        n_dim = 4 + (1 if xmin_varies else 0)
+        p0 = np.array([scale0, k0, f_int0, np.log(self._sigma_init)])
+        if xmin_varies:
+            p0 = np.append(p0, xmin_hat)
+        s = self._init_spread
+        spread = np.array([s * scale0, s * k0, s * f_int0, s])
+        if xmin_varies:
+            spread = np.append(spread, self._init_xmin_nsigma * self._xmin_std)
+
+        return p0 + spread * np.random.randn(self._n_walkers, n_dim)
+
+    def _posterior_kwargs(self, data):
+        return dict(
+            x_anchors=data["x_anchors"],
+            swc_anchors=data["swc_anchors"],
+            x_starts=data["x_starts"],
+            x_ends=data["x_ends"],
+            delta_swc=data["delta_swc"],
+            prior_x=data["prior_x"],
+            prior_y=data["prior_y"],
+            xmin_hat=data["xmin_hat"],
+            xmax=data["xmax"],
+            xmin_varies=data["xmin_varies"],
+            xmin_std=self._xmin_std,
+            sigma_anchor=data["sigma_anchor"],
+            sigma_prior=data["sigma_prior"],
+        )
+
+    def _run_sampler(self, pos, n_dim, posterior_kwargs):
         sampler = emcee.EnsembleSampler(
             self._n_walkers,
             n_dim,
             mcmc_log_posterior,
-            kwargs=posterior_args,
+            kwargs=posterior_kwargs,
         )
         state = sampler.run_mcmc(pos, self._n_burn, progress=False)
         sampler.reset()
         sampler.run_mcmc(state, self._n_steps, progress=False)
+        return sampler
+
+    def _postprocess(self, sampler, data):
         samples = sampler.get_chain(flat=True)
+        xmin_hat = data["xmin_hat"]
+        xmin_varies = data["xmin_varies"]
+        xmax = data["xmax"]
 
         self._fit_samples = samples
         self._xmin_varies = xmin_varies
-
         self.scale = float(np.median(samples[:, 0]))
         self.noise = float(np.exp(np.median(samples[:, 3])))
 
         log_posts = sampler.get_log_prob(flat=True)
         self.nlml = float(-np.max(log_posts))
 
-        thin = max(1, len(samples) // self._n_thin_target)
+        self._scale_s, self._k_s, self._f_int_s, self._xmin_arr = self._thin_samples(
+            samples, xmin_varies, xmin_hat
+        )
+        self._mean = lambda x: samples_mean(
+            x, self._scale_s, self._k_s, self._f_int_s, self._xmin_arr, xmax
+        )
+        self._ci_low = lambda x: samples_ci_low(
+            x, self._scale_s, self._k_s, self._f_int_s, self._xmin_arr, xmax
+        )
+        self._ci_high = lambda x: samples_ci_high(
+            x, self._scale_s, self._k_s, self._f_int_s, self._xmin_arr, xmax
+        )
+
+    @staticmethod
+    def _thin_samples(samples, xmin_varies, xmin_hat):
+        thin = max(1, len(samples) // 2000)
         idx = np.arange(0, len(samples), thin)
         scale_s = samples[idx, 0]
         k_s = samples[idx, 1]
         f_int_s = samples[idx, 2]
         xmin_arr = samples[idx, 4] if xmin_varies else np.full(len(idx), xmin_hat)
+        return scale_s, k_s, f_int_s, xmin_arr
 
-        self._mean = lambda x: samples_mean(x, scale_s, k_s, f_int_s, xmin_arr, xmax)
-        self._ci_low = lambda x: samples_ci_low(
-            x, scale_s, k_s, f_int_s, xmin_arr, xmax
+    def fit(
+        self, x_anchors, swc_anchors, x_starts, delta_x, delta_swc, prior_x, prior_y
+    ):
+        data = self._prepare_fit_data(
+            x_anchors, swc_anchors, x_starts, delta_x, delta_swc, prior_x, prior_y
         )
-        self._ci_high = lambda x: samples_ci_high(
-            x, scale_s, k_s, f_int_s, xmin_arr, xmax
-        )
+        pos = self._init_walker_pos(data)
+        n_dim = 4 + (1 if data["xmin_varies"] else 0)
+        posterior_kwargs = self._posterior_kwargs(data)
+        sampler = self._run_sampler(pos, n_dim, posterior_kwargs)
+        self._postprocess(sampler, data)
         return self
