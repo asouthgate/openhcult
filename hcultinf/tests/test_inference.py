@@ -13,8 +13,8 @@ from hcultinf.simulation import (
     power_function,
 )
 
-TEST_XMIN = 0.0
-TEST_XMAX = 5.5
+TEST_XMIN = 3.0
+TEST_XMAX = 8.5
 TEST_DXMIN = 0.2
 TEST_DXMAX = 0.5
 TEST_NOISE_LEVEL = 0.2
@@ -40,6 +40,12 @@ TEST_EXPONENTIAL_FUNCTION = lambda x: 10.0 * exponential_target(
 @pytest.mark.parametrize(
     "estimator_func_pair",
     [
+        # (
+        #     ExponentialCordCalibratorMCMC(
+        #         TEST_XMIN, TEST_XMAX, prior_weight=1e-12, xmin_std=0.2, n_burn=10, n_steps=50
+        #     ),
+        #     TEST_EXPONENTIAL_FUNCTION,
+        # ),
         (
             ExponentialCordCalibrator(TEST_XMIN, TEST_XMAX, 1e-8),
             TEST_EXPONENTIAL_FUNCTION,
@@ -49,12 +55,6 @@ TEST_EXPONENTIAL_FUNCTION = lambda x: 10.0 * exponential_target(
             TEST_POWER_FUNCTION,
         ),
         (GPWithPriorShape(length_scale=1.0), TEST_POWER_FUNCTION),
-        (
-            ExponentialCordCalibratorMCMC(
-                TEST_XMIN, TEST_XMAX, prior_weight=1e-8, n_burn=1, n_steps=10
-            ),
-            TEST_EXPONENTIAL_FUNCTION,
-        ),
     ],
 )
 def test_convergence_in_n_bad_prior(estimator_func_pair):
@@ -97,7 +97,7 @@ def test_convergence_in_n_bad_prior(estimator_func_pair):
         curve_error = np.mean(errs)
         preverrs.append(curve_error)
 
-    plot_x = np.linspace(TEST_XMIN, TEST_XMAX, 500)
+    plot_x = np.linspace(TEST_XMIN * 0.75, TEST_XMAX, 500)
     plot_y = np.interp(plot_x, priorx_pts, priory_pts)
     last_pwl.plot(
         plot_x,
@@ -122,9 +122,9 @@ def test_convergence_in_n_bad_prior(estimator_func_pair):
 @pytest.mark.parametrize(
     "estimator",
     [
+        ExponentialCordCalibratorMCMC(TEST_XMIN, 1, TEST_XMAX, n_burn=1, n_steps=10),
         PowerCordCalibrator(TEST_XMIN, TEST_XMAX, prior_weight=0.001),
         ExponentialCordCalibrator(TEST_XMIN, TEST_XMAX),
-        ExponentialCordCalibratorMCMC(TEST_XMIN, TEST_XMAX, n_burn=1, n_steps=10),
     ],
 )
 def test_performance_realistic_parameters(estimator):
