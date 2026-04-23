@@ -60,7 +60,7 @@ class ExponentialCordCalibrator(CordCalibrator):
         )
 
         scale, k, y_int = result.x
-
+        # print(scale, k, y_int)
         if not result.success:
             raise RuntimeError(f"Optimization failed: {result.message}")
 

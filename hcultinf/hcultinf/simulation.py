@@ -35,15 +35,21 @@ def simulate_calibration_data_samples(
         x = np.linspace(xmin, xmax, n)
     else:
         x = np.random.uniform(xmin, xmax, n)
-    x = np.clip(x, xmin, xmax)
-    dx = np.random.uniform(dxmin, dxmax, n)
-    ends = np.clip(x + dx, xmin, xmax)
-    dx = ends - x
+    dx = -np.random.uniform(dxmin, dxmax, n)
+
+    assert all(dx < 0), "dx should be negative (decreasing function)"
+
+    x2 = np.clip(x + dx, xmin, xmax)
+    dx = x2 - x
+
+    # exclude the zero dx case to avoid zero division in lognormal noise
+    x = x[dx < 0]
+    dx = dx[dx < 0]
+
     dy = y(x + dx) - y(x)
-    # dy = -dy
-    # dx = -dx
-    dy += np.random.normal(0, noise_level, n)
-    # dy = np.maximum(dy, 0.01)
+    dy *= np.random.lognormal(0, noise_level, len(dx))
+    assert all(dx <= 0), "dx should be negative (decreasing function)"
+    assert all(dy >= 0), "dy should be positive (decreasing function)"
     return x, dx, dy
 
 
