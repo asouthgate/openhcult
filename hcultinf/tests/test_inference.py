@@ -65,17 +65,17 @@ def test_convergence_in_n_bad_prior(estimator_func_pair):
 
     anchorx = np.array([TEST_XMAX])
     anchory = np.array([0.0])
-    for n in [4, 32]:
+    for n in [4, 64]:
         priorx_pts = np.array([TEST_XMIN, TEST_XMAX])
         priory_pts = np.array([1.0, 0.0])
         errs = []
-        for _ in range(5):
+        for _ in range(10):
             x, dx, dy = simulate_calibration_data_samples(
                 TEST_XMIN,
                 TEST_XMAX,
                 TEST_DXMAX,
                 TEST_DXMAX,
-                TEST_NOISE_LEVEL / 5,
+                TEST_NOISE_LEVEL / 2,
                 n,
                 test_function,
                 uniform=True,
