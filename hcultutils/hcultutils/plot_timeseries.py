@@ -10,8 +10,8 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import numpy as np
 
-
 from hcultinf.detection import SegmentDetector
+from hcultinf.plot_style import apply_dark_theme
 from hcultutils.fetch_data import fetch_data
 
 
@@ -19,6 +19,7 @@ def main(args) -> int:
     print(args)
     if args.out:
         matplotlib.use("Agg")
+    apply_dark_theme()
     fetched = fetch_data(
         args.ctrl_url,
         args.start_utc,

@@ -1,17 +1,18 @@
-import { valueTicks, SvgAxes, OBS_COLOR, M, VW, VH, IW, IH } from './TimeseriesChart'
+import { valueTicks, SvgAxes, M, VW, VH, IW, IH } from './TimeseriesChart'
+import { OBS_COLOR } from './theme'
 import { toWater } from './utils'
 
 export default function CalibrationCurve({ calibration, showPct = false }) {
   if (!calibration) return null
 
-  const { prior_x, prior_y, mean, std, anchors_x, anchors_y, chords_x, chords_dx, chords_dy, mean_at_chord_starts, scale } = calibration
+  const { prior_x, prior_y, mean, ci_low, ci_high, anchors_x, anchors_y, chords_x, chords_dx, chords_dy, mean_at_chord_starts, scale } = calibration
 
   const toY = v => toWater(v, scale, showPct)
 
   const ref = mean[mean.length - 1]
   const meanNorm = mean.map(v => toY(v - ref))
-  const ciLo = mean.map((v, i) => toY(v - 1.96 * std[i] - ref))
-  const ciHi = mean.map((v, i) => toY(v + 1.96 * std[i] - ref))
+  const ciLo = ci_low ? ci_low.map(v => toY(v - ref)) : mean.map((v, i) => toY(v - 1.96 * (std?.[i] ?? 0) - ref))
+  const ciHi = ci_high ? ci_high.map(v => toY(v - ref)) : mean.map((v, i) => toY(v + 1.96 * (std?.[i] ?? 0) - ref))
   const gpRange = Math.max(...meanNorm) - Math.min(...meanNorm)
   const priorScaled = prior_y.map(v => v * gpRange)
 
@@ -36,8 +37,12 @@ export default function CalibrationCurve({ calibration, showPct = false }) {
   return (
     <div className="chart-wrap">
       <svg viewBox={`0 0 ${VW} ${VH}`} className="chart-svg">
+        <rect x={M.left} y={M.top} width={IW} height={IH} fill="#191e2b" />
         {yTicks.map(v => (
           <line key={v} x1={M.left} x2={VW - M.right} y1={scy(v)} y2={scy(v)} className="grid-line" />
+        ))}
+        {xTicks.map(v => (
+          <line key={`x${v}`} x1={scx(v)} x2={scx(v)} y1={M.top} y2={M.top + IH} className="grid-line" />
         ))}
 
         <polygon points={`${ciUpperPts} ${ciLowerPts}`} fill={OBS_COLOR} opacity="0.35" />
@@ -46,12 +51,12 @@ export default function CalibrationCurve({ calibration, showPct = false }) {
 
         <polyline
           points={xypts(prior_x, priorScaled)}
-          fill="none" stroke="#c4b87e" strokeWidth="1.5" strokeDasharray="4 3" opacity="0.7"
+          fill="none" stroke="#ffc61c" strokeWidth="1.5" strokeDasharray="4 3" opacity="0.7"
         />
 
         <polyline
           points={xypts(prior_x, meanNorm)}
-          fill="none" stroke="#9fb8a9" strokeWidth="2" strokeLinejoin="round"
+          fill="none" stroke="#d0fffc" strokeWidth="2" strokeLinejoin="round"
         />
 
         {chords_x.map((xi, i) => {
@@ -69,7 +74,7 @@ export default function CalibrationCurve({ calibration, showPct = false }) {
         })}
 
         {anchors_x.map((xi, i) => (
-          <circle key={i} cx={scx(xi)} cy={scy(anchors_y[i])} r="5" fill="#d4a9b8" />
+          <circle key={i} cx={scx(xi)} cy={scy(anchors_y[i])} r="5" fill="#ffc61c" />
         ))}
 
         <SvgAxes
@@ -83,11 +88,11 @@ export default function CalibrationCurve({ calibration, showPct = false }) {
       </svg>
 
       <div className="legend">
-        <span className="legend-item"><span className="legend-dot" style={{ background: '#9fb8a9' }} />GP mean</span>
+        <span className="legend-item"><span className="legend-dot" style={{ background: '#d0fffc' }} />GP mean</span>
         <span className="legend-item"><span className="legend-dot" style={{ background: OBS_COLOR, opacity: 0.3 }} />95% CI</span>
-        <span className="legend-item"><span className="legend-dot" style={{ background: '#c4b87e' }} />prior</span>
+        <span className="legend-item"><span className="legend-dot" style={{ background: '#ffc61c' }} />prior</span>
         <span className="legend-item"><span className="legend-dot" style={{ background: OBS_COLOR }} />chords</span>
-        <span className="legend-item"><span className="legend-dot" style={{ background: '#d4a9b8' }} />anchor</span>
+        <span className="legend-item"><span className="legend-dot" style={{ background: '#ffc61c' }} />anchor</span>
       </div>
     </div>
   )

@@ -1,4 +1,5 @@
-import { valueTicks, SvgAxes, OBS_COLOR, M } from './TimeseriesChart'
+import { valueTicks, SvgAxes, M } from './TimeseriesChart'
+import { OBS_COLOR } from './theme'
 
 const W = 340
 const H = 280
@@ -18,7 +19,9 @@ export default function ScatterPlot({ dx, dy, xLabel, yLabel }) {
   const y0 = sy(Math.max(yMin, Math.min(yMax, 0)))
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="chart-svg" style={{ maxWidth: W }}>
+      <rect x={M.left} y={M.top} width={IW} height={IH} fill="#191e2b" />
       {yTicks.map(v => <line key={v} x1={M.left} x2={W - M.right} y1={sy(v)} y2={sy(v)} className="grid-line" />)}
+      {xTicks.map(v => <line key={`x${v}`} x1={sx(v)} x2={sx(v)} y1={M.top} y2={M.top + IH} className="grid-line" />)}
       <line x1={x0} x2={x0} y1={M.top} y2={M.top + IH} className="grid-line" />
       <line x1={M.left} x2={W - M.right} y1={y0} y2={y0} className="grid-line" />
       {dx.map((dxi, i) => (

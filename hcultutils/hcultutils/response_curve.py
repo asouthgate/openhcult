@@ -3,6 +3,7 @@ import urllib.parse
 import numpy as np
 
 from hcultinf.calibrator import plot_response_curve
+from hcultinf.plot_style import apply_dark_theme, YELLOW, ORANGE, CLOUD_BLUE
 from hcultutils.query import request_ctrl
 
 from hcultinf.power import PowerCordCalibrator
@@ -31,7 +32,8 @@ def response_curve_estimate_main(ctrl_url: str, args) -> int:
 
     import matplotlib.pyplot as plt
 
-    pct_fc = getattr(args, "pct_fc", False)
+    apply_dark_theme()
+    pct_fc = getattr
     nlml = data.get("nlml")
     fig = plot_response_curve(
         prior_x=np.array(data["prior_x"]),
@@ -74,8 +76,8 @@ def response_curve_estimate_main(ctrl_url: str, args) -> int:
     ax1.plot(
         data["prior_x"],
         cal(data["prior_x"]),
-        "m-",
-        lw=2,
+        color=ORANGE,
+        linewidth=2,
         label=f"Power fit (scale={cal.scale:.2f})",
     )
 

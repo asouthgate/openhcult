@@ -10,6 +10,16 @@ import pandas as pd
 from scipy.optimize import curve_fit
 from scipy.integrate import quad
 
+from hcultinf.plot_style import (
+    apply_dark_theme,
+    DARK_BLUE,
+    CLOUD_BLUE,
+    YELLOW,
+    ORANGE,
+    CLOUD_WHITE,
+    MUTED,
+)
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
@@ -258,12 +268,13 @@ class SegmentDetector:
                     yield deqr
 
     def debug_plot(self):
+        apply_dark_theme()
         fig, ax1 = plt.subplots(figsize=(12, 6))
 
         ax1.scatter(
             self._time_arr,
             self._values_arr,
-            color="tab:blue",
+            color=CLOUD_BLUE,
             label="Sensor values",
             alpha=0.5,
             marker="x",
@@ -271,26 +282,26 @@ class SegmentDetector:
         ax1.plot(
             self._resampled_times,
             self._resampled_emwa,
-            color="tab:blue",
+            color=CLOUD_BLUE,
             label="Smoothed values (EWMA)",
             alpha=1.0,
             linewidth=1,
         )
-        ax1.set_ylabel("Sensor reading", color="tab:blue")
-        ax1.tick_params(axis="y", labelcolor="tab:blue")
+        ax1.set_ylabel("Sensor reading", color=CLOUD_BLUE)
+        ax1.tick_params(axis="y", labelcolor=CLOUD_BLUE)
 
         ax2 = ax1.twinx()
         ax2.plot(
             self._resampled_times,
             self._resampled_vel_smoothed / max(self._resampled_vel_smoothed),
-            color="#ad444f",
+            color=ORANGE,
             label="Smoothed velocity (EWMA)",
             linewidth=1,
         )
 
         deq_regions = self.get_disequilibrium_intervals()
         for deqr in deq_regions:
-            ax2.axvspan(deqr.start, deqr.end, color="green", alpha=0.15)
+            ax2.axvspan(deqr.start, deqr.end, color=YELLOW, alpha=0.1)
 
         nmrse_max = 0
 
@@ -300,10 +311,10 @@ class SegmentDetector:
                 nmrse_max = max(nmrse, nmrse_max)
         for deqr in deq_regions:
             if deqr.at_equilibrium:
-                color = "grey"
+                color = MUTED
             else:
-                color = "orange"
-            ax2.axvspan(deqr.start, deqr.end, color=color, alpha=0.05)
+                color = ORANGE
+            ax2.axvspan(deqr.start, deqr.end, color=color, alpha=0.08)
 
             if deqr.m is not None and deqr.at_equilibrium:
                 x1 = deqr.c
@@ -311,37 +322,39 @@ class SegmentDetector:
                     (deqr.end - deqr.start).astype("timedelta64[ms]").astype("int64")
                 )
                 x2 = (duration_ms * deqr.m) + deqr.c
-                ax1.plot([deqr.start, deqr.end], [x1, x2], color="red", linewidth=2)
+                ax1.plot([deqr.start, deqr.end], [x1, x2], color=YELLOW, linewidth=2)
             if deqr.pred_func is not None:
                 vpred = deqr.pred_func(self._resampled_times)
                 ax2.plot(
                     self._resampled_times,
                     vpred / max(self._resampled_vel_smoothed),
-                    color="black",
+                    color=CLOUD_WHITE,
                     linestyle="dotted",
                 )
                 model_start, model_end = deqr.get_model_active_interval()
-                ax2.axvspan(model_start, model_end, color="blue", alpha=0.15)
+                ax2.axvspan(model_start, model_end, color=DARK_BLUE, alpha=0.15)
                 ax2.axvline(
-                    x=model_start, ymax=deqr.gof_d["nrmse"] / nmrse_max, color="black"
+                    x=model_start,
+                    ymax=deqr.gof_d["nrmse"] / nmrse_max,
+                    color=CLOUD_WHITE,
                 )
 
         trigger, release = self.get_vel_thresholds()
         ax2.plot(
             self._resampled_times,
             trigger / max(self._resampled_vel_smoothed),
-            color="red",
+            color=YELLOW,
             linestyle="--",
         )
         ax2.plot(
             self._resampled_times,
             release / max(self._resampled_vel_smoothed),
-            color="red",
+            color=YELLOW,
             linestyle="--",
         )
 
-        ax2.set_ylabel("Normalized values (derivatives)", color="tab:red")
-        ax2.tick_params(axis="y", labelcolor="tab:red")
+        ax2.set_ylabel("Normalized values (derivatives)", color=ORANGE)
+        ax2.tick_params(axis="y", labelcolor=ORANGE)
 
         lines_1, labels_1 = ax1.get_legend_handles_labels()
         lines_2, labels_2 = ax2.get_legend_handles_labels()

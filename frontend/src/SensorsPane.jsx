@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react'
 import { apiJson, apiFetch } from './api'
 import { sensorKey, interp, toWater } from './utils'
-import { TimeseriesChart, PALETTE } from './TimeseriesChart'
+import { TimeseriesChart } from './TimeseriesChart'
+import { PALETTE } from './theme'
 import CalibrationParams from './CalibrationParams'
 
 const TIME_RANGES = [

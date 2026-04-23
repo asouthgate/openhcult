@@ -24,6 +24,7 @@ from hcultinf.inference import (
     detect_z_triggers,
     merge_events,
 )
+from hcultinf.plot_style import apply_dark_theme, PALETTE
 
 
 @dataclass(frozen=True)
@@ -178,11 +179,10 @@ def _plot_series(
     values: np.ndarray,
     groups: List[List[Event]],
 ) -> None:
-    ax.plot(times, values, label=name, linewidth=1.2)
-    colors = plt.cm.tab20.colors
+    ax.plot(times, values, label=name, linewidth=1.2, color=PALETTE[0])
     labels_used = set()
     for group_idx, group in enumerate(groups):
-        color = colors[group_idx % len(colors)]
+        color = PALETTE[(group_idx + 1) % len(PALETTE)]
         label = f"group {group_idx + 1}"
         for event in group:
             before_start_time = times[event.before_start]
@@ -242,6 +242,8 @@ def run(args: argparse.Namespace) -> int:
 
     if args.out:
         matplotlib.use("Agg")
+
+    apply_dark_theme()
 
     sensor_names = sorted(series.keys())
     cols = 2

@@ -5,6 +5,14 @@ from abc import ABC
 
 import numpy as np
 
+from hcultinf.plot_style import (
+    apply_dark_theme,
+    CLOUD_BLUE,
+    YELLOW,
+    ORANGE,
+    CLOUD_WHITE,
+)
+
 
 def _u(x, xmin, xmax):
     return np.clip((xmax - x) / (xmax - xmin), 1e-10, 1.0)
@@ -55,8 +63,8 @@ class CordCalibrator(ABC):
     ):
         import matplotlib.pyplot as plt
 
+        apply_dark_theme()
         priorx = np.asarray(priorx)
-        priory = np.asarray(priory)
         plot_x = np.linspace(priorx.min(), priorx.max(), 500)
         plot_prior_y = np.interp(plot_x, priorx, priory)
         plot_true_y = (
@@ -127,6 +135,8 @@ def plot_response_curve(
 ):
     import matplotlib.pyplot as plt
 
+    apply_dark_theme()
+
     prior_x = np.asarray(prior_x)
     prior_y = np.asarray(prior_y)
     mean = np.asarray(mean)
@@ -157,22 +167,30 @@ def plot_response_curve(
         ax.scatter(
             [x[i], x[i] + dx[i]],
             [start_y, start_y + dy[i]],
-            color="steelblue",
-            alpha=0.5,
+            color=YELLOW,
+            alpha=0.7,
         )
         ax.plot(
             [x[i], x[i] + dx[i]],
             [start_y, start_y + dy[i]],
-            color="steelblue",
+            color=YELLOW,
             alpha=0.5,
             label=label,
         )
 
-    ax.scatter(anchors_x, anchors_y, label="anchors")
+    ax.scatter(anchors_x, anchors_y, label="anchors", color=ORANGE)
     gp_range = mean.max() - mean.min()
-    ax.plot(prior_x, prior_y * gp_range, label="rescaled prior", linestyle="--")
-    ax.fill_between(prior_x, ci_low, ci_high, color="gray", alpha=0.3, label="95% CI")
-    ax.plot(prior_x, mean, label="Estimated mean", linestyle="dotted")
+    ax.plot(
+        prior_x,
+        prior_y * gp_range,
+        label="rescaled prior",
+        linestyle="--",
+        color=ORANGE,
+    )
+    ax.fill_between(
+        prior_x, ci_low, ci_high, color=CLOUD_BLUE, alpha=0.2, label="95% CI"
+    )
+    ax.plot(prior_x, mean, label="Estimated mean", color=CLOUD_BLUE)
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
 
@@ -182,11 +200,11 @@ def plot_response_curve(
     ax.legend()
 
     if show_chords_pane:
-        ax2.scatter(dx, dy, alpha=0.7)
+        ax2.scatter(dx, dy, alpha=0.7, color=YELLOW)
         for i, (dxi, dyi) in enumerate(zip(dx, dy)):
-            ax2.annotate(str(i), (dxi, dyi), fontsize=8, alpha=0.6)
-        ax2.axhline(0, color="gray", linewidth=0.8, linestyle="--")
-        ax2.axvline(0, color="gray", linewidth=0.8, linestyle="--")
+            ax2.annotate(str(i), (dxi, dyi), fontsize=8, alpha=0.6, color=CLOUD_WHITE)
+        ax2.axhline(0, color=CLOUD_BLUE, linewidth=0.5, linestyle="--", alpha=0.4)
+        ax2.axvline(0, color=CLOUD_BLUE, linewidth=0.5, linestyle="--", alpha=0.4)
         ax2.set_xlabel(f"Δ{xlabel}")
         ax2.set_ylabel(f"Δ{ylabel}")
         ax2.set_title("chord Δx vs Δy")

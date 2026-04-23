@@ -207,14 +207,21 @@ def test_unbiasedness(estimator):
 
     import matplotlib.pyplot as plt
 
+    from hcultinf.plot_style import apply_dark_theme, CLOUD_BLUE, CLOUD_WHITE
+
+    apply_dark_theme()
+
     fig, ax = plt.subplots(figsize=(7, 4))
-    ax.plot(eval_x, true_y, label="true", color="black")
-    ax.plot(eval_x, mean_pred, label="mean prediction", linestyle="--")
+    ax.plot(eval_x, true_y, label="true", color=CLOUD_WHITE)
+    ax.plot(
+        eval_x, mean_pred, label="mean prediction", linestyle="--", color=CLOUD_BLUE
+    )
     ax.fill_between(
         eval_x,
         mean_pred - 1.96 * std_of_means,
         mean_pred + 1.96 * std_of_means,
         alpha=0.3,
+        color=CLOUD_BLUE,
         label="95% CI on mean",
     )
     ax.set_xlabel("x")
