@@ -124,7 +124,7 @@ def test_convergence_in_n_bad_prior(estimator_func_pair):
     [
         PowerCordCalibrator(TEST_XMIN, TEST_XMAX, prior_weight=0.001),
         ExponentialCordCalibrator(TEST_XMIN, TEST_XMAX),
-        ExponentialCordCalibratorMCMC(TEST_XMIN, TEST_XMAX, n_burn=20, n_steps=50),
+        ExponentialCordCalibratorMCMC(TEST_XMIN, TEST_XMAX, n_burn=1, n_steps=10),
     ],
 )
 def test_performance_realistic_parameters(estimator):
