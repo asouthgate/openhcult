@@ -317,7 +317,7 @@ def test_mcmc_curve_convergence():
             xmin,
             xmax,
             prior_weight=1.0,
-            xmin_std=0.2,
+            xmin_std=0.0,
             n_burn=300,
             n_steps=500,
         )
@@ -342,4 +342,4 @@ def test_mcmc_curve_convergence():
         title=f"MCMC curve convergence (errors={[f'{e:.4f}' for e in errors]})",
         show_chords_pane=False,
     )
-    assert errors[-1] < 0.15, f"Errors at each n: {errors}"
+    assert errors[-1] < 0.05, f"Errors at each n: {errors}"
