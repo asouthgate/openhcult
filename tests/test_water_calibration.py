@@ -124,8 +124,14 @@ def test_water_calibration_with_waterings():
     result = request_json(f"/water_calibration?plant={plant_name}")
     assert "prior_x" in result
     assert "mean" in result
-    assert "std" in result
-    assert len(result["prior_x"]) == len(result["mean"]) == len(result["std"])
+    assert "ci_low" in result
+    assert "ci_high" in result
+    assert (
+        len(result["prior_x"])
+        == len(result["mean"])
+        == len(result["ci_low"])
+        == len(result["ci_high"])
+    )
     assert len(result["prior_x"]) > 0
 
     request_json(f"/plants/{plant_name}", method="DELETE")

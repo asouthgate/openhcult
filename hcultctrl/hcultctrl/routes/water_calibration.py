@@ -208,7 +208,7 @@ def water_calibration(
         ).fit(x_anchor, swc_anchor, x_arr, dx_arr, dy_arr, prior_x, prior_y)
     plot_x = np.linspace(prior_x.min(), prior_x.max(), 500)
     plot_prior_y = np.interp(plot_x, prior_x, prior_y)
-    mean, std = cal.predict(plot_x)
+    mean, ci_low, ci_high = cal.predict(plot_x)
     mean_at_chord_starts = cal(x_arr)
 
     # Invert GP curve to estimate expected sensor delta for each watering
@@ -221,7 +221,8 @@ def water_calibration(
         "prior_x": plot_x.tolist(),
         "prior_y": plot_prior_y.tolist(),
         "mean": mean.tolist(),
-        "std": std.tolist(),
+        "ci_low": ci_low.tolist(),
+        "ci_high": ci_high.tolist(),
         "scale": float(cal.scale),
         "nlml": float(cal.nlml),
         "anchors_x": x_anchor.tolist(),
