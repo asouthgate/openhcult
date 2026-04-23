@@ -157,9 +157,12 @@ def plot_response_curve(
             true_y = np.asarray(true_y) / scale * 100
 
     if show_chords_pane:
-        fig, (ax, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+        fig, (ax, ax2) = plt.subplots(1, 2, figsize=(14, 6))
     else:
-        fig, ax = plt.subplots(1, 1, figsize=(7, 5))
+        fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+
+    x_margin = (prior_x.max() - prior_x.min()) * 0.08
+    ax.set_xlim(prior_x.min() - x_margin, prior_x.max() + x_margin)
 
     for i in range(len(dx)):
         start_y = mean_at_x[i]

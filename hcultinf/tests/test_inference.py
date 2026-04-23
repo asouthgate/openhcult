@@ -211,7 +211,8 @@ def test_unbiasedness(estimator):
 
     apply_dark_theme()
 
-    fig, ax = plt.subplots(figsize=(7, 4))
+    x_pad = (TEST_XMAX - TEST_XMIN) * 0.15
+    fig, ax = plt.subplots(figsize=(10, 5))
     ax.plot(eval_x, true_y, label="true", color=CLOUD_WHITE)
     ax.plot(
         eval_x, mean_pred, label="mean prediction", linestyle="--", color=CLOUD_BLUE
@@ -226,6 +227,7 @@ def test_unbiasedness(estimator):
     )
     ax.set_xlabel("x")
     ax.set_ylabel("y")
+    ax.set_xlim(TEST_XMIN - x_pad, TEST_XMAX + x_pad)
     ax.legend()
     fig.tight_layout()
     fig.savefig("artifacts/unbiasedness.png")
