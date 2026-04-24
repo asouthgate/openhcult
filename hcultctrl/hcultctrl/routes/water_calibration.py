@@ -11,6 +11,7 @@ from fastapi import Depends, HTTPException, APIRouter
 from hcultctrl.utils import get_db_conn
 from hcultdb import queries as database
 from hcultinf.exp import ExponentialCordCalibrator
+from hcultinf.exp_mcmc import ExponentialCordCalibratorMCMC
 from hcultinf.gp import GPWithPriorShape
 from hcultinf.power import PowerCordCalibrator
 
@@ -77,6 +78,10 @@ def water_calibration(
     prior_alpha: float = 0.5,
     estimator: str = "gp",
     prior_weight: float = 1.0,
+    n_burn: int = 10,
+    n_steps: int = 30,
+    xmin_low: float = 800.0,
+    xmin_high: float = 1100.0,
     conn=Depends(get_db_conn),
 ):
     if sensor and not device_address:
@@ -88,10 +93,10 @@ def water_calibration(
         raise HTTPException(
             status_code=400, detail="prior must be 'calibrated', 'linear', or 'power'"
         )
-    if estimator not in ("gp", "powerlaw", "exponential"):
+    if estimator not in ("gp", "powerlaw", "exponential", "exp_mcmc"):
         raise HTTPException(
             status_code=400,
-            detail="estimator must be 'gp', 'powerlaw', or 'exponential'",
+            detail="estimator must be 'gp', 'powerlaw', 'exponential', or 'exp_mcmc'",
         )
     if prior in ("linear", "power") and (prior_min is None or prior_max is None):
         raise HTTPException(
@@ -199,6 +204,21 @@ def water_calibration(
             xmin=exp_xmin,
             xmax=exp_xmax,
             prior_weight=prior_weight,
+        ).fit(x_anchor, swc_anchor, x_arr, dx_arr, dy_arr, prior_x, prior_y)
+    elif estimator == "exp_mcmc":
+        exp_xmax = prior_max if prior_max is not None else float(prior_x.max())
+        if xmin_high <= xmin_low:
+            raise HTTPException(
+                status_code=400,
+                detail="xmin_high must be greater than xmin_low",
+            )
+        cal = ExponentialCordCalibratorMCMC(
+            xmin_low=xmin_low,
+            xmin_high=xmin_high,
+            xmax=exp_xmax,
+            prior_weight=prior_weight,
+            n_burn=n_burn,
+            n_steps=n_steps,
         ).fit(x_anchor, swc_anchor, x_arr, dx_arr, dy_arr, prior_x, prior_y)
     else:
         cal = GPWithPriorShape(

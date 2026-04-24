@@ -1,5 +1,5 @@
 export default function CalibrationParams({ calibParams, setCalibParam }) {
-  const { offsetMin, widthMin, gpStdMl, scalePriorMean, scalePriorStd, prior, priorMin, priorMax, priorAlpha, estimator, priorWeight } = calibParams
+  const { offsetMin, widthMin, gpStdMl, scalePriorMean, scalePriorStd, prior, priorMin, priorMax, priorAlpha, estimator, priorWeight, nBurn, nSteps } = calibParams
   return (
     <table className="param-table">
       <tbody>
@@ -20,6 +20,7 @@ export default function CalibrationParams({ calibParams, setCalibParam }) {
               <button className={estimator === 'gp' ? 'active' : ''} onClick={() => setCalibParam('estimator', 'gp')}>GP</button>
               <button className={estimator === 'powerlaw' ? 'active' : ''} onClick={() => setCalibParam('estimator', 'powerlaw')}>power law</button>
               <button className={estimator === 'exponential' ? 'active' : ''} onClick={() => setCalibParam('estimator', 'exponential')}>exponential</button>
+              <button className={estimator === 'exp_mcmc' ? 'active' : ''} onClick={() => setCalibParam('estimator', 'exp_mcmc')}>exp MCMC</button>
             </div>
           </td>
         </tr>
@@ -40,13 +41,25 @@ export default function CalibrationParams({ calibParams, setCalibParam }) {
             <td>ml</td>
           </tr>
         </>}
-        {(estimator === 'powerlaw' || estimator === 'exponential') && (
+        {(estimator === 'powerlaw' || estimator === 'exponential' || estimator === 'exp_mcmc') && (
           <tr>
             <td>prior weight</td>
             <td><input type="number" min="0.001" step="0.1" className="param-input" value={priorWeight} onChange={e => setCalibParam('priorWeight', e.target.value)} /></td>
             <td></td>
           </tr>
         )}
+        {estimator === 'exp_mcmc' && <>
+          <tr>
+            <td>burn-in</td>
+            <td><input type="number" min="0" step="1" className="param-input" value={nBurn} onChange={e => setCalibParam('nBurn', e.target.value)} /></td>
+            <td>steps</td>
+          </tr>
+          <tr>
+            <td>samples</td>
+            <td><input type="number" min="1" step="1" className="param-input" value={nSteps} onChange={e => setCalibParam('nSteps', e.target.value)} /></td>
+            <td>steps</td>
+          </tr>
+        </>}
         <tr>
           <td>prior</td>
           <td colSpan={2}>

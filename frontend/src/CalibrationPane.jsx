@@ -38,7 +38,7 @@ export default function CalibrationPane({
           <span style={{ fontSize: 12, opacity: 0.7 }}>NLML: {nlml.toFixed(2)}</span>
         )}
       </div>
-      {calibLoading && <div className="full">Computing…</div>}
+      {calibLoading && <div className="full loading"><span className="spinner" />Computing…</div>}
       {calibError && <div className="full error">{calibError}</div>}
       {calibration && <>
         <div className="full">

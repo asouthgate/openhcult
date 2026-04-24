@@ -15,7 +15,7 @@ export default function Sensors() {
   const [calibError, setCalibError] = useState(null)
   const [calibLoading, setCalibLoading] = useState(false)
   const [calibParams, setCalibParams] = useState({
-    offsetMin: '5', widthMin: '50', gpStdMl: '50', scalePriorMean: '', scalePriorStd: '', prior: 'power', priorMin: '867', priorMax: '2009', priorAlpha: '5.4523129367441685', estimator: 'gp', priorWeight: '1.0',
+    offsetMin: '5', widthMin: '50', gpStdMl: '50', scalePriorMean: '', scalePriorStd: '', prior: 'power', priorMin: '867', priorMax: '2009', priorAlpha: '5.4523129367441685', estimator: 'gp', priorWeight: '1.0', nBurn: '10', nSteps: '30',
   })
 
   const autoStdSet = useRef(false)
@@ -51,7 +51,7 @@ export default function Sensors() {
     const controller = new AbortController()
     setCalibLoading(true)
     setCalibError(null)
-    const { offsetMin, widthMin, gpStdMl, scalePriorMean, scalePriorStd, prior, priorMin, priorMax, priorAlpha, estimator, priorWeight } = calibParams
+    const { offsetMin, widthMin, gpStdMl, scalePriorMean, scalePriorStd, prior, priorMin, priorMax, priorAlpha, estimator, priorWeight, nBurn, nSteps } = calibParams
     const params = new URLSearchParams({
       plant: plantFilter,
       offset_ms: Number(offsetMin) * 60 * 1000,
@@ -70,12 +70,17 @@ export default function Sensors() {
     }
     if (estimator === 'powerlaw' && priorWeight !== '') params.set('prior_weight', priorWeight)
     if (estimator === 'exponential' && priorWeight !== '') params.set('prior_weight', priorWeight)
+    if (estimator === 'exp_mcmc') {
+      if (priorWeight !== '') params.set('prior_weight', priorWeight)
+      if (nBurn !== '') params.set('n_burn', nBurn)
+      if (nSteps !== '') params.set('n_steps', nSteps)
+    }
     if (prior !== 'calibrated') params.set('prior', prior)
     if (prior === 'linear' || prior === 'power') {
       if (priorMin !== '') params.set('prior_min', priorMin)
       if (priorMax !== '') params.set('prior_max', priorMax)
     }
-    if (estimator === 'exponential') {
+    if (estimator === 'exponential' || estimator === 'exp_mcmc') {
       if (priorMin !== '' && !params.has('prior_min')) params.set('prior_min', priorMin)
       if (priorMax !== '' && !params.has('prior_max')) params.set('prior_max', priorMax)
     }
