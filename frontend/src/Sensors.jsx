@@ -15,7 +15,7 @@ export default function Sensors() {
   const [calibError, setCalibError] = useState(null)
   const [calibLoading, setCalibLoading] = useState(false)
   const [calibParams, setCalibParams] = useState({
-    offsetMin: '5', widthMin: '50', gpStdMl: '50', scalePriorMean: '', scalePriorStd: '', prior: 'power', priorMin: '867', priorMax: '2009', priorAlpha: '5.4523129367441685', estimator: 'gp', priorWeight: '1.0', nBurn: '10', nSteps: '30',
+    offsetMin: '5', widthMin: '50', gpStdMl: '50', scalePriorMean: '', scalePriorStd: '', prior: 'power', priorMin: '867', priorMax: '2009', priorAlpha: '5.4523129367441685', estimator: 'gp', priorWeight: '1.0', nBurn: '10', nSteps: '30', xminLow: '800', xminHigh: '1100',
   })
 
   const autoStdSet = useRef(false)
@@ -51,7 +51,7 @@ export default function Sensors() {
     const controller = new AbortController()
     setCalibLoading(true)
     setCalibError(null)
-    const { offsetMin, widthMin, gpStdMl, scalePriorMean, scalePriorStd, prior, priorMin, priorMax, priorAlpha, estimator, priorWeight, nBurn, nSteps } = calibParams
+    const { offsetMin, widthMin, gpStdMl, scalePriorMean, scalePriorStd, prior, priorMin, priorMax, priorAlpha, estimator, priorWeight, nBurn, nSteps, xminLow, xminHigh } = calibParams
     const params = new URLSearchParams({
       plant: plantFilter,
       offset_ms: Number(offsetMin) * 60 * 1000,
@@ -74,6 +74,8 @@ export default function Sensors() {
       if (priorWeight !== '') params.set('prior_weight', priorWeight)
       if (nBurn !== '') params.set('n_burn', nBurn)
       if (nSteps !== '') params.set('n_steps', nSteps)
+      if (xminLow !== '') params.set('xmin_low', xminLow)
+      if (xminHigh !== '') params.set('xmin_high', xminHigh)
     }
     if (prior !== 'calibrated') params.set('prior', prior)
     if (prior === 'linear' || prior === 'power') {

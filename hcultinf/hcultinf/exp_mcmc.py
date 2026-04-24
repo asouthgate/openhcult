@@ -225,7 +225,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             xmin_spread = max(s * (xmin_high - xmin_low), s * 1.0)
         else:
             xmin_spread = 0.0
-        spread = np.array(
+        rel_spread = np.array(
             [
                 s * scale0,
                 s * k0,
@@ -234,6 +234,8 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
                 xmin_spread,
             ]
         )
+        abs_floor = np.array([1.0, 0.01, 0.01, 0.1, 1.0])
+        spread = np.maximum(rel_spread, abs_floor)
 
         pos = p0 + spread * np.random.randn(self._n_walkers, 5)
         if xmin_low < xmin_high:
