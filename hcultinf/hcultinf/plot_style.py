@@ -1,5 +1,5 @@
 DARK_BLUE = "#0041a1"
-YELLOW = "#ffe23f"
+YELLOW = "#ffe066"
 ORANGE = "#ffc61c"
 CLOUD_WHITE = "#fffff2"
 CLOUD_BLUE = "#d0fffc"

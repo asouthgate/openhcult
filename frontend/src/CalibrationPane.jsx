@@ -11,7 +11,18 @@ export default function CalibrationPane({
 
   if (!plantFilter) return <div className="empty">Select a plant to view calibration.</div>
 
-  const { chords_dx, chords_dy, chord_times, scale, nlml } = calibration ?? {}
+  const { chords_dx, chords_dy, chord_times, scale, nlml, mean, prior_x, ci_low, ci_high } = calibration ?? {}
+
+  const showPctLabel = showPct ? ' %FC' : ' ml'
+  const swcStats = calibration ? (() => {
+    const toV = v => toWater(v, scale, showPct)
+    const ref = mean[mean.length - 1]
+    const estMin = toV(Math.min(...mean) - ref)
+    const estMax = toV(Math.max(...mean) - ref)
+    const lo = ci_low ? toV(Math.min(...ci_low) - ref) : null
+    const hi = ci_high ? toV(Math.max(...ci_high) - ref) : null
+    return { estMin, estMax, lo, hi }
+  })() : null
 
   return (
     <section className="pane-grid">
@@ -41,9 +52,11 @@ export default function CalibrationPane({
             ['Latest', new Date(Math.max(...chord_times)).toLocaleString()],
             ['Δsensor min', Math.min(...chords_dx).toFixed(1) + ' mV'],
             ['Δsensor max', Math.max(...chords_dx).toFixed(1) + ' mV'],
-            ['Dose min', Math.min(...dy).toFixed(1) + (showPct ? ' %FC' : ' ml')],
-            ['Dose max', Math.max(...dy).toFixed(1) + (showPct ? ' %FC' : ' ml')],
-            ['Dose mean', (dy.reduce((a, b) => a + b, 0) / dy.length).toFixed(1) + (showPct ? ' %FC' : ' ml')],
+            ['Dose min', Math.min(...dy).toFixed(1) + showPctLabel],
+            ['Dose max', Math.max(...dy).toFixed(1) + showPctLabel],
+            ['Dose mean', (dy.reduce((a, b) => a + b, 0) / dy.length).toFixed(1) + showPctLabel],
+            ['SWC range', swcStats ? `${swcStats.estMin.toFixed(1)}–${swcStats.estMax.toFixed(1)}${showPctLabel}` : '—'],
+            ...(swcStats?.lo != null ? [['95% CI', `${swcStats.lo.toFixed(1)}–${swcStats.hi.toFixed(1)}${showPctLabel}`]] : []),
           ]
           return (
             <table className="obs-table full">

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { apiJson } from './api'
 import { sensorKey, sensorPart } from './utils'
+import { clearToken } from './api'
 import SensorsPane from './SensorsPane'
 import CalibrationPane from './CalibrationPane'
 
@@ -116,6 +117,7 @@ export default function Sensors() {
               {sensorsForPlant.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
             </select>
           )}
+          <button className="logout-btn" onClick={() => { clearToken(); window.location.reload() }}>Logout</button>
         </div>
       </div>
 

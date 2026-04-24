@@ -81,7 +81,7 @@ export function TimeseriesChart({ series, bands = [], observations, rangeMs, onT
   const y = v => M.top + IH - ((v - vMin) / vRange) * IH
 
   const xTicks = timeTicks(tMin, tMax, 6)
-  const yTicks = valueTicks(vMin, vMax, 5)
+  const yTicks = valueTicks(vMin, vMax, 8)
 
   const inRange = t => t >= tMin && t <= tMax
 

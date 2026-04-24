@@ -2,8 +2,8 @@
   --bg: #191e2b;
   --fg: #fffff2;
   --muted: #8892a4;
-  --accent: #ffe23f;
-  --accent-dim: rgba(255, 226, 63, 0.1);
+  --accent: #ffe066;
+  --accent-dim: rgba(255, 224, 102, 0.1);
   --orange: #ffc61c;
   --blue: #0041a1;
   --sky: #d0fffc;
@@ -305,14 +305,23 @@ select {
 .param-table td:first-child {
   color: var(--muted);
   white-space: nowrap;
+  width: 120px;
+}
+
+.param-table td:nth-child(2) {
+  width: 80px;
+}
+
+.param-table td:nth-child(3) {
+  width: 40px;
 }
 
 .param-table tr:last-child td {
   border-bottom: none;
 }
 
-.param-input { width: 48px; }
-.param-input-wide { width: 56px; }
+.param-input { width: 72px; }
+.param-input-wide { width: 72px; }
 
 .param-input, .param-input-wide {
   font-family: inherit;
@@ -404,6 +413,22 @@ section.pane-grid h3 {
 .login p {
   color: var(--muted);
   font-size: 12px;
+}
+
+.logout-btn {
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.logout-btn:hover {
+  background: #6b2020;
+  color: var(--fg);
+  border-color: #6b2020;
 }
 
 details {

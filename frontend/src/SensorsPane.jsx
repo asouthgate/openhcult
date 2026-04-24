@@ -12,6 +12,8 @@ const TIME_RANGES = [
   { label: '30d', hours: 24 * 30 },
 ]
 
+const Y_LABELS = { raw: 'Raw', voltage: 'Voltage (mV)', water: 'Water (ml)', water_pct: 'Water (%FC)' }
+
 function ObservationsTable({ observations, sensorAssignedAt, calibration, onDelete }) {
   const visible = sensorAssignedAt != null
     ? observations.filter(o => new Date(o.observed_at).getTime() >= sensorAssignedAt)
@@ -109,8 +111,8 @@ export default function SensorsPane({
 
     if (!isWater) return { mappedSeries: ms, bands: [] }
 
-    const loArr = calibration.mean.map((m, i) => Math.max(0, m - 2 * (calibration.std[i] || 0)))
-    const hiArr = calibration.mean.map((m, i) => m + 2 * (calibration.std[i] || 0))
+    const loArr = calibration.ci_low ?? calibration.mean.map((m, i) => m - 2 * (calibration.std?.[i] ?? 0))
+    const hiArr = calibration.ci_high ?? calibration.mean.map((m, i) => m + 2 * (calibration.std?.[i] ?? 0))
     const bs = ms.map(s => ({
       color: s.color,
       points: s.points.map(p => ({
@@ -159,7 +161,7 @@ export default function SensorsPane({
                 rangeMs={rangeHours * 3600 * 1000}
                 onTimePick={t => { setPendingTime(t); setPendingPlant(plantFilter || ''); setPendingMl('') }}
                 pendingTime={pendingTime}
-                yLabel={measureMode}
+                yLabel={Y_LABELS[measureMode]}
                 eventWindowOffset={Number(calibParams.offsetMin) * 60 * 1000}
                 eventWindowWidth={Number(calibParams.widthMin) * 60 * 1000}
               />
