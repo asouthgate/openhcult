@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 import numpy as np
 import emcee
 
 from .calibrator import CordCalibrator
 from .exp import ExponentialCordCalibrator, exponential_target
+
+_logger = logging.getLogger(__name__)
 
 
 def mcmc_log_prior(theta, xmin_low, xmin_high):
@@ -169,10 +172,18 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
 
         xmin_low = self._xmin_low
         xmin_high = self._xmin_high
-        xmin_low = min(xmin_low, min(x_starts), min(x_starts + delta_x), min(x_anchors))
-        xmin_high = min(
-            xmin_high, min(x_starts), min(x_starts + delta_x), min(x_anchors)
+        data_min_x = min(
+            xmin_low, min(x_starts), min(x_starts + delta_x), min(x_anchors)
         )
+        if xmin_low >= data_min_x:
+            xmin_low = data_min_x - 1
+            _logger.warning(f"xmin_low {self._xmin_low} is greater than or equal to \
+                data minimum x {data_min_x}, adjusting xmin_low to {xmin_low}")
+        if xmin_high >= data_min_x:
+            xmin_high = data_min_x
+            _logger.warning(f"xmin_high {self._xmin_high} is greater than or equal to \
+                data minimum x {data_min_x}, adjusting xmin_high to {xmin_high}")
+
         assert xmin_high <= min(
             x_starts
         ), "xmin_high must be less than or equal to the smallest x_start"
@@ -225,7 +236,9 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             xmin_spread = max(s * (xmin_high - xmin_low), s * 1.0)
         else:
             xmin_spread = 0.0
-        rel_spread = np.array(
+        _logger.warning(f"xmin_spread: {xmin_spread}")
+        print("????????????")
+        spread = np.array(
             [
                 s * scale0,
                 s * k0,
@@ -234,10 +247,11 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
                 xmin_spread,
             ]
         )
-        abs_floor = np.array([1.0, 0.01, 0.01, 0.1, 1.0])
-        spread = np.maximum(rel_spread, abs_floor)
+        abs_floor = np.array([1.0, 0.1, 0.01, 0.1, 1.0])
+        spread = np.maximum(spread, abs_floor)
 
         pos = p0 + spread * np.random.randn(self._n_walkers, 5)
+        pos[:, 2] = np.clip(pos[:, 2], 0.0, 1.0)
         if xmin_low < xmin_high:
             pos[:, 4] = np.clip(pos[:, 4], xmin_low, xmin_high)
 
