@@ -18,3 +18,6 @@ dependencies = [
     "scipy",
     "emcee",
 ]
+
+[tool.setuptools]
+packages = ["hcultinf"]
