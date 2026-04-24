@@ -236,8 +236,6 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             xmin_spread = max(s * (xmin_high - xmin_low), s * 1.0)
         else:
             xmin_spread = 0.0
-        _logger.warning(f"xmin_spread: {xmin_spread}")
-        print("????????????")
         spread = np.array(
             [
                 s * scale0,

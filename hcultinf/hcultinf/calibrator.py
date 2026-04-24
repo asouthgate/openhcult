@@ -65,7 +65,15 @@ class CordCalibrator(ABC):
 
         apply_dark_theme()
         priorx = np.asarray(priorx)
-        plot_x = np.linspace(priorx.min(), priorx.max(), 500)
+        domain_min_x = min(
+            [
+                priorx.min(),
+                anchors_x.min() if len(anchors_x) > 0 else np.inf,
+                x.min() if len(x) > 0 else np.inf,
+                (x + dx).min() if len(dx) > 0 else np.inf,
+            ]
+        )
+        plot_x = np.linspace(domain_min_x, priorx.max(), 500)
         plot_prior_y = np.interp(plot_x, priorx, priory)
         plot_true_y = (
             np.interp(plot_x, priorx, np.asarray(true_y))
