@@ -226,7 +226,7 @@ def water_calibration(
     prior_min: float | None = None,
     prior_max: float | None = None,
     prior_alpha: float = 0.5,
-    estimator: str = "gp",
+    estimator: str = "exp_mcmc",
     prior_weight: float = 1.0,
     n_burn: int = 10,
     n_steps: int = 30,

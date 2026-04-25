@@ -13,7 +13,7 @@ export default function CalibrationPane({
 
   const { chords_dx, chords_dy, chord_times, scale, nlml, mean, prior_x, ci_low, ci_high } = calibration ?? {}
 
-  const showPctLabel = showPct ? ' %FC' : ' ml'
+  const showPctLabel = showPct ? ' %SC' : ' ml'
   const swcStats = calibration ? (() => {
     const toV = v => toWater(v, scale, showPct)
     const ref = mean[mean.length - 1]
@@ -31,7 +31,7 @@ export default function CalibrationPane({
         {!calibLoading && calibration && (
           <div className="range-btns">
             <button className={!showPct ? 'active' : ''} onClick={() => setShowPct(false)}>ml</button>
-            <button className={showPct ? 'active' : ''} onClick={() => setShowPct(true)}>%FC</button>
+            <button className={showPct ? 'active' : ''} onClick={() => setShowPct(true)}>%SC</button>
           </div>
         )}
         {nlml != null && (
@@ -92,7 +92,7 @@ export default function CalibrationPane({
             dx={chords_dx}
             dy={chords_dy.map(v => toWater(v, scale, showPct))}
             xLabel="Δsensor"
-            yLabel={showPct ? 'Δ%FC' : 'Δml'}
+            yLabel={showPct ? 'Δ%SC' : 'Δml'}
           />
         </div>
       )}

@@ -47,7 +47,7 @@ def response_curve_estimate_main(ctrl_url: str, args) -> int:
         dy=np.array(data["chords_dy"]),
         mean_at_x=np.array(data["mean_at_chord_starts"]),
         xlabel="sensor reading",
-        ylabel="%FC" if pct_fc else "SWC (ml)",
+        ylabel="%SC" if pct_fc else "SWC (ml)",
         pct_fc=pct_fc,
         scale=data["scale"],
     )

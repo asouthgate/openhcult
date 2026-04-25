@@ -45,6 +45,24 @@ body {
   color: var(--accent);
 }
 
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.logo img {
+  height: 28px;
+}
+
+.logo span {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
 .controls {
   display: flex;
   gap: 8px;

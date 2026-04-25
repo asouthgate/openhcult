@@ -15,7 +15,7 @@ export default function Sensors() {
   const [calibError, setCalibError] = useState(null)
   const [calibLoading, setCalibLoading] = useState(false)
   const [calibParams, setCalibParams] = useState({
-    offsetMin: '5', widthMin: '50', gpStdMl: '50', scalePriorMean: '', scalePriorStd: '', prior: 'power', priorMin: '867', priorMax: '2009', priorAlpha: '5.4523129367441685', estimator: 'gp', priorWeight: '1.0', nBurn: '10', nSteps: '30', xminLow: '800', xminHigh: '1100',
+    offsetMin: '5', widthMin: '50', gpStdMl: '50', scalePriorMean: '', scalePriorStd: '', prior: 'power', priorMin: '867', priorMax: '2009', priorAlpha: '5.4523129367441685', estimator: 'exp_mcmc', priorWeight: '1.0', nBurn: '10', nSteps: '30', xminLow: '800', xminHigh: '1100',
   })
 
   const autoStdSet = useRef(false)
@@ -109,6 +109,7 @@ export default function Sensors() {
     <div className="app">
       <div className="app-header">
         <h1>HCult</h1>
+        <div className="logo"><img src={`${import.meta.env.BASE_URL}teal-no-bg.png`} alt="SWB" /><span>SWB</span></div>
         <div className="controls">
           <div className="range-btns">
             <button className={view === 'sensors' ? 'active' : ''} onClick={() => setView('sensors')}>Sensors</button>

@@ -83,7 +83,7 @@ export default function CalibrationCurve({ calibration, showPct = false }) {
           m={M} vw={VW} iw={IW} ih={IH}
           formatX={v => Math.round(v)} formatY={v => v.toFixed(1)}
           xLabel="sensor reading"
-          yLabel={showPct ? 'SWC (%FC)' : 'SWC (ml)'}
+          yLabel={showPct ? 'SWC (%SC)' : 'SWC (ml)'}
         />
       </svg>
 

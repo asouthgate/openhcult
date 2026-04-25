@@ -12,7 +12,7 @@ const TIME_RANGES = [
   { label: '30d', hours: 24 * 30 },
 ]
 
-const Y_LABELS = { raw: 'Raw', voltage: 'Voltage (mV)', water: 'Water (ml)', water_pct: 'Water (%FC)' }
+const Y_LABELS = { raw: 'Raw', voltage: 'Voltage (mV)', water: 'Water (ml)', water_pct: 'Water (%SC)' }
 
 function ObservationsTable({ observations, sensorAssignedAt, calibration, onDelete }) {
   const visible = sensorAssignedAt != null
@@ -143,7 +143,7 @@ export default function SensorsPane({
           ))}
         </div>
         <div className="range-btns">
-          {[['raw', 'Raw'], ['voltage', 'mV'], ['water', 'Water (ml)'], ['water_pct', 'Water (%FC)']].map(([m, label]) => (
+          {[['raw', 'Raw'], ['voltage', 'mV'], ['water', 'Water (ml)'], ['water_pct', 'Water (%SC)']].map(([m, label]) => (
             <button key={m} className={measureMode === m ? 'active' : ''} onClick={() => setMeasureMode(m)}>{label}</button>
           ))}
         </div>
