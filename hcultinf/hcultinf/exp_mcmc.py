@@ -145,8 +145,10 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         n_thin_target=2000,
         f_int_max=0.3,
         f_int_min=0.0,
+        debug=True,
     ):
         super().__init__()
+        self._debug = debug
         self._xmin_low = xmin_low
         self._xmin_high = xmin_high
         assert (
@@ -185,6 +187,16 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         prior_y = np.asarray(prior_y)
         delta_x = np.asarray(delta_x)
         x_ends = x_starts + delta_x
+        xmax = self._xmax
+
+        assert min(x_starts) <= xmax, (
+            f"chord x_starts (min={min(x_starts):.1f}) exceed model xmax ({xmax:.1f}); "
+            f"sensor readings are outside the calibration domain"
+        )
+        assert max(x_starts) >= self._xmin_low, (
+            f"chord x_starts (max={max(x_starts):.1f}) are below model xmin_low ({self._xmin_low:.1f}); "
+            f"sensor readings are outside the calibration domain"
+        )
 
         xmin_low = self._xmin_low
         xmin_high = self._xmin_high
@@ -239,8 +251,8 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
     def _init_walker_pos(self, data):
         scale0 = data["scale0"]
         k0 = data["k0"]
-        f_int0 = data["f_int0"]
-        xmin_hat = data["xmin_hat"]
+        # f_int0 = data["f_int0"]
+        # xmin_hat = data["xmin_hat"]
         xmin_low = data["xmin_low"]
         xmin_high = data["xmin_high"]
 
@@ -348,6 +360,37 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         )
         pos = self._init_walker_pos(data)
         posterior_kwargs = self._posterior_kwargs(data)
-        sampler = self._run_sampler(pos, posterior_kwargs)
+        try:
+            sampler = self._run_sampler(pos, posterior_kwargs)
+        except ValueError as exc:
+            _logger.error(self._diagnostic_dump(data, pos, exc))
+            raise
         self._postprocess(sampler, data)
+        if self._debug:
+            _logger.debug(self._diagnostic_dump(data, pos, "post-fit diagnostic"))
         return self
+
+    def _diagnostic_dump(self, data, pos, exc):
+        xs = data["x_starts"]
+        xe = data["x_ends"]
+        dswc = data["delta_swc"]
+        x_anc = data["x_anchors"]
+        dmin = float(min(xs.min(), xe.min(), x_anc.min()))
+        return (
+            f"MCMC diagnostic: {exc}\n"
+            f"  Input params: xmin_low_orig={self._xmin_low} xmin_high_orig={self._xmin_high}"
+            f" xmax={self._xmax} n_walkers={self._n_walkers}"
+            f" n_burn={self._n_burn} n_steps={self._n_steps}"
+            f" prior_weight={self._prior_weight}\n"
+            f"  Adjusted bounds: xmin_low={data['xmin_low']} xmin_high={data['xmin_high']}\n"
+            f"  Data summary: N_chords={len(xs)} data_min_x={dmin}\n"
+            f"    x_starts:  min={xs.min():.4f} max={xs.max():.4f}\n"
+            f"    x_ends:    min={xe.min():.4f} max={xe.max():.4f}\n"
+            f"    delta_swc: min={dswc.min():.4f} max={dswc.max():.4f}\n"
+            f"    x_anchors: min={x_anc.min():.4f} max={x_anc.max():.4f}\n"
+            f"    prior_x:   min={data['prior_x'].min():.4f} max={data['prior_x'].max():.4f}\n"
+            f"  Walker init: cond={np.linalg.cond(pos):.2f}\n"
+            f"    per-col min: {pos.min(axis=0).tolist()}\n"
+            f"    per-col max: {pos.max(axis=0).tolist()}\n"
+            f"    per-col std: {pos.std(axis=0).tolist()}"
+        )

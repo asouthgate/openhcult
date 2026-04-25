@@ -108,8 +108,7 @@ export default function Sensors() {
   return (
     <div className="app">
       <div className="app-header">
-        <h1>HCult</h1>
-        <div className="logo"><img src={`${import.meta.env.BASE_URL}teal-no-bg.png`} alt="SWB" /><span>SWB</span></div>
+        <div className="logo"><img src={`${import.meta.env.BASE_URL}teal-no-bg.png`} alt="HCult" /><h1>HCult</h1></div>
         <div className="controls">
           <div className="range-btns">
             <button className={view === 'sensors' ? 'active' : ''} onClick={() => setView('sensors')}>Sensors</button>
