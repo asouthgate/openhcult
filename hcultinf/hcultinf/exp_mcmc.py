@@ -10,11 +10,15 @@ from .exp import ExponentialCordCalibrator, exponential_target
 _logger = logging.getLogger(__name__)
 
 
-def mcmc_log_prior(theta, xmin_low, xmin_high):
+def mcmc_log_prior(theta, xmin_low, xmin_high, f_int_min, f_int_max):
+    f0 = theta[2]
     xmin = theta[4]
-    if xmin_low <= xmin <= xmin_high:
-        return 0.0
-    return -np.inf
+    p = 0.0
+    if not (xmin_low <= xmin <= xmin_high):
+        p = -np.inf
+    if f0 < f_int_min or f0 > f_int_max:
+        p = -np.inf
+    return p
 
 
 def mcmc_log_likelihood(
@@ -73,8 +77,10 @@ def mcmc_log_posterior(
     xmin_high,
     sigma_anchor,
     sigma_prior,
+    f_int_min,
+    f_int_max,
 ):
-    lp = mcmc_log_prior(theta, xmin_low, xmin_high)
+    lp = mcmc_log_prior(theta, xmin_low, xmin_high, f_int_min, f_int_max)
     if not np.isfinite(lp):
         return -np.inf
     ll = mcmc_log_likelihood(
@@ -135,8 +141,10 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         sigma_anchor=0.1,
         sigma_prior_floor=0.001,
         sigma_init=0.3,
-        init_spread=0.1,
+        init_spread=1.0,
         n_thin_target=2000,
+        f_int_max=0.3,
+        f_int_min=0.0,
     ):
         super().__init__()
         self._xmin_low = xmin_low
@@ -155,6 +163,14 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         self._init_spread = init_spread
         self._n_thin_target = n_thin_target
 
+        self._init_spread_scale = init_spread * 1.0
+        self._init_spread_k = init_spread
+        self._init_spread_f_int = init_spread * 1.0
+        self._init_spread_sigma = init_spread
+
+        self.f_int_min = f_int_min
+        self.f_int_max = f_int_max
+
     def _prepare_fit_data(
         self, x_anchors, swc_anchors, x_starts, delta_x, delta_swc, prior_x, prior_y
     ):
@@ -172,9 +188,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
 
         xmin_low = self._xmin_low
         xmin_high = self._xmin_high
-        data_min_x = min(
-            xmin_low, min(x_starts), min(x_starts + delta_x), min(x_anchors)
-        )
+        data_min_x = min(min(x_starts), min(x_starts + delta_x), min(x_anchors))
         if xmin_low >= data_min_x:
             xmin_low = data_min_x - 1
             _logger.warning(f"xmin_low {self._xmin_low} is greater than or equal to \
@@ -230,30 +244,41 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         xmin_low = data["xmin_low"]
         xmin_high = data["xmin_high"]
 
-        p0 = np.array([scale0, k0, f_int0, np.log(self._sigma_init), xmin_hat])
-        s = self._init_spread
-        if xmin_low < xmin_high:
-            xmin_spread = max(s * (xmin_high - xmin_low), s * 1.0)
-        else:
-            xmin_spread = 0.0
-        spread = np.array(
-            [
-                s * scale0,
-                s * k0,
-                s * f_int0,
-                s,
-                xmin_spread,
-            ]
+        walker_scale0 = np.clip(
+            scale0
+            + np.random.uniform(
+                -self._init_spread_scale, self._init_spread_scale, self._n_walkers
+            ),
+            1.0,
+            1e10,
         )
-        abs_floor = np.array([1.0, 0.1, 0.01, 0.1, 1.0])
-        spread = np.maximum(spread, abs_floor)
+        walker_k0 = np.clip(
+            k0
+            + np.random.uniform(
+                -self._init_spread_k, self._init_spread_k, self._n_walkers
+            ),
+            0.0001,
+            10000.0,
+        )
+        walker_f0 = np.random.uniform(self.f_int_min, self.f_int_max, self._n_walkers)
+        walker_sigma0 = np.clip(
+            np.log(self._sigma_init)
+            + np.random.normal(0.0, self._init_spread_sigma, self._n_walkers),
+            np.log(0.001),
+            np.log(10.0),
+        )
+        walker_xmin0 = np.random.uniform(xmin_low, xmin_high, self._n_walkers)
+        init_pos = np.array(
+            [
+                walker_scale0,
+                walker_k0,
+                walker_f0,
+                walker_sigma0,
+                walker_xmin0,
+            ]
+        ).T
 
-        pos = p0 + spread * np.random.randn(self._n_walkers, 5)
-        pos[:, 2] = np.clip(pos[:, 2], 0.0, 1.0)
-        if xmin_low < xmin_high:
-            pos[:, 4] = np.clip(pos[:, 4], xmin_low, xmin_high)
-
-        return pos
+        return init_pos
 
     def _posterior_kwargs(self, data):
         return dict(
@@ -269,6 +294,8 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             xmin_high=data["xmin_high"],
             sigma_anchor=data["sigma_anchor"],
             sigma_prior=data["sigma_prior"],
+            f_int_min=self.f_int_min,
+            f_int_max=self.f_int_max,
         )
 
     def _run_sampler(self, pos, posterior_kwargs):
@@ -304,6 +331,8 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         self._mean = lambda x: samples_mean(
             x, self._scale_s, self._k_s, self._f_int_s, self._xmin_arr, xmax
         )
+
+        # print(np.mean(self._f_int_s), np.mean(self._scale_s), self._mean(self._xmax))
         self._ci_low = lambda x: samples_ci_low(
             x, self._scale_s, self._k_s, self._f_int_s, self._xmin_arr, xmax
         )
