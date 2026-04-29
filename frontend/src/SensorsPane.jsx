@@ -63,11 +63,18 @@ export default function SensorsPane({
   const [pendingMl, setPendingMl] = useState('')
   const [loading, setLoading] = useState(false)
 
+  const isCombined = sensorFilter === '__combined__'
+
   useEffect(() => {
     const end = new Date()
     const start = new Date(end - rangeHours * 3600 * 1000)
     const params = new URLSearchParams({ start_utc: start.toISOString(), end_utc: end.toISOString(), limit: '50000' })
     if (plantFilter) params.set('plant', plantFilter)
+    if (sensorFilter && !isCombined) {
+      const sep = sensorFilter.lastIndexOf(':')
+      params.set('sensor', sensorFilter.slice(sep + 1))
+      params.set('device_address', sensorFilter.slice(0, sep))
+    }
 
     setLoading(true)
     setPendingTime(null)
@@ -85,7 +92,7 @@ export default function SensorsPane({
         const grouped = {}
         for (const row of ts.data ?? []) {
           const key = sensorKey(row.device_address, row.sensor)
-          if (sensorFilter && key !== sensorFilter) continue
+          if (sensorFilter && !isCombined && key !== sensorFilter) continue
           if (!grouped[key]) grouped[key] = { label: labelMap[key] ?? key, points: [] }
           grouped[key].points.push({ t: row.adjusted_time_ms, raw: row.measurement, mv: row.voltage_mv })
         }

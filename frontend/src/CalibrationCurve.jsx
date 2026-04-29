@@ -6,6 +6,8 @@ export default function CalibrationCurve({ calibration, showPct = false }) {
   if (!calibration) return null
 
   const { prior_x, prior_y, mean, ci_low, ci_high, anchors_x, anchors_y, chords_x, chords_dx, chords_dy, mean_at_chord_starts, scale } = calibration
+  const hasChords = chords_x?.length > 0
+  const hasAnchors = anchors_x?.length > 0
 
   const toY = v => toWater(v, scale, showPct)
 
@@ -16,10 +18,10 @@ export default function CalibrationCurve({ calibration, showPct = false }) {
   const gpRange = Math.max(...meanNorm) - Math.min(...meanNorm)
   const priorScaled = prior_y.map(v => v * gpRange)
 
-  const chordEndYs = chords_x.map((_, i) => toY(mean_at_chord_starts[i] - ref + chords_dy[i]))
+  const chordEndYs = hasChords ? chords_x.map((_, i) => toY(mean_at_chord_starts[i] - ref + chords_dy[i])) : []
 
-  const xMin = Math.min(...prior_x, ...chords_x, ...chords_x.map((x, i) => x + chords_dx[i]))
-  const xMax = Math.max(...prior_x, ...chords_x, ...chords_x.map((x, i) => x + chords_dx[i]))
+  const xMin = Math.min(...prior_x, ...(hasChords ? chords_x : []), ...(hasChords ? chords_x.map((x, i) => x + chords_dx[i]) : []))
+  const xMax = Math.max(...prior_x, ...(hasChords ? chords_x : []), ...(hasChords ? chords_x.map((x, i) => x + chords_dx[i]) : []))
   const yMin = Math.min(0, ...ciLo, ...chordEndYs)
   const yMax = Math.max(...ciHi, ...chordEndYs)
 
@@ -59,7 +61,7 @@ export default function CalibrationCurve({ calibration, showPct = false }) {
           fill="none" stroke="#d0fffc" strokeWidth="2" strokeLinejoin="round"
         />
 
-        {chords_x.map((xi, i) => {
+        {hasChords && chords_x.map((xi, i) => {
           const x0 = scx(xi).toFixed(1)
           const x1 = scx(xi + chords_dx[i]).toFixed(1)
           const y0 = scy(toY(mean_at_chord_starts[i] - ref)).toFixed(1)
@@ -73,7 +75,7 @@ export default function CalibrationCurve({ calibration, showPct = false }) {
           )
         })}
 
-        {anchors_x.map((xi, i) => (
+        {hasAnchors && anchors_x.map((xi, i) => (
           <circle key={i} cx={scx(xi)} cy={scy(anchors_y[i])} r="5" fill="#ffc61c" />
         ))}
 
@@ -91,8 +93,8 @@ export default function CalibrationCurve({ calibration, showPct = false }) {
         <span className="legend-item"><span className="legend-dot" style={{ background: '#d0fffc' }} />GP mean</span>
         <span className="legend-item"><span className="legend-dot" style={{ background: OBS_COLOR, opacity: 0.3 }} />95% CI</span>
         <span className="legend-item"><span className="legend-dot" style={{ background: '#ffc61c' }} />prior</span>
-        <span className="legend-item"><span className="legend-dot" style={{ background: OBS_COLOR }} />chords</span>
-        <span className="legend-item"><span className="legend-dot" style={{ background: '#ffc61c' }} />anchor</span>
+        {hasChords && <span className="legend-item"><span className="legend-dot" style={{ background: OBS_COLOR }} />chords</span>}
+        {hasAnchors && <span className="legend-item"><span className="legend-dot" style={{ background: '#ffc61c' }} />anchor</span>}
       </div>
     </div>
   )

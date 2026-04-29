@@ -24,10 +24,12 @@ export default function CalibrationPane({
     return { estMin, estMax, lo, hi }
   })() : null
 
+  const sensorLabel = sensorFilter === '__combined__' ? 'Combined' : (sensorFilter ? ` / ${sensorPart(sensorFilter)}` : '')
+
   return (
     <section className="pane-grid">
       <div className="full" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <h3 style={{ margin: 0 }}>Calibration: {plantFilter}{sensorFilter ? ` / ${sensorPart(sensorFilter)}` : ''}</h3>
+        <h3 style={{ margin: 0 }}>Calibration: {plantFilter}{sensorLabel}</h3>
         {!calibLoading && calibration && (
           <div className="range-btns">
             <button className={!showPct ? 'active' : ''} onClick={() => setShowPct(false)}>ml</button>
@@ -57,8 +59,35 @@ export default function CalibrationPane({
             ['Dose mean', (dy.reduce((a, b) => a + b, 0) / dy.length).toFixed(1) + showPctLabel],
             ['SWC range', swcStats ? `${swcStats.estMin.toFixed(1)}–${swcStats.estMax.toFixed(1)}${showPctLabel}` : '—'],
             ...(swcStats?.lo != null ? [['95% CI', `${swcStats.lo.toFixed(1)}–${swcStats.hi.toFixed(1)}${showPctLabel}`]] : []),
-            ...(dryingRate ? [['Drying rate', `${dryingRate.rate_ml_per_day.toFixed(2)} ml/day (${dryingRate.rate_ci_low.toFixed(2)} to ${dryingRate.rate_ci_high.toFixed(2)})`]] : []),
           ]
+          return (
+            <table className="obs-table full">
+              <tbody>
+                {stats.map(([label, value]) => (
+                  <tr key={label}><td style={{ opacity: 0.6 }}>{label}</td><td>{value}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          )
+        })()}
+        {!chord_times?.length && calibration && (() => {
+          const stats = [
+            ['SWC range', swcStats ? `${swcStats.estMin.toFixed(1)}–${swcStats.estMax.toFixed(1)}${showPctLabel}` : '—'],
+            ...(swcStats?.lo != null ? [['95% CI', `${swcStats.lo.toFixed(1)}–${swcStats.hi.toFixed(1)}${showPctLabel}`]] : []),
+            ...(calibration.n_sensors ? [['Sensors combined', calibration.n_sensors]] : []),
+          ]
+          return (
+            <table className="obs-table full">
+              <tbody>
+                {stats.map(([label, value]) => (
+                  <tr key={label}><td style={{ opacity: 0.6 }}>{label}</td><td>{value}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          )
+        })()}
+        {dryingRate && (() => {
+          const stats = [['Drying rate', `${dryingRate.rate_ml_per_day.toFixed(2)} ml/day (${dryingRate.rate_ci_low.toFixed(2)} to ${dryingRate.rate_ci_high.toFixed(2)})`]]
           return (
             <table className="obs-table full">
               <tbody>
@@ -87,7 +116,7 @@ export default function CalibrationPane({
           </details>
         )}
       </>}
-      {calibration && (
+      {calibration && chord_times?.length > 0 && (
         <div>
           <ScatterPlot
             dx={chords_dx}
