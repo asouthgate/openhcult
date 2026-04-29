@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from hcultinf.exp import ExponentialCordCalibrator, exponential_target
-from hcultinf.exp_mcmc import ExponentialCordCalibratorMCMC
+from hcultinf.exp_mcmc import ExponentialCordCalibratorMCMC, plot_corner
 from hcultinf.combiner import combine_bayesian, combine_empirical_bayes
 from hcultinf.drying import linear_drying_rate
 from hcultinf.simulation import (
@@ -140,8 +140,8 @@ def test_realistic():
         xmin_low=750.0,
         xmin_high=1000.0,
         xmax=xmax,
-        n_burn=150,
-        n_steps=250,
+        n_burn=250,
+        n_steps=400,
     )
     cal = estimator.fit(anchor_x, anchor_swc, x, dx, dy, prior_x, prior_y)
 
@@ -158,6 +158,11 @@ def test_realistic():
         show_chords_pane=False,
     )
 
+    import matplotlib.pyplot as plt
+    from hcultinf.plot_style import apply_dark_theme, CLOUD_BLUE, ORANGE
+
+    apply_dark_theme()
+
     mean, ci_low, ci_high = cal.predict(prior_x)
     EST_SWC = 800.0
     assert np.abs(max(mean) - EST_SWC) <= 100
@@ -168,6 +173,10 @@ def test_realistic():
     assert np.all(np.isfinite(ci_high))
     assert np.all(ci_low <= mean)
     assert np.all(mean <= ci_high)
+
+    plot_corner(
+        cal, out="artifacts/realistic_corner.png", title="Realistic MCMC posterior"
+    )
 
 
 @pytest.mark.parametrize(

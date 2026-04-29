@@ -8,8 +8,11 @@
 \usepackage{xcolor}
 \sethlcolor{yellow} % default is yellow
 
+\begin{document}
 
-\title{A FOSS automated calibration software system for low-cost capacitive soil moisture sensors using ESP32 microcontrollers}
+
+
+\title{A Bayesian method for estimation of soil water content and consumption with low-cost capacitive moisture sensors.}
 \author{Alex Southgate\\
 \texttt{alex.southgate@equalitylabs.cymru}
 }
@@ -77,18 +80,35 @@ Another quantity that is readily available is the applied water dosage given to 
 In order to resolve these issues, cord data can be used to estimate absolute soil water content provided a sufficiently flexible parametric form. The sensor response has two plateaus, one at dry (low SWC) and one at wet (high SWC), which can be modelled with polynomials \hl{cite}. For a plant that does not tolerate dry conditions, it is not possible to characterise the dry part of this curve. In our case, this part of the curve was also not of interest, so a simpler function such as an exponential can be used with unknown scale and shape. Given that the response function becomes flat at saturation, the inverse response function becomes vertical at full saturation. In order to model this, the sensor value at full saturation $x_{wet}$ and zero saturation $x_{dry}$ is also a required parameter. In our framework, $x_{wet}$ is a free parameter, and $x_{dry}$ is assumed to be known. It is assumed that $x_{wet}$ is not measurable in general since sampling sufficient soil may be destructive, and $x_{wet}$ depends on sensor packing or placement in heterogeneous media.
 
 \begin{equation}
-h^{-1}(X_t) = S \cdot \exp\Big\{-k (1 - u(X_t; x_{wet}, x_{dry}) \Big\}
+h^{-1}(X_t) = S g(X_t) = \cdot \exp\Big\{-k (1 - u(X_t; x_{wet}, x_{dry}) \Big\}
 \end{equation}
 
-Where $u(X_t)$ is a rescaling of $[x_{wet}, x_{dry}]$ to the interval $[0, 1]$. \\
+Where $u(X_t)$ is a rescaling of $[x_{wet}, x_{dry}]$ to the interval $[0, 1]$. In principle, any function representing proportional SWC could be used for $g(X_t)$, the shape of the inverse response, and may perform better than an exponential curve.  \\
 
-To combine the cord data $(\Delta Y_i, \Delta X_i, X_i)$, dry anchor sample $X = h^{-1}(Y=0)$, prior assumptions on the parametric form of $h^{-1}$, optional prior calibration points, and the unknown scale parameter $s$, we adopt a Bayesian framework. We assume lognormal dosage samples:
+To combine the cord data $(\Delta Y_i, \Delta X_i, X_i)$, dry anchor sample $X = h^{-1}(Y=0)$, prior assumptions on the parametric form of $h^{-1}$, optional prior calibration points, and the unknown scale parameter $S$, we adopt a Bayesian framework. We assume lognormal dosage samples:
 
 \begin{equation}
 \log(\Delta Y_i) \sim Normal(\log (h^{-1}(X_{end}; S, k, x_{wet}) - h^{-1}(X_{start}; S, k), \sigma^2)
 \end{equation}
 
 With the target parameters $\theta = (S, k, x_{wet}, \sigma^2)$. Priors on the lower bound $x_{wet}$ are taken as uniform on a user-specified interval. Priors on scale $S$ can be estimated from soil volume or total plant weight.
+
+
+\begin{table}[ht]
+    \centering
+    \caption{Summary of Prior Distributions for Model Parameters}
+    \label{tab:priors}
+    \begin{tabular}{lll}
+        \toprule
+        \textbf{Parameter} & \textbf{Prior Distribution} & \textbf{Interpretation/Description} \\
+        \midrule
+        $\alpha$ (Intercept) & $Normal(0, 10)$ & Weakly informative; centered at 0 \\
+        $\beta_{1 \dots k}$ & $Normal(0, 2.5)$ & Regularizing; assumes small effects \\
+        $\sigma$ (Error)     & $Exponential(1)$ & Non-negative; constrains variance \\
+        $\phi$ (Group SD)    & $Half-Cauchy(0, 5)$ & Robust prior for hierarchical variance \\
+        \bottomrule
+    \end{tabular}
+\end{table}
 
 \subsection{Water consumption estimation}
 

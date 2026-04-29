@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import logging
+import os
 import numpy as np
 import emcee
 
 from .calibrator import CordCalibrator
 from .exp import ExponentialCordCalibrator, exponential_target
+from .plot_style import apply_dark_theme, CLOUD_BLUE, ORANGE
 
 _logger = logging.getLogger(__name__)
 
@@ -392,6 +394,24 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             self._xmax,
         )
 
+    def posterior_params(self, n=None):
+        """Return dict of posterior parameter samples.
+
+        If n is given, subsample to at most n samples.
+        Keys: scale, k, f_int, sigma2, xmin.
+        """
+        s = self._fit_samples
+        if n is not None and n < len(s):
+            idx = np.random.choice(len(s), n, replace=False)
+            s = s[idx]
+        return dict(
+            scale=s[:, 0],
+            k=s[:, 1],
+            f_int=s[:, 2],
+            sigma2=np.exp(2 * s[:, 3]),
+            xmin=s[:, 4],
+        )
+
     def _diagnostic_dump(self, data, pos, exc):
         xs = data["x_starts"]
         xe = data["x_ends"]
@@ -416,3 +436,40 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             f"    per-col max: {pos.max(axis=0).tolist()}\n"
             f"    per-col std: {pos.std(axis=0).tolist()}"
         )
+
+
+def plot_corner(cal, out=None, title=None):
+    import matplotlib.pyplot as plt
+
+    apply_dark_theme()
+    params = cal.posterior_params()
+    param_names = ["scale", "k", "f_int", "sigma2", "xmin"]
+    n_params = len(param_names)
+    fig, axes = plt.subplots(n_params, n_params, figsize=(12, 12))
+    for i in range(n_params):
+        for j in range(n_params):
+            ax = axes[i][j]
+            pi = params[param_names[i]]
+            pj = params[param_names[j]]
+            if i == j:
+                ax.hist(pi, bins=50, density=True, color=CLOUD_BLUE, alpha=0.7)
+                ax.axvline(np.median(pi), color=ORANGE, linewidth=1)
+            elif i > j:
+                step = max(1, len(pj) // 500)
+                ax.scatter(pj[::step], pi[::step], s=1, alpha=0.3, color=CLOUD_BLUE)
+            else:
+                ax.set_visible(False)
+            if j == 0:
+                ax.set_ylabel(param_names[i])
+            if i == n_params - 1:
+                ax.set_xlabel(param_names[j])
+    fig.tight_layout()
+    if title is not None:
+        fig.suptitle(title)
+    if out is not None:
+        os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+        fig.savefig(out)
+    if os.environ.get("HCULT_TEST_DEBUG_PLOT", "0") == "1":
+        plt.show()
+    plt.close(fig)
+    return fig
