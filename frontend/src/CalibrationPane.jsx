@@ -11,6 +11,8 @@ export default function CalibrationPane({
 
   if (!plantFilter) return <div className="empty">Select a plant to view calibration.</div>
 
+  if (sensorFilter === '__combined__') return <div className="empty">Combined view is available on the Sensors tab.</div>
+
   const { chords_dx, chords_dy, chord_times, scale, nlml, mean, prior_x, ci_low, ci_high } = calibration ?? {}
 
   const showPctLabel = showPct ? ' %SC' : ' ml'
@@ -60,34 +62,6 @@ export default function CalibrationPane({
             ['SWC range', swcStats ? `${swcStats.estMin.toFixed(1)}–${swcStats.estMax.toFixed(1)}${showPctLabel}` : '—'],
             ...(swcStats?.lo != null ? [['95% CI', `${swcStats.lo.toFixed(1)}–${swcStats.hi.toFixed(1)}${showPctLabel}`]] : []),
           ]
-          return (
-            <table className="obs-table full">
-              <tbody>
-                {stats.map(([label, value]) => (
-                  <tr key={label}><td style={{ opacity: 0.6 }}>{label}</td><td>{value}</td></tr>
-                ))}
-              </tbody>
-            </table>
-          )
-        })()}
-        {!chord_times?.length && calibration && (() => {
-          const stats = [
-            ['SWC range', swcStats ? `${swcStats.estMin.toFixed(1)}–${swcStats.estMax.toFixed(1)}${showPctLabel}` : '—'],
-            ...(swcStats?.lo != null ? [['95% CI', `${swcStats.lo.toFixed(1)}–${swcStats.hi.toFixed(1)}${showPctLabel}`]] : []),
-            ...(calibration.n_sensors ? [['Sensors combined', calibration.n_sensors]] : []),
-          ]
-          return (
-            <table className="obs-table full">
-              <tbody>
-                {stats.map(([label, value]) => (
-                  <tr key={label}><td style={{ opacity: 0.6 }}>{label}</td><td>{value}</td></tr>
-                ))}
-              </tbody>
-            </table>
-          )
-        })()}
-        {dryingRate && (() => {
-          const stats = [['Drying rate', `${dryingRate.rate_ml_per_day.toFixed(2)} ml/day (${dryingRate.rate_ci_low.toFixed(2)} to ${dryingRate.rate_ci_high.toFixed(2)})`]]
           return (
             <table className="obs-table full">
               <tbody>

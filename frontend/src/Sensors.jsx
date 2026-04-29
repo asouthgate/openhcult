@@ -15,6 +15,7 @@ export default function Sensors() {
   const [calibError, setCalibError] = useState(null)
   const [calibLoading, setCalibLoading] = useState(false)
   const [dryingRate, setDryingRate] = useState(null)
+  const [combinedSwc, setCombinedSwc] = useState(null)
   const [calibParams, setCalibParams] = useState({
     offsetMin: '5', widthMin: '50', prior: 'power', priorMin: '867', priorMax: '2009', priorAlpha: '5.4523129367441685', estimator: 'exp_mcmc', priorWeight: '1.0', nBurn: '10', nSteps: '30', xminLow: '800', xminHigh: '1100',
   })
@@ -50,19 +51,42 @@ export default function Sensors() {
   const isCombined = sensorFilter === '__combined__'
 
   useEffect(() => {
-    if (!plantFilter) { setCalibration(null); setCalibError(null); setDryingRate(null); return }
+    if (!plantFilter) { setCalibration(null); setCalibError(null); setDryingRate(null); setCombinedSwc(null); return }
     const controller = new AbortController()
     setCalibLoading(true)
     setCalibError(null)
+
+    if (isCombined) {
+      const { offsetMin, widthMin, prior, priorMin, priorMax, priorAlpha, priorWeight, nBurn, nSteps, xminLow, xminHigh } = calibParams
+      const params = new URLSearchParams({
+        plant: plantFilter,
+        offset_ms: Number(offsetMin) * 60 * 1000,
+        width_ms: Number(widthMin) * 60 * 1000,
+      })
+      if (priorMin !== '') params.set('prior_min', priorMin)
+      if (priorMax !== '') params.set('prior_max', priorMax)
+      if (prior !== 'calibrated') params.set('prior', prior)
+      if (prior === 'power' && priorAlpha !== '') params.set('prior_alpha', priorAlpha)
+      if (priorWeight !== '') params.set('prior_weight', priorWeight)
+      if (nBurn !== '') params.set('n_burn', nBurn)
+      if (nSteps !== '') params.set('n_steps', nSteps)
+      if (xminLow !== '') params.set('xmin_low', xminLow)
+      if (xminHigh !== '') params.set('xmin_high', xminHigh)
+      setCalibration(null)
+      apiJson(`/combined_swc_timeseries?${params}`, { signal: controller.signal })
+        .then(d => { setCombinedSwc(d); setCalibLoading(false) })
+        .catch(err => { if (err.name !== 'AbortError') { setCalibError(String(err)); setCalibLoading(false) } })
+      return () => controller.abort()
+    }
+
+    setCombinedSwc(null)
     const { offsetMin, widthMin, prior, priorMin, priorMax, priorAlpha, estimator, priorWeight, nBurn, nSteps, xminLow, xminHigh } = calibParams
     const params = new URLSearchParams({
       plant: plantFilter,
       offset_ms: Number(offsetMin) * 60 * 1000,
       width_ms: Number(widthMin) * 60 * 1000,
     })
-    if (isCombined) {
-      params.set('combined', 'true')
-    } else if (sensorFilter) {
+    if (sensorFilter) {
       const sep = sensorFilter.lastIndexOf(':')
       params.set('sensor', sensorFilter.slice(sep + 1))
       params.set('device_address', sensorFilter.slice(0, sep))
@@ -95,8 +119,7 @@ export default function Sensors() {
           autoStdSet.current = true
         }
         const drParams = new URLSearchParams({ plant: plantFilter, offset_ms: Number(offsetMin) * 60 * 1000, width_ms: Number(widthMin) * 60 * 1000 })
-        if (isCombined) drParams.set('combined', 'true')
-        else if (sensorFilter) { const sep = sensorFilter.lastIndexOf(':'); drParams.set('sensor', sensorFilter.slice(sep + 1)); drParams.set('device_address', sensorFilter.slice(0, sep)) }
+        if (sensorFilter) { const sep = sensorFilter.lastIndexOf(':'); drParams.set('sensor', sensorFilter.slice(sep + 1)); drParams.set('device_address', sensorFilter.slice(0, sep)) }
         if (priorMin !== '') drParams.set('prior_min', priorMin)
         if (priorMax !== '') drParams.set('prior_max', priorMax)
         if (prior !== 'calibrated') drParams.set('prior', prior)
@@ -140,7 +163,7 @@ export default function Sensors() {
             plantFilter={plantFilter} sensorFilter={sensorFilter} calibration={calibration}
             sensorAssignedAt={sensorsForPlant.find(s => s.key === sensorFilter)?.assignedAt ?? null}
             calibParams={calibParams} setCalibParam={setCalibParam} plantSensors={plantSensors}
-            dryingRate={dryingRate}
+            dryingRate={dryingRate} combinedSwc={combinedSwc}
           />
         : <CalibrationPane
             plantFilter={plantFilter} sensorFilter={sensorFilter}

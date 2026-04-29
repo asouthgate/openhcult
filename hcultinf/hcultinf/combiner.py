@@ -52,3 +52,56 @@ def combine_posteriors(calibrators, x_grid, sigma_bias=0.0, method="bayesian"):
     if method == "bayesian":
         return combine_bayesian(calibrators, x_grid, sigma_bias=sigma_bias)
     raise ValueError(f"Unknown method: {method!r}")
+
+
+def fuse_swc(calibrators, voltages_per_sensor, sigma_bias=0.0):
+    """Fuse SWC estimates from multiple sensors at each time point.
+
+    Args:
+        calibrators: list of fitted calibrators, one per sensor
+        voltages_per_sensor: list of arrays, voltages_mv[i] = readings from sensor i
+            All arrays must have the same length (aligned in time).
+        sigma_bias: bias variance for Bayesian fusion (0 = precision-weighted mean).
+
+    Returns dict with:
+        mean: fused SWC at each time point
+        ci_low: lower 95% CI
+        ci_high: upper 95% CI
+        n_sensors: number of sensors with readings at each point
+    """
+    n_points = len(voltages_per_sensor[0])
+    means_list = []
+    stds_list = []
+    mask_list = []
+    for i, cal in enumerate(calibrators):
+        v = np.asarray(voltages_per_sensor[i])
+        valid = np.isfinite(v)
+        swc = np.full(n_points, np.nan)
+        swc_std = np.full(n_points, np.nan)
+        swc[valid] = np.asarray(cal(v[valid]))
+        swc_std[valid] = np.asarray(cal.std(v[valid]))
+        means_list.append(swc)
+        stds_list.append(swc_std)
+        mask_list.append(valid)
+
+    means_arr = np.array(means_list)
+    stds_arr = np.array(stds_list)
+    masks_arr = np.array(mask_list)
+
+    prec = np.where(masks_arr, 1.0 / (stds_arr**2 + sigma_bias**2), 0.0)
+    total_prec = prec.sum(axis=0)
+    n_sensors = masks_arr.sum(axis=0)
+
+    fused_mean = np.where(
+        total_prec > 0,
+        (means_arr * prec).sum(axis=0) / total_prec,
+        np.nan,
+    )
+    fused_std = np.where(total_prec > 0, 1.0 / np.sqrt(total_prec), np.nan)
+
+    return dict(
+        mean=fused_mean,
+        ci_low=fused_mean - 1.96 * fused_std,
+        ci_high=fused_mean + 1.96 * fused_std,
+        n_sensors=n_sensors,
+    )

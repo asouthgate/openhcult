@@ -52,7 +52,7 @@ function ObservationsTable({ observations, sensorAssignedAt, calibration, onDele
 }
 
 export default function SensorsPane({
-  plantFilter, sensorFilter, sensorAssignedAt, calibration, calibParams, setCalibParam, plantSensors, dryingRate,
+  plantFilter, sensorFilter, sensorAssignedAt, calibration, calibParams, setCalibParam, plantSensors, dryingRate, combinedSwc,
 }) {
   const [rangeHours, setRangeHours] = useState(48)
   const [measureMode, setMeasureMode] = useState('voltage')
@@ -103,7 +103,30 @@ export default function SensorsPane({
   }, [rangeHours, plantFilter, sensorFilter, plantSensors])
 
   const { mappedSeries, bands } = useMemo(() => {
-    const isWater = (measureMode === 'water' || measureMode === 'water_pct') && calibration
+    const isWaterMode = measureMode === 'water' || measureMode === 'water_pct'
+    const isCombinedWater = isCombined && isWaterMode && combinedSwc
+
+    if (isCombinedWater) {
+      const scale = combinedSwc.scale ?? 1
+      const toV = ml => toWater(ml, scale, measureMode === 'water_pct')
+      const ref = combinedSwc.mean_swc[combinedSwc.mean_swc.length - 1] ?? 0
+      const points = combinedSwc.times_ms.map((t, i) => {
+        const v = combinedSwc.mean_swc[i]
+        return { t, v: v != null ? toV(v - ref) : null, raw: 0 }
+      })
+      const swcSeries = { label: 'Combined SWC', points: points.filter(p => p.v != null), color: '#d0fffc' }
+      const swcBands = [{
+        color: '#d0fffc',
+        points: combinedSwc.times_ms.map((t, i) => ({
+          t,
+          lo: combinedSwc.ci_low[i] != null ? toV(combinedSwc.ci_low[i] - ref) : null,
+          hi: combinedSwc.ci_high[i] != null ? toV(combinedSwc.ci_high[i] - ref) : null,
+        })).filter(p => p.lo != null && p.hi != null),
+      }]
+      return { mappedSeries: [swcSeries], bands: swcBands }
+    }
+
+    const isWater = isWaterMode && calibration
     const scale = calibration?.scale ?? 1
     const toV = ml => toWater(ml, scale, measureMode === 'water_pct')
 
@@ -129,7 +152,7 @@ export default function SensorsPane({
       })),
     }))
     return { mappedSeries: ms, bands: bs }
-  }, [series, measureMode, calibration])
+  }, [series, measureMode, calibration, isCombined, combinedSwc])
 
   const submitWatering = () => {
     const payload = { note: `WATER manual ml=${pendingMl}`, observed_at: new Date(pendingTime).toISOString() }
