@@ -276,6 +276,7 @@ def water_calibration(
     x_anchor = d["x_anchor"]
     swc_anchor = d["swc_anchor"]
 
+    exp_xmax = prior_max if prior_max is not None else float(prior_x.max())
     logger.info(
         "Calibration inputs: x_arr=%s dx_arr=%s dy_arr=%s x_anchor=%s swc_anchor=%s prior_x=[%s..%s] prior_y=[%s..%s] estimator=%s",
         x_arr.tolist(),
@@ -308,14 +309,12 @@ def water_calibration(
         ).fit(x_anchor, swc_anchor, x_arr, dx_arr, dy_arr, prior_x, prior_y)
     elif estimator == "exponential":
         exp_xmin = prior_min if prior_min is not None else float(prior_x.min())
-        exp_xmax = prior_max if prior_max is not None else float(prior_x.max())
         cal = ExponentialCordCalibrator(
             xmin=exp_xmin,
             xmax=exp_xmax,
             prior_weight=prior_weight,
         ).fit(x_anchor, swc_anchor, x_arr, dx_arr, dy_arr, prior_x, prior_y)
     elif estimator == "exp_mcmc":
-        exp_xmax = prior_max if prior_max is not None else float(prior_x.max())
         if xmin_high <= xmin_low:
             raise HTTPException(
                 status_code=400,
