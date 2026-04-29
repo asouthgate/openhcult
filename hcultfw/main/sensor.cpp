@@ -30,18 +30,18 @@ adc_cali_handle_t create_cali_handle(adc_channel_t channel) {
   adc_cali_handle_t handle = nullptr;
 #if defined(BOARD_FIREBEETLE2_ESP32C5)
   adc_cali_curve_fitting_config_t cfg = {
+    .unit_id = ADC_UNIT_1,
+    .chan = channel,
     .atten = kAdcAtten,
     .bitwidth = kAdcBitwidth,
-    .chan = channel,
-    .unit_id = ADC_UNIT_1,
   };
   adc_cali_create_scheme_curve_fitting(&cfg, &handle);
 #else
   adc_cali_line_fitting_config_t cfg = {
+    .unit_id = ADC_UNIT_1,
     .atten = kAdcAtten,
     .bitwidth = kAdcBitwidth,
     .default_vref = 1100,
-    .unit_id = ADC_UNIT_1,
   };
   adc_cali_create_scheme_line_fitting(&cfg, &handle);
 #endif

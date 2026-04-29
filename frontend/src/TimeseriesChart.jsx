@@ -1,14 +1,11 @@
 import { useState } from 'react'
+import { OBS_COLOR, PENDING_COLOR, PALETTE } from './theme'
 
 export const M = { top: 20, right: 24, bottom: 52, left: 60 }
 export const VW = 900
 export const VH = 380
 export const IW = VW - M.left - M.right
 export const IH = VH - M.top - M.bottom
-
-export const PALETTE = ['#9fb8a9', '#7eb3c9', '#d4a9b8', '#c4b87e', '#9e8fc4', '#7ec4b3', '#c4a07e', '#b37e9e']
-export const OBS_COLOR = '#7eb3c9'
-const PENDING_COLOR = 'white'
 
 const pts = (arr, fx, fy) => arr.map(p => `${fx(p).toFixed(1)},${fy(p).toFixed(1)}`).join(' ')
 
@@ -84,7 +81,7 @@ export function TimeseriesChart({ series, bands = [], observations, rangeMs, onT
   const y = v => M.top + IH - ((v - vMin) / vRange) * IH
 
   const xTicks = timeTicks(tMin, tMax, 6)
-  const yTicks = valueTicks(vMin, vMax, 5)
+  const yTicks = valueTicks(vMin, vMax, 8)
 
   const inRange = t => t >= tMin && t <= tMax
 
@@ -112,8 +109,12 @@ export function TimeseriesChart({ series, bands = [], observations, rangeMs, onT
         onMouseLeave={() => setCursor(null)}
         onClick={handleClick}
       >
+        <rect x={M.left} y={M.top} width={IW} height={IH} fill="#191e2b" />
         {yTicks.map(v => (
           <line key={v} x1={M.left} x2={VW - M.right} y1={y(v)} y2={y(v)} className="grid-line" />
+        ))}
+        {xTicks.map(v => (
+          <line key={`x${v}`} x1={x(v)} x2={x(v)} y1={M.top} y2={M.top + IH} className="grid-line" />
         ))}
 
         {bands.map((b, i) => {
@@ -220,7 +221,7 @@ export function TimeseriesChart({ series, bands = [], observations, rangeMs, onT
           </>
         )}
 
-        <rect x={M.left} y={M.top} width={IW} height={IH} fill="transparent" />
+<rect x={M.left} y={M.top} width={IW} height={IH} fill="transparent" />
       </svg>
 
       <div className="legend">
@@ -231,11 +232,11 @@ export function TimeseriesChart({ series, bands = [], observations, rangeMs, onT
           </span>
         ))}
         <span className="legend-item">
-          <span className="legend-dot" style={{ background: OBS_COLOR, borderRadius: 2 }} />
+          <span className="legend-dot" style={{ background: OBS_COLOR }} />
           recorded watering
         </span>
         <span className="legend-item">
-          <span className="legend-dot" style={{ background: PENDING_COLOR, borderRadius: 2 }} />
+          <span className="legend-dot" style={{ background: PENDING_COLOR }} />
           candidate
         </span>
       </div>

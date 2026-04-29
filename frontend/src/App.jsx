@@ -7,7 +7,7 @@ import Sensors from './Sensors'
 function Home() {
   return (
     <div className="app">
-      <div className="app-header"><h1>HCult</h1></div>
+      <div className="app-header"><div className="logo"><img src={`${import.meta.env.BASE_URL}teal-no-bg.png`} alt="HCult" /><h1>HCult</h1></div></div>
       <nav className="home-nav">
         <Link to="/sensors">Sensors</Link>
       </nav>

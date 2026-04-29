@@ -6,12 +6,26 @@ Y_TEST_FUNCTION_NONORM = (
     lambda x: x**2 + np.log(x + 1) + np.exp(0.5 * x) + np.sqrt(x) - np.sin(3 * x) + 3.3
 )
 
+Y_TEST_FUNCTION_POWER = (
+    lambda x, xmin, xmax: x**2
+    + np.log(x + 1)
+    + np.exp(0.5 * x)
+    + np.sqrt(x)
+    - np.sin(3 * x)
+    + 3.3
+)
+
 Y_TEST_FUNCTION_NONORM_DECREASING = lambda x: -Y_TEST_FUNCTION_NONORM(x) + 50.0
 
 Y_TEST_FUNCTION = lambda x: Y_TEST_FUNCTION_NONORM(x) - Y_TEST_FUNCTION_NONORM(0.0)
 Y_TEST_FUNCTION_DECREASING = lambda x: Y_TEST_FUNCTION_NONORM_DECREASING(
     x
 ) - Y_TEST_FUNCTION_NONORM_DECREASING(0.0)
+
+
+def power_function(x, power, y_int=0.0, xmin=0.0, xmax=1.0):
+    scale = np.clip((xmax - x) / (xmax - xmin), 1e-10, 1.0)
+    return (1.0 - y_int) * scale**power + y_int
 
 
 def simulate_calibration_data_samples(
@@ -21,12 +35,21 @@ def simulate_calibration_data_samples(
         x = np.linspace(xmin, xmax, n)
     else:
         x = np.random.uniform(xmin, xmax, n)
-    x = np.clip(x, xmin, xmax)
-    dx = np.random.uniform(dxmin, dxmax, n)
-    ends = np.clip(x + dx, xmin, xmax)
-    dx = ends - x
+    dx = -np.random.uniform(dxmin, dxmax, n)
+
+    assert all(dx < 0), "dx should be negative (decreasing function)"
+
+    x2 = np.clip(x + dx, xmin, xmax)
+    dx = x2 - x
+
+    # exclude the zero dx case to avoid zero division in lognormal noise
+    x = x[dx < 0]
+    dx = dx[dx < 0]
+
     dy = y(x + dx) - y(x)
-    dy += np.random.normal(0, noise_level, n)
+    dy *= np.random.lognormal(0, noise_level, len(dx))
+    assert all(dx <= 0), "dx should be negative (decreasing function)"
+    assert all(dy >= 0), "dy should be positive (decreasing function)"
     return x, dx, dy
 
 

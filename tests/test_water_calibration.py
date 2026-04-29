@@ -121,11 +121,19 @@ def test_water_calibration_with_waterings():
             },
         )
 
-    result = request_json(f"/water_calibration?plant={plant_name}")
+    result = request_json(
+        f"/water_calibration?plant={plant_name}&prior_max={SENSOR_DRY_MV}"
+    )
     assert "prior_x" in result
     assert "mean" in result
-    assert "std" in result
-    assert len(result["prior_x"]) == len(result["mean"]) == len(result["std"])
+    assert "ci_low" in result
+    assert "ci_high" in result
+    assert (
+        len(result["prior_x"])
+        == len(result["mean"])
+        == len(result["ci_low"])
+        == len(result["ci_high"])
+    )
     assert len(result["prior_x"]) > 0
 
     request_json(f"/plants/{plant_name}", method="DELETE")
@@ -205,27 +213,36 @@ def test_water_calibration_device_address_filters_correctly():
             )
             # Place device B readings inside the calibration windows used in the request below.
             # With offset_ms=0 and width_ms=_WINDOW_MS the windows are [t-_WINDOW_MS, t] and [t, t+_WINDOW_MS].
-            first_t = watering_times[0]
+            # Device B gets readings for a subset of waterings (fewer than device A).
+            n_b_chords = min(9, len(watering_times) - 1)
+            device_b_rows = []
+            for i in range(n_b_chords):
+                t = watering_times[i]
+                bv = before_vals[i]
+                av = after_vals[i]
+                device_b_rows.append(
+                    (
+                        device_id_b,
+                        "cap1",
+                        bv,
+                        bv,
+                        t - _WINDOW_MS // 2,
+                        t - _WINDOW_MS // 2,
+                    )
+                )
+                device_b_rows.append(
+                    (
+                        device_id_b,
+                        "cap1",
+                        av,
+                        av,
+                        t + _WINDOW_MS // 2,
+                        t + _WINDOW_MS // 2,
+                    )
+                )
             cur.executemany(
                 "INSERT INTO sensor_readings (device_id, sensor, measurement, voltage_mv, measurement_time_us, collection_time_ms, adjusted_time_ms) VALUES (%s, %s, %s, %s, 0, %s, %s)",
-                [
-                    (
-                        device_id_b,
-                        "cap1",
-                        before_vals[0],
-                        before_vals[0],
-                        first_t - _WINDOW_MS // 2,
-                        first_t - _WINDOW_MS // 2,
-                    ),
-                    (
-                        device_id_b,
-                        "cap1",
-                        after_vals[0],
-                        after_vals[0],
-                        first_t + _WINDOW_MS // 2,
-                        first_t + _WINDOW_MS // 2,
-                    ),
-                ],
+                device_b_rows,
             )
         conn.commit()
 
@@ -247,16 +264,16 @@ def test_water_calibration_device_address_filters_correctly():
         )
 
     result_a = request_json(
-        f"/water_calibration?plant={plant_name}&sensor=cap1&device_address={addr_a}&{_calib_params}"
+        f"/water_calibration?plant={plant_name}&sensor=cap1&device_address={addr_a}&prior_max={SENSOR_DRY_MV}&{_calib_params}"
     )
     result_b = request_json(
-        f"/water_calibration?plant={plant_name}&sensor=cap1&device_address={addr_b}&{_calib_params}"
+        f"/water_calibration?plant={plant_name}&sensor=cap1&device_address={addr_b}&prior_max={SENSOR_DRY_MV}&{_calib_params}"
     )
 
     assert len(result_a["chord_times"]) > len(
         result_b["chord_times"]
     ), "device A has readings for all waterings so should yield more chords than device B"
-    assert len(result_b["chord_times"]) == 1
+    assert len(result_b["chord_times"]) == n_b_chords
 
     request_json(f"/plants/{plant_name}", method="DELETE")
     request_json(f"/species/{species_name}", method="DELETE")

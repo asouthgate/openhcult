@@ -2,8 +2,11 @@ import urllib.parse
 
 import numpy as np
 
-from hcultinf.inference import plot_response_curve
+from hcultinf.calibrator import plot_response_curve
+from hcultinf.plot_style import apply_dark_theme, YELLOW, ORANGE, CLOUD_BLUE
 from hcultutils.query import request_ctrl
+
+from hcultinf.power import PowerCordCalibrator
 
 
 def response_curve_estimate_main(ctrl_url: str, args) -> int:
@@ -17,6 +20,8 @@ def response_curve_estimate_main(ctrl_url: str, args) -> int:
         "gp_std_ml": args.gp_std_ml,
         "offset_ms": args.offset_min * 60 * 1000,
         "width_ms": args.width_min * 60 * 1000,
+        "estimator": "powerlaw",
+        "prior_weight": 1.0,
     }
     if args.scale_prior_mean is not None:
         params["scale_prior_mean"] = args.scale_prior_mean
@@ -27,7 +32,8 @@ def response_curve_estimate_main(ctrl_url: str, args) -> int:
 
     import matplotlib.pyplot as plt
 
-    pct_fc = getattr(args, "pct_fc", False)
+    apply_dark_theme()
+    pct_fc = getattr
     nlml = data.get("nlml")
     fig = plot_response_curve(
         prior_x=np.array(data["prior_x"]),
@@ -41,9 +47,38 @@ def response_curve_estimate_main(ctrl_url: str, args) -> int:
         dy=np.array(data["chords_dy"]),
         mean_at_x=np.array(data["mean_at_chord_starts"]),
         xlabel="sensor reading",
-        ylabel="%FC" if pct_fc else "SWC (ml)",
+        ylabel="%SC" if pct_fc else "SWC (ml)",
         pct_fc=pct_fc,
         scale=data["scale"],
+    )
+
+    for xi, x in enumerate(data["chords_x"]):
+        print(
+            f"Chord {xi}: start={x:.1f}, dx={data['chords_dx'][xi]:.1f}, dy={data['chords_dy'][xi]:.1f})"
+        )
+
+    cal = PowerCordCalibrator(
+        xmin=800,
+        xmax=2000,
+        prior_weight=0.1,
+    ).fit(
+        x_anchors=data["anchors_x"],
+        swc_anchors=data["anchors_y"],
+        x_starts=data["chords_x"],
+        delta_x=data["chords_dx"],
+        delta_swc=data["chords_dy"],
+        prior_x=data["prior_x"],
+        prior_y=data["prior_y"],
+    )
+
+    ax1 = fig.axes[0]
+
+    ax1.plot(
+        data["prior_x"],
+        cal(data["prior_x"]),
+        color=ORANGE,
+        linewidth=2,
+        label=f"Power fit (scale={cal.scale:.2f})",
     )
 
     if nlml is not None:

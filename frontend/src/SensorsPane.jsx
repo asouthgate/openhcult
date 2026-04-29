@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react'
 import { apiJson, apiFetch } from './api'
 import { sensorKey, interp, toWater } from './utils'
-import { TimeseriesChart, PALETTE } from './TimeseriesChart'
+import { TimeseriesChart } from './TimeseriesChart'
+import { PALETTE } from './theme'
 import CalibrationParams from './CalibrationParams'
 
 const TIME_RANGES = [
@@ -10,6 +11,8 @@ const TIME_RANGES = [
   { label: '7d', hours: 24 * 7 },
   { label: '30d', hours: 24 * 30 },
 ]
+
+const Y_LABELS = { raw: 'Raw', voltage: 'Voltage (mV)', water: 'Water (ml)', water_pct: 'Water (%SC)' }
 
 function ObservationsTable({ observations, sensorAssignedAt, calibration, onDelete }) {
   const visible = sensorAssignedAt != null
@@ -108,8 +111,8 @@ export default function SensorsPane({
 
     if (!isWater) return { mappedSeries: ms, bands: [] }
 
-    const loArr = calibration.mean.map((m, i) => Math.max(0, m - 2 * (calibration.std[i] || 0)))
-    const hiArr = calibration.mean.map((m, i) => m + 2 * (calibration.std[i] || 0))
+    const loArr = calibration.ci_low ?? calibration.mean.map((m, i) => m - 2 * (calibration.std?.[i] ?? 0))
+    const hiArr = calibration.ci_high ?? calibration.mean.map((m, i) => m + 2 * (calibration.std?.[i] ?? 0))
     const bs = ms.map(s => ({
       color: s.color,
       points: s.points.map(p => ({
@@ -132,21 +135,21 @@ export default function SensorsPane({
     apiFetch(`/observations/${id}`, { method: 'DELETE' }).then(r => r.ok && setObservations(prev => prev.filter(o => o.id !== id)))
 
   return (
-    <div>
-      <div className="controls">
+    <div className="pane-grid">
+      <div className="full controls">
         <div className="range-btns">
           {TIME_RANGES.map(r => (
             <button key={r.hours} className={rangeHours === r.hours ? 'active' : ''} onClick={() => setRangeHours(r.hours)}>{r.label}</button>
           ))}
         </div>
         <div className="range-btns">
-          {[['raw', 'Raw'], ['voltage', 'mV'], ['water', 'Water (ml)'], ['water_pct', 'Water (%FC)']].map(([m, label]) => (
+          {[['raw', 'Raw'], ['voltage', 'mV'], ['water', 'Water (ml)'], ['water_pct', 'Water (%SC)']].map(([m, label]) => (
             <button key={m} className={measureMode === m ? 'active' : ''} onClick={() => setMeasureMode(m)}>{label}</button>
           ))}
         </div>
       </div>
 
-      <section className="sensor-pane">
+      <div className="full">
         {loading
           ? <div className="loading">Loading…</div>
           : series.length === 0
@@ -158,25 +161,28 @@ export default function SensorsPane({
                 rangeMs={rangeHours * 3600 * 1000}
                 onTimePick={t => { setPendingTime(t); setPendingPlant(plantFilter || ''); setPendingMl('') }}
                 pendingTime={pendingTime}
-                yLabel={measureMode}
+                yLabel={Y_LABELS[measureMode]}
                 eventWindowOffset={Number(calibParams.offsetMin) * 60 * 1000}
                 eventWindowWidth={Number(calibParams.widthMin) * 60 * 1000}
               />
         }
-      </section>
-      <div style={{ marginTop: 16 }}>
+      </div>
+
+      <div>
         <CalibrationParams calibParams={calibParams} setCalibParam={setCalibParam} />
       </div>
 
-      <ObservationsTable
-        observations={observations}
-        sensorAssignedAt={sensorAssignedAt}
-        calibration={calibration}
-        onDelete={deleteObservation}
-      />
+      <div className="full">
+        <ObservationsTable
+          observations={observations}
+          sensorAssignedAt={sensorAssignedAt}
+          calibration={calibration}
+          onDelete={deleteObservation}
+        />
+      </div>
 
       {pendingTime && (
-        <div className="event-panel">
+        <div className="full event-panel">
           <span>Watering at {new Date(pendingTime).toLocaleString()}</span>
           <input type="number" placeholder="ml" value={pendingMl} onChange={e => setPendingMl(e.target.value)} />
           <button onClick={submitWatering} disabled={!pendingMl}>Record</button>

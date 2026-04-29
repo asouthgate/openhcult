@@ -15,5 +15,9 @@ authors = [
 
 dependencies = [
     "numpy",
-    "scipy"
+    "scipy",
+    "emcee",
 ]
+
+[tool.setuptools]
+packages = ["hcultinf"]

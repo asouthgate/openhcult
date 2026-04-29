@@ -4,15 +4,24 @@ import contextlib
 import logging
 import os
 import warnings
-from collections import deque
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from scipy.optimize import curve_fit
 from scipy.integrate import quad
 
+from hcultinf.plot_style import (
+    apply_dark_theme,
+    DARK_BLUE,
+    CLOUD_BLUE,
+    YELLOW,
+    ORANGE,
+    CLOUD_WHITE,
+    MUTED,
+)
+
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)  # Lowest level to capture everything
+logger.setLevel(logging.DEBUG)
 
 
 @contextlib.contextmanager
@@ -33,8 +42,10 @@ def _suppress_numerical_noise():
 
 class DynamicIntervalInfo:
     def __init__(self, t_values, x_values, vel, at_equilibrium):
-        assert len(t_values) > 0
-        assert len(t_values) == len(x_values)
+        if len(t_values) == 0:
+            raise ValueError("t_values must not be empty")
+        if len(t_values) != len(x_values):
+            raise ValueError("t_values and x_values must have same length")
         self.n_samples = len(t_values)
         self.start = t_values[0]
         self.end = t_values[-1]
@@ -50,7 +61,7 @@ class DynamicIntervalInfo:
             with _suppress_numerical_noise():
                 self.m, self.c = np.polyfit(t_numeric, x_values, 1)
         except np.linalg.LinAlgError as e:
-            print(e)
+            logger.warning(e)
         self.pred_func, self.pred_params_d, self.gof_d = None, None, None
         if not at_equilibrium:
             try:
@@ -60,9 +71,9 @@ class DynamicIntervalInfo:
                 self.integral, _ = quad(self.pred_func, t_numeric[0], t_numeric[-1])
                 self.gof_d = self._cal_goodness_of_fit(t_values, vel)
             except RuntimeError as e:
-                print(e)
+                logger.warning(e)
             except ValueError as e:
-                print(e)
+                logger.warning(e)
 
     def _estimate_negative_lognormal(self, t, x):
         t_num = (t - t[0]).astype("timedelta64[ms]").astype(float) / 1000.0
@@ -100,7 +111,6 @@ class DynamicIntervalInfo:
             return lambda t_inp: np.zeros_like(t_inp).astype(float), {}
 
         def fit_func(t_input):
-            # print(t_input[0])
             if isinstance(t_input, float):
                 t_in = t_input
             else:
@@ -117,14 +127,11 @@ class DynamicIntervalInfo:
         if self.pred_func is None:
             return {"rmse": np.inf, "nrmse": np.inf}
 
-        # t_num = (t - t[0]).astype('timedelta64[ms]').astype(float) / 1000.0
-
         y_pred = self.pred_func(t)
         residuals = x - y_pred
 
         rmse = np.sqrt(np.mean(residuals**2))
 
-        # Range-normalized RMSE
         data_range = np.max(x) - np.min(x)
         nrmse = rmse / data_range if data_range != 0 else np.inf
 
@@ -212,8 +219,7 @@ class SegmentDetector:
             self._release_thresh / 2.0,
         )
 
-        # Indices for regions with velocity ON
-        self._vel_inds = find_regions_with_hysteresis_adapative_thresh(
+        self._vel_inds = find_regions_with_hysteresis_adaptive_thresh(
             self._resampled_times,
             self._resampled_vel_smoothed,
             self._vel_trigger_arr,
@@ -223,7 +229,6 @@ class SegmentDetector:
         self._neg_diseq_inds = self._vel_inds
         self._diseq_inds = self._vel_inds
 
-        # Indices for regions with both OFF
         self._eq_inds = get_complementary_intervals(
             self._diseq_inds, 0, len(self._resampled_times)
         )
@@ -263,12 +268,13 @@ class SegmentDetector:
                     yield deqr
 
     def debug_plot(self):
+        apply_dark_theme()
         fig, ax1 = plt.subplots(figsize=(12, 6))
 
         ax1.scatter(
             self._time_arr,
             self._values_arr,
-            color="tab:blue",
+            color=CLOUD_BLUE,
             label="Sensor values",
             alpha=0.5,
             marker="x",
@@ -276,26 +282,26 @@ class SegmentDetector:
         ax1.plot(
             self._resampled_times,
             self._resampled_emwa,
-            color="tab:blue",
+            color=CLOUD_BLUE,
             label="Smoothed values (EWMA)",
             alpha=1.0,
             linewidth=1,
         )
-        ax1.set_ylabel("Sensor reading", color="tab:blue")
-        ax1.tick_params(axis="y", labelcolor="tab:blue")
+        ax1.set_ylabel("Sensor reading", color=CLOUD_BLUE)
+        ax1.tick_params(axis="y", labelcolor=CLOUD_BLUE)
 
         ax2 = ax1.twinx()
         ax2.plot(
             self._resampled_times,
             self._resampled_vel_smoothed / max(self._resampled_vel_smoothed),
-            color="#ad444f",
+            color=ORANGE,
             label="Smoothed velocity (EWMA)",
             linewidth=1,
         )
 
         deq_regions = self.get_disequilibrium_intervals()
         for deqr in deq_regions:
-            ax2.axvspan(deqr.start, deqr.end, color="green", alpha=0.15)
+            ax2.axvspan(deqr.start, deqr.end, color=YELLOW, alpha=0.1)
 
         nmrse_max = 0
 
@@ -305,10 +311,10 @@ class SegmentDetector:
                 nmrse_max = max(nmrse, nmrse_max)
         for deqr in deq_regions:
             if deqr.at_equilibrium:
-                color = "grey"
+                color = MUTED
             else:
-                color = "orange"
-            ax2.axvspan(deqr.start, deqr.end, color=color, alpha=0.05)
+                color = ORANGE
+            ax2.axvspan(deqr.start, deqr.end, color=color, alpha=0.08)
 
             if deqr.m is not None and deqr.at_equilibrium:
                 x1 = deqr.c
@@ -316,37 +322,39 @@ class SegmentDetector:
                     (deqr.end - deqr.start).astype("timedelta64[ms]").astype("int64")
                 )
                 x2 = (duration_ms * deqr.m) + deqr.c
-                ax1.plot([deqr.start, deqr.end], [x1, x2], color="red", linewidth=2)
+                ax1.plot([deqr.start, deqr.end], [x1, x2], color=YELLOW, linewidth=2)
             if deqr.pred_func is not None:
                 vpred = deqr.pred_func(self._resampled_times)
                 ax2.plot(
                     self._resampled_times,
                     vpred / max(self._resampled_vel_smoothed),
-                    color="black",
+                    color=CLOUD_WHITE,
                     linestyle="dotted",
                 )
                 model_start, model_end = deqr.get_model_active_interval()
-                ax2.axvspan(model_start, model_end, color="blue", alpha=0.15)
+                ax2.axvspan(model_start, model_end, color=DARK_BLUE, alpha=0.15)
                 ax2.axvline(
-                    x=model_start, ymax=deqr.gof_d["nrmse"] / nmrse_max, color="black"
+                    x=model_start,
+                    ymax=deqr.gof_d["nrmse"] / nmrse_max,
+                    color=CLOUD_WHITE,
                 )
 
         trigger, release = self.get_vel_thresholds()
         ax2.plot(
             self._resampled_times,
             trigger / max(self._resampled_vel_smoothed),
-            color="red",
+            color=YELLOW,
             linestyle="--",
         )
         ax2.plot(
             self._resampled_times,
             release / max(self._resampled_vel_smoothed),
-            color="red",
+            color=YELLOW,
             linestyle="--",
         )
 
-        ax2.set_ylabel("Normalized values (derivatives)", color="tab:red")
-        ax2.tick_params(axis="y", labelcolor="tab:red")
+        ax2.set_ylabel("Normalized values (derivatives)", color=ORANGE)
+        ax2.tick_params(axis="y", labelcolor=ORANGE)
 
         lines_1, labels_1 = ax1.get_legend_handles_labels()
         lines_2, labels_2 = ax2.get_legend_handles_labels()
@@ -359,8 +367,8 @@ class SegmentDetector:
 
 
 def merge_intervals(interval_lists):
-
-    assert len(interval_lists) > 1, "Expected to merge more than one list"
+    if len(interval_lists) <= 1:
+        raise ValueError("Expected to merge more than one list")
 
     intervals = []
     for il in interval_lists:
@@ -369,7 +377,6 @@ def merge_intervals(interval_lists):
     if not intervals:
         return []
 
-    # Sort intervals by the start value
     intervals.sort(key=lambda x: x[0])
 
     merged = [list(intervals[0])]
@@ -377,23 +384,17 @@ def merge_intervals(interval_lists):
     for current_start, current_end in intervals[1:]:
         _, last_end = merged[-1]
 
-        # Check if they overlap or touch at the boundary
         if current_start <= last_end:
-            # Update the end of the last interval in the list
             merged[-1][1] = max(last_end, current_end)
         else:
-            # No overlap, add the current interval as a new entry
             merged.append([current_start, current_end])
 
-    # Convert back to tuples if preferred
     return [tuple(i) for i in merged]
 
 
 def lerp_thresholds(
     val, max_val, min_val, trigger_high, release_high, trigger_low, release_low
 ):
-
-    # Linear interp thresholds
     maxx = max_val
     minxx = min_val
     rangex = maxx - minxx
@@ -419,13 +420,15 @@ def lerp_thresholds(
     return trigger_arr, release_arr
 
 
-def find_regions_with_hysteresis_adapative_thresh(
+def find_regions_with_hysteresis_adaptive_thresh(
     times, val, trigger_arr, release_arr, direction=-1
 ):
 
     if direction == -1:
-        assert all(trigger_arr < 0)
-        assert all(release_arr < 0)
+        if not np.all(trigger_arr < 0) or not np.all(release_arr < 0):
+            raise ValueError(
+                "trigger and release arrays must be negative for direction=-1"
+            )
 
     regions = []
     active = False
@@ -440,7 +443,6 @@ def find_regions_with_hysteresis_adapative_thresh(
             active = True
             start_ind = ti
 
-    # Handle event still active at end of data
     if active:
         regions.append((start_ind, len(times) - 1))
 
@@ -448,44 +450,33 @@ def find_regions_with_hysteresis_adapative_thresh(
 
 
 def compute_time_weighted_ewma(times, values, tau_minutes=30.0):
-    """
-    tau_minutes: The 'memory' of the filter.
-    Larger tau = smoother, but stays 'stuck' longer after gaps.
-    """
-    # Convert times to float minutes
     t_min = times.astype("datetime64[m]").astype(float)
     n = len(values)
     smoothed = np.zeros(n)
-    smoothed[0] = values[0]  # Initialize
+    smoothed[0] = values[0]
     for i in range(1, n):
         delta_t = t_min[i] - t_min[i - 1]
-        # Calculate dynamic alpha based on time gap
         alpha = 1 - np.exp(-delta_t / tau_minutes)
         smoothed[i] = (1 - alpha) * smoothed[i - 1] + alpha * values[i]
     return smoothed
 
 
 def get_complementary_intervals(intervals, start_bound, end_bound):
-    """
-    Returns the gaps between disjoint intervals within a specific range.
-    """
-    # 1. Ensure intervals are sorted by their start index
     sorted_intervals = sorted(intervals)
     complementary = []
     current_pos = start_bound
 
     for start, end in sorted_intervals:
-        # If there is space between the current position and the next interval
         if start > current_pos:
             complementary.append([current_pos, start])
 
-        # Move the cursor to just after the current interval
-        assert current_pos != end + 1
+        if current_pos == end + 1:
+            raise ValueError("Intervals overlap or touch at boundary")
         current_pos = max(current_pos, end + 1)
 
-    # 2. Check if there is a remaining gap after the last interval
     if current_pos < end_bound:
-        assert current_pos != end_bound
+        if current_pos == end_bound:
+            raise ValueError("Gap is zero at end boundary")
         complementary.append([current_pos, end_bound])
 
     return complementary

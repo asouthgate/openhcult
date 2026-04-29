@@ -15,6 +15,6 @@ bool build_adv_mfg_data(
 );
 
 // Required buffer size for a given sensor count.
-inline size_t adv_mfg_data_size(uint8_t sensor_count) {
+constexpr size_t adv_mfg_data_size(uint8_t sensor_count) {
   return 2 + 4 + (size_t)sensor_count * 4 + 4;
 }
