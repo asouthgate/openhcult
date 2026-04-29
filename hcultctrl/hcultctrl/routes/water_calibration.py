@@ -314,6 +314,10 @@ def water_calibration(
                 status_code=400, detail="No sensors found for this plant"
             )
         calibrators = []
+        all_x = []
+        all_dx = []
+        all_dy = []
+        all_chord_times = []
         last_d = None
         for ps in plant_sensors:
             try:
@@ -349,13 +353,22 @@ def water_calibration(
                 xmin_high,
             )
             calibrators.append(cal)
+            all_x.append(d["x_arr"])
+            all_dx.append(d["dx_arr"])
+            all_dy.append(d["dy_arr"])
+            all_chord_times.append(np.array(d["chord_times"]))
             last_d = d
         if not calibrators:
             raise HTTPException(
                 status_code=400, detail="No sensors produced calibration data"
             )
         grid_min = float(last_d["prior_x"].min())
-        grid_max = float(last_d["prior_x"].max())
+        grid_max = (
+            float(last_d["prior_y"].max())
+            if len(last_d["prior_y"]) > 1
+            else float(last_d["prior_x"].max())
+        )
+        grid_max = max(grid_max, float(last_d["prior_x"].max()))
         x_grid = np.linspace(grid_min, grid_max, 500)
         result = combine_posteriors(
             calibrators, x_grid, sigma_bias=sigma_bias, method=combine_method
@@ -366,16 +379,31 @@ def water_calibration(
             mean, ci_low, ci_high = result
             est_sigma_bias = None
         first = calibrators[0]
-        prior_x_grid = x_grid
-        prior_y_grid = np.interp(x_grid, d["prior_x"], d["prior_y"])
+        x_arr = np.concatenate(all_x)
+        dx_arr = np.concatenate(all_dx)
+        dy_arr = np.concatenate(all_dy)
+        chord_times = np.concatenate(all_chord_times).tolist()
+        plot_prior_y = np.interp(x_grid, last_d["prior_x"], last_d["prior_y"])
+        mean_at_chord_starts = first(x_arr)
+        swc_after = mean_at_chord_starts + dy_arr
+        estimated_mv_after = np.interp(swc_after, mean[::-1], x_grid[::-1])
+        estimated_dx_arr = estimated_mv_after - x_arr
         return {
-            "prior_x": _to_json_safe(prior_x_grid),
-            "prior_y": prior_y_grid.tolist(),
+            "prior_x": _to_json_safe(x_grid),
+            "prior_y": plot_prior_y.tolist(),
             "mean": _to_json_safe(mean),
             "ci_low": _to_json_safe(ci_low),
             "ci_high": _to_json_safe(ci_high),
             "scale": float(first.scale),
             "nlml": float(first.nlml),
+            "anchors_x": last_d["x_anchor"].tolist(),
+            "anchors_y": last_d["swc_anchor"].tolist(),
+            "chords_x": x_arr.tolist(),
+            "chords_dx": dx_arr.tolist(),
+            "chords_dy": dy_arr.tolist(),
+            "mean_at_chord_starts": _to_json_safe(mean_at_chord_starts),
+            "estimated_chords_dx": _to_json_safe(estimated_dx_arr),
+            "chord_times": chord_times,
             "combined": True,
             "n_sensors": len(calibrators),
             **(
