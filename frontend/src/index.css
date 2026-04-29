@@ -393,6 +393,14 @@ section.pane-grid h3 {
   gap: 14px;
 }
 
+.login-logo {
+  text-align: center;
+}
+
+.login-logo img {
+  height: 56px;
+}
+
 .login h1 {
   font-size: 15px;
   font-weight: 600;
