@@ -6,7 +6,7 @@ from hcultinf.calibrator import plot_response_curve
 from hcultinf.plot_style import apply_dark_theme, YELLOW, ORANGE, CLOUD_BLUE
 from hcultutils.query import request_ctrl
 
-from hcultinf.power import PowerCordCalibrator
+from hcultinf.exp_mcmc import ExponentialCordCalibratorMCMC
 
 
 def response_curve_estimate_main(ctrl_url: str, args) -> int:
@@ -20,7 +20,7 @@ def response_curve_estimate_main(ctrl_url: str, args) -> int:
         "gp_std_ml": args.gp_std_ml,
         "offset_ms": args.offset_min * 60 * 1000,
         "width_ms": args.width_min * 60 * 1000,
-        "estimator": "powerlaw",
+        "estimator": "exp_mcmc",
         "prior_weight": 1.0,
     }
     if args.scale_prior_mean is not None:
@@ -57,8 +57,9 @@ def response_curve_estimate_main(ctrl_url: str, args) -> int:
             f"Chord {xi}: start={x:.1f}, dx={data['chords_dx'][xi]:.1f}, dy={data['chords_dy'][xi]:.1f})"
         )
 
-    cal = PowerCordCalibrator(
-        xmin=800,
+    cal = ExponentialCordCalibratorMCMC(
+        xmin_low=800,
+        xmin_high=1100,
         xmax=2000,
         prior_weight=0.1,
     ).fit(

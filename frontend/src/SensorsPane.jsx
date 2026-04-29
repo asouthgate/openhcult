@@ -52,7 +52,7 @@ function ObservationsTable({ observations, sensorAssignedAt, calibration, onDele
 }
 
 export default function SensorsPane({
-  plantFilter, sensorFilter, sensorAssignedAt, calibration, calibParams, setCalibParam, plantSensors,
+  plantFilter, sensorFilter, sensorAssignedAt, calibration, calibParams, setCalibParam, plantSensors, dryingRate,
 }) {
   const [rangeHours, setRangeHours] = useState(48)
   const [measureMode, setMeasureMode] = useState('voltage')

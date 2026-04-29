@@ -13,8 +13,8 @@ from hcultctrl.utils import get_db_conn
 from hcultdb import queries as database
 from hcultinf.exp import ExponentialCordCalibrator
 from hcultinf.exp_mcmc import ExponentialCordCalibratorMCMC
-from hcultinf.gp import GPWithPriorShape
-from hcultinf.power import PowerCordCalibrator
+from hcultinf.combiner import combine_posteriors
+from hcultinf.drying import linear_drying_rate
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -175,6 +175,46 @@ def _to_json_safe(arr):
     return [None if not math.isfinite(v) else v for v in np.asarray(arr).flat]
 
 
+def _build_calibrator(
+    estimator,
+    prior_x,
+    prior_y,
+    x_anchor,
+    swc_anchor,
+    x_arr,
+    dx_arr,
+    dy_arr,
+    prior_min,
+    prior_max,
+    prior_weight,
+    n_burn,
+    n_steps,
+    xmin_low,
+    xmin_high,
+):
+    exp_xmax = prior_max if prior_max is not None else float(prior_x.max())
+    if estimator == "exponential":
+        exp_xmin = prior_min if prior_min is not None else float(prior_x.min())
+        return ExponentialCordCalibrator(
+            xmin=exp_xmin,
+            xmax=exp_xmax,
+            prior_weight=prior_weight,
+        ).fit(x_anchor, swc_anchor, x_arr, dx_arr, dy_arr, prior_x, prior_y)
+    if xmin_high <= xmin_low:
+        raise HTTPException(
+            status_code=400,
+            detail="xmin_high must be greater than xmin_low",
+        )
+    return ExponentialCordCalibratorMCMC(
+        xmin_low=xmin_low,
+        xmin_high=xmin_high,
+        xmax=exp_xmax,
+        prior_weight=prior_weight,
+        n_burn=n_burn,
+        n_steps=n_steps,
+    ).fit(x_anchor, swc_anchor, x_arr, dx_arr, dy_arr, prior_x, prior_y)
+
+
 @router.get("/water_cord_data")
 def water_cord_data(
     plant: str,
@@ -219,9 +259,6 @@ def water_calibration(
     device_address: str | None = None,
     offset_ms: int = _DEFAULT_OFFSET_MS,
     width_ms: int = _DEFAULT_WIDTH_MS,
-    gp_std_ml: float = 50.0,
-    scale_prior_mean: float | None = None,
-    scale_prior_std: float | None = None,
     prior: str = "calibrated",
     prior_min: float | None = None,
     prior_max: float | None = None,
@@ -232,28 +269,123 @@ def water_calibration(
     n_steps: int = 30,
     xmin_low: float = 800.0,
     xmin_high: float = 1100.0,
+    combined: bool = False,
+    combine_method: str = "bayesian",
+    sigma_bias: float = 0.0,
     conn=Depends(get_db_conn),
 ):
-    if estimator not in ("gp", "powerlaw", "exponential", "exp_mcmc"):
+    if estimator not in ("exponential", "exp_mcmc"):
         raise HTTPException(
             status_code=400,
-            detail="estimator must be 'gp', 'powerlaw', 'exponential', or 'exp_mcmc'",
+            detail="estimator must be 'exponential' or 'exp_mcmc'",
         )
     if prior in ("linear", "power") and (prior_min is None or prior_max is None):
         raise HTTPException(
             status_code=400,
             detail="prior_min and prior_max are required for linear and power priors",
         )
+    if combined and estimator != "exp_mcmc":
+        raise HTTPException(
+            status_code=400,
+            detail="combined mode requires estimator='exp_mcmc'",
+        )
+    if combine_method not in ("bayesian", "empirical_bayes"):
+        raise HTTPException(
+            status_code=400,
+            detail="combine_method must be 'bayesian' or 'empirical_bayes'",
+        )
 
     logger.info(
-        "GET /water_calibration plant=%s sensor=%s device_address=%s offset_ms=%d width_ms=%d estimator=%s",
+        "GET /water_calibration plant=%s sensor=%s device_address=%s offset_ms=%d width_ms=%d estimator=%s combined=%s",
         plant,
         sensor,
         device_address,
         offset_ms,
         width_ms,
         estimator,
+        combined,
     )
+
+    if combined:
+        sensors = list(database.fetch_plant_sensors(conn, limit=1000))
+        plant_sensors = [s for s in sensors if s["plant_name"] == plant]
+        if not plant_sensors:
+            raise HTTPException(
+                status_code=400, detail="No sensors found for this plant"
+            )
+        calibrators = []
+        last_d = None
+        for ps in plant_sensors:
+            try:
+                d = _fetch_cord_data(
+                    conn,
+                    plant,
+                    ps["sensor"],
+                    ps["device_address"],
+                    offset_ms,
+                    width_ms,
+                    prior,
+                    prior_min,
+                    prior_max,
+                    prior_alpha,
+                )
+            except HTTPException:
+                continue
+            cal = _build_calibrator(
+                estimator,
+                d["prior_x"],
+                d["prior_y"],
+                d["x_anchor"],
+                d["swc_anchor"],
+                d["x_arr"],
+                d["dx_arr"],
+                d["dy_arr"],
+                prior_min,
+                prior_max,
+                prior_weight,
+                n_burn,
+                n_steps,
+                xmin_low,
+                xmin_high,
+            )
+            calibrators.append(cal)
+            last_d = d
+        if not calibrators:
+            raise HTTPException(
+                status_code=400, detail="No sensors produced calibration data"
+            )
+        grid_min = float(last_d["prior_x"].min())
+        grid_max = float(last_d["prior_x"].max())
+        x_grid = np.linspace(grid_min, grid_max, 500)
+        result = combine_posteriors(
+            calibrators, x_grid, sigma_bias=sigma_bias, method=combine_method
+        )
+        if combine_method == "empirical_bayes":
+            mean, ci_low, ci_high, est_sigma_bias = result
+        else:
+            mean, ci_low, ci_high = result
+            est_sigma_bias = None
+        first = calibrators[0]
+        prior_x_grid = x_grid
+        prior_y_grid = np.interp(x_grid, d["prior_x"], d["prior_y"])
+        return {
+            "prior_x": _to_json_safe(prior_x_grid),
+            "prior_y": prior_y_grid.tolist(),
+            "mean": _to_json_safe(mean),
+            "ci_low": _to_json_safe(ci_low),
+            "ci_high": _to_json_safe(ci_high),
+            "scale": float(first.scale),
+            "nlml": float(first.nlml),
+            "combined": True,
+            "n_sensors": len(calibrators),
+            **(
+                {"estimated_sigma_bias": float(est_sigma_bias)}
+                if est_sigma_bias is not None
+                else {}
+            ),
+            "offset_ms": offset_ms,
+            "width_ms": width_ms,
+        }
 
     d = _fetch_cord_data(
         conn,
@@ -267,81 +399,31 @@ def water_calibration(
         prior_max,
         prior_alpha,
     )
-    x_arr = d["x_arr"]
-    dx_arr = d["dx_arr"]
-    dy_arr = d["dy_arr"]
-    chord_times = d["chord_times"]
-    prior_x = d["prior_x"]
-    prior_y = d["prior_y"]
-    x_anchor = d["x_anchor"]
-    swc_anchor = d["swc_anchor"]
-
-    exp_xmax = prior_max if prior_max is not None else float(prior_x.max())
-    logger.info(
-        "Calibration inputs: x_arr=%s dx_arr=%s dy_arr=%s x_anchor=%s swc_anchor=%s prior_x=[%s..%s] prior_y=[%s..%s] estimator=%s",
-        x_arr.tolist(),
-        dx_arr.tolist(),
-        dy_arr.tolist(),
-        x_anchor.tolist(),
-        swc_anchor.tolist(),
-        float(prior_x.min()),
-        float(prior_x.max()),
-        float(prior_y.min()),
-        float(prior_y.max()),
+    cal = _build_calibrator(
         estimator,
+        d["prior_x"],
+        d["prior_y"],
+        d["x_anchor"],
+        d["swc_anchor"],
+        d["x_arr"],
+        d["dx_arr"],
+        d["dy_arr"],
+        prior_min,
+        prior_max,
+        prior_weight,
+        n_burn,
+        n_steps,
+        xmin_low,
+        xmin_high,
     )
-    if estimator == "exp_mcmc":
-        logger.info(
-            "exp_mcmc bounds: xmin_low=%s xmin_high=%s xmax=%s n_burn=%d n_steps=%d prior_weight=%s",
-            xmin_low,
-            xmin_high,
-            exp_xmax,
-            n_burn,
-            n_steps,
-            prior_weight,
-        )
-
-    if estimator == "powerlaw":
-        cal = PowerCordCalibrator(
-            xmin=float(prior_x.min()),
-            xmax=float(prior_x.max()),
-            prior_weight=prior_weight,
-        ).fit(x_anchor, swc_anchor, x_arr, dx_arr, dy_arr, prior_x, prior_y)
-    elif estimator == "exponential":
-        exp_xmin = prior_min if prior_min is not None else float(prior_x.min())
-        cal = ExponentialCordCalibrator(
-            xmin=exp_xmin,
-            xmax=exp_xmax,
-            prior_weight=prior_weight,
-        ).fit(x_anchor, swc_anchor, x_arr, dx_arr, dy_arr, prior_x, prior_y)
-    elif estimator == "exp_mcmc":
-        if xmin_high <= xmin_low:
-            raise HTTPException(
-                status_code=400,
-                detail="xmin_high must be greater than xmin_low",
-            )
-        cal = ExponentialCordCalibratorMCMC(
-            xmin_low=xmin_low,
-            xmin_high=xmin_high,
-            xmax=exp_xmax,
-            prior_weight=prior_weight,
-            n_burn=n_burn,
-            n_steps=n_steps,
-        ).fit(x_anchor, swc_anchor, x_arr, dx_arr, dy_arr, prior_x, prior_y)
-    else:
-        cal = GPWithPriorShape(
-            variance=gp_std_ml**2,
-            scale_prior_mean=scale_prior_mean,
-            scale_prior_std=scale_prior_std,
-        ).fit(x_anchor, swc_anchor, x_arr, dx_arr, dy_arr, prior_x, prior_y)
-    plot_x = np.linspace(prior_x.min(), prior_x.max(), 500)
-    plot_prior_y = np.interp(plot_x, prior_x, prior_y)
+    plot_x = np.linspace(d["prior_x"].min(), d["prior_x"].max(), 500)
+    plot_prior_y = np.interp(plot_x, d["prior_x"], d["prior_y"])
     mean, ci_low, ci_high = cal.predict(plot_x)
-    mean_at_chord_starts = cal(x_arr)
+    mean_at_chord_starts = cal(d["x_arr"])
 
-    swc_after = mean_at_chord_starts + dy_arr
+    swc_after = mean_at_chord_starts + d["dy_arr"]
     estimated_mv_after = np.interp(swc_after, mean[::-1], plot_x[::-1])
-    estimated_dx_arr = estimated_mv_after - x_arr
+    estimated_dx_arr = estimated_mv_after - d["x_arr"]
 
     return {
         "prior_x": _to_json_safe(plot_x),
@@ -351,14 +433,120 @@ def water_calibration(
         "ci_high": _to_json_safe(ci_high),
         "scale": float(cal.scale),
         "nlml": float(cal.nlml),
-        "anchors_x": x_anchor.tolist(),
-        "anchors_y": swc_anchor.tolist(),
-        "chords_x": x_arr.tolist(),
-        "chords_dx": dx_arr.tolist(),
-        "chords_dy": dy_arr.tolist(),
+        "anchors_x": d["x_anchor"].tolist(),
+        "anchors_y": d["swc_anchor"].tolist(),
+        "chords_x": d["x_arr"].tolist(),
+        "chords_dx": d["dx_arr"].tolist(),
+        "chords_dy": d["dy_arr"].tolist(),
         "mean_at_chord_starts": _to_json_safe(mean_at_chord_starts),
         "estimated_chords_dx": _to_json_safe(estimated_dx_arr),
-        "chord_times": chord_times,
+        "chord_times": d["chord_times"],
         "offset_ms": offset_ms,
         "width_ms": width_ms,
     }
+
+
+@router.get("/drying_rate")
+def drying_rate(
+    plant: str,
+    sensor: str | None = None,
+    device_address: str | None = None,
+    offset_ms: int = _DEFAULT_OFFSET_MS,
+    width_ms: int = _DEFAULT_WIDTH_MS,
+    prior: str = "calibrated",
+    prior_min: float | None = None,
+    prior_max: float | None = None,
+    prior_alpha: float = 0.5,
+    estimator: str = "exp_mcmc",
+    prior_weight: float = 1.0,
+    n_burn: int = 10,
+    n_steps: int = 30,
+    xmin_low: float = 800.0,
+    xmin_high: float = 1100.0,
+    start_utc: str | None = None,
+    end_utc: str | None = None,
+    combined: bool = False,
+    combine_method: str = "bayesian",
+    sigma_bias: float = 0.0,
+    conn=Depends(get_db_conn),
+):
+    from datetime import datetime, timezone
+
+    if estimator not in ("exponential", "exp_mcmc"):
+        raise HTTPException(
+            status_code=400, detail="estimator must be 'exponential' or 'exp_mcmc'"
+        )
+
+    end_dt = (
+        datetime.now(timezone.utc)
+        if end_utc is None
+        else datetime.fromisoformat(end_utc.replace("Z", "+00:00"))
+    )
+    start_dt = (
+        end_dt - __import__("datetime").timedelta(hours=48)
+        if start_utc is None
+        else datetime.fromisoformat(start_utc.replace("Z", "+00:00"))
+    )
+    start_ms = int(start_dt.timestamp() * 1000)
+    end_ms = int(end_dt.timestamp() * 1000)
+
+    d = _fetch_cord_data(
+        conn,
+        plant,
+        sensor,
+        device_address,
+        offset_ms,
+        width_ms,
+        prior,
+        prior_min,
+        prior_max,
+        prior_alpha,
+    )
+    cal = _build_calibrator(
+        estimator,
+        d["prior_x"],
+        d["prior_y"],
+        d["x_anchor"],
+        d["swc_anchor"],
+        d["x_arr"],
+        d["dx_arr"],
+        d["dy_arr"],
+        prior_min,
+        prior_max,
+        prior_weight,
+        n_burn,
+        n_steps,
+        xmin_low,
+        xmin_high,
+    )
+
+    readings = list(
+        database.fetch_timeseries(
+            conn,
+            plant=plant,
+            sensor=sensor,
+            device=device_address,
+            start_ms=start_ms,
+            end_ms=end_ms,
+            limit=50000,
+        )
+    )
+    if len(readings) < 2:
+        raise HTTPException(
+            status_code=400,
+            detail="Not enough sensor readings in the specified time range",
+        )
+
+    times_ms = np.array([r["adjusted_time_ms"] for r in readings])
+    voltages_mv = np.array([r["voltage_mv"] for r in readings])
+    order = np.argsort(times_ms)
+    times_ms = times_ms[order]
+    voltages_mv = voltages_mv[order]
+
+    result = linear_drying_rate(cal, times_ms, voltages_mv)
+    if result is None:
+        raise HTTPException(
+            status_code=400, detail="Could not estimate drying rate from the data"
+        )
+
+    return result

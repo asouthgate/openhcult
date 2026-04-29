@@ -5,7 +5,7 @@ import ScatterPlot from './ScatterPlot'
 import CalibrationParams from './CalibrationParams'
 
 export default function CalibrationPane({
-  plantFilter, sensorFilter, calibration, calibError, calibLoading, calibParams, setCalibParam,
+  plantFilter, sensorFilter, calibration, calibError, calibLoading, calibParams, setCalibParam, dryingRate,
 }) {
   const [showPct, setShowPct] = useState(false)
 
@@ -57,6 +57,7 @@ export default function CalibrationPane({
             ['Dose mean', (dy.reduce((a, b) => a + b, 0) / dy.length).toFixed(1) + showPctLabel],
             ['SWC range', swcStats ? `${swcStats.estMin.toFixed(1)}–${swcStats.estMax.toFixed(1)}${showPctLabel}` : '—'],
             ...(swcStats?.lo != null ? [['95% CI', `${swcStats.lo.toFixed(1)}–${swcStats.hi.toFixed(1)}${showPctLabel}`]] : []),
+            ...(dryingRate ? [['Drying rate', `${dryingRate.rate_ml_per_day.toFixed(2)} ml/day (${dryingRate.rate_ci_low.toFixed(2)} to ${dryingRate.rate_ci_high.toFixed(2)})`]] : []),
           ]
           return (
             <table className="obs-table full">

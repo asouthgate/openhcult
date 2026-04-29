@@ -46,6 +46,10 @@ class CordCalibrator(ABC):
     def predict(self, x):
         return self._mean(x), self._ci_low(x), self._ci_high(x)
 
+    def std(self, x):
+        _, lo, hi = self.predict(x)
+        return (np.asarray(hi) - np.asarray(lo)) / (2 * 1.96)
+
     def plot(
         self,
         priorx,

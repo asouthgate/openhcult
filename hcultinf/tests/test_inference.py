@@ -5,10 +5,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from hcultinf.gp import GPWithPriorShape
-from hcultinf.power import PowerCordCalibrator
 from hcultinf.exp import ExponentialCordCalibrator, exponential_target
 from hcultinf.exp_mcmc import ExponentialCordCalibratorMCMC
+from hcultinf.combiner import combine_bayesian, combine_empirical_bayes
+from hcultinf.drying import linear_drying_rate
 from hcultinf.simulation import (
     simulate_calibration_data_samples,
     Y_TEST_FUNCTION,
@@ -57,11 +57,6 @@ TEST_EXPONENTIAL_FUNCTION = lambda x: 10.0 * exponential_target(
             ExponentialCordCalibrator(TEST_XMIN, TEST_XMAX, 1e-8),
             TEST_EXPONENTIAL_FUNCTION,
         ),
-        (
-            PowerCordCalibrator(TEST_XMIN, TEST_XMAX, prior_weight=0.001),
-            TEST_POWER_FUNCTION,
-        ),
-        (GPWithPriorShape(length_scale=1.0), TEST_POWER_FUNCTION),
     ],
 )
 def test_convergence_in_n_bad_prior(estimator_func_pair):
@@ -178,8 +173,7 @@ def test_realistic():
 @pytest.mark.parametrize(
     "estimator",
     [
-        PowerCordCalibrator(TEST_XMIN, TEST_XMAX, prior_weight=0.01),
-        GPWithPriorShape(),
+        ExponentialCordCalibrator(TEST_XMIN, TEST_XMAX, prior_weight=0.01),
     ],
 )
 def test_unbiasedness(estimator):
@@ -246,3 +240,104 @@ def test_unbiasedness(estimator):
     assert (
         bias < 0.05 * true_y.max()
     ), f"Mean absolute bias {bias:.4f} exceeds threshold"
+
+
+def _fit_mcmc(n=30, seed=None):
+    if seed is not None:
+        np.random.seed(seed)
+    x, dx, dy = simulate_calibration_data_samples(
+        TEST_XMIN,
+        TEST_XMAX,
+        TEST_DXMAX,
+        TEST_DXMAX,
+        TEST_NOISE_LEVEL / 2,
+        n,
+        TEST_EXPONENTIAL_FUNCTION,
+        uniform=True,
+    )
+    cal = ExponentialCordCalibratorMCMC(
+        xmin_low=2.5,
+        xmin_high=3.0,
+        xmax=TEST_XMAX,
+        prior_weight=1.0,
+        n_burn=30,
+        n_steps=60,
+    ).fit(
+        np.array([TEST_XMAX]),
+        np.array([0.0]),
+        x,
+        dx,
+        dy,
+        np.array([TEST_XMIN, TEST_XMAX]),
+        np.array([1.0, 0.0]),
+    )
+    return cal
+
+
+def test_std_consistent_with_ci():
+    cal = _fit_mcmc(seed=42)
+    x_grid = np.linspace(TEST_XMIN, TEST_XMAX, 50)
+    mean, ci_low, ci_high = cal.predict(x_grid)
+    std = cal.std(x_grid)
+    ci_width = np.asarray(ci_high) - np.asarray(ci_low)
+    expected_width = 2 * 1.96 * np.asarray(std)
+    np.testing.assert_allclose(ci_width, expected_width, rtol=1e-6)
+
+
+def test_posterior_samples_at():
+    cal = _fit_mcmc(seed=42)
+    x_grid = np.linspace(TEST_XMIN + 0.5, TEST_XMAX - 0.5, 20)
+    samples = cal.posterior_samples_at(x_grid, n=50)
+    assert samples.shape[0] == 50
+    assert samples.shape[1] == len(x_grid)
+    assert np.all(np.isfinite(samples[~np.isnan(samples)]))
+    sample_mean = np.nanmean(samples, axis=0)
+    pred_mean = np.asarray(cal(x_grid))
+    valid = ~np.isnan(sample_mean)
+    np.testing.assert_allclose(sample_mean[valid], pred_mean[valid], atol=2.0)
+
+
+def test_combine_bayesian():
+    cal1 = _fit_mcmc(seed=1)
+    cal2 = _fit_mcmc(seed=2)
+    x_grid = np.linspace(TEST_XMIN + 0.5, TEST_XMAX - 0.5, 50)
+    mean, lo, hi = combine_bayesian([cal1, cal2], x_grid, sigma_bias=0.0)
+    mean1 = np.asarray(cal1(x_grid))
+    mean2 = np.asarray(cal2(x_grid))
+    between = (np.minimum(mean1, mean2) + np.maximum(mean1, mean2)) / 2
+    assert np.all(np.isfinite(mean))
+    ci_width_combined = np.asarray(hi) - np.asarray(lo)
+    _, lo1, hi1 = cal1.predict(x_grid)
+    _, lo2, hi2 = cal2.predict(x_grid)
+    ci_width_1 = np.asarray(hi1) - np.asarray(lo1)
+    ci_width_2 = np.asarray(hi2) - np.asarray(lo2)
+    min_individual = np.minimum(ci_width_1, ci_width_2)
+    assert np.all(ci_width_combined <= min_individual + 1e-6)
+
+
+def test_combine_empirical_bayes():
+    cal1 = _fit_mcmc(seed=1)
+    cal2 = _fit_mcmc(seed=2)
+    x_grid = np.linspace(TEST_XMIN + 0.5, TEST_XMAX - 0.5, 50)
+    mean, lo, hi, sigma_bias = combine_empirical_bayes([cal1, cal2], x_grid)
+    assert sigma_bias >= 0
+    assert np.all(np.isfinite(mean))
+    assert np.all(np.asarray(lo) <= mean + 1e-6)
+    assert np.all(mean <= np.asarray(hi) + 1e-6)
+
+
+def test_linear_drying_rate():
+    cal = _fit_mcmc(seed=42)
+    x_grid = np.linspace(TEST_XMIN, TEST_XMAX, 50)
+    true_y = TEST_EXPONENTIAL_FUNCTION(x_grid)
+    true_rate = true_y[-1] - true_y[0]
+    n = 20
+    t_days = np.linspace(0, 1, n)
+    t_ms = t_days * 24 * 3600 * 1000
+    voltages = np.linspace(TEST_XMIN + 0.5, TEST_XMAX - 0.5, n)
+    result = linear_drying_rate(cal, t_ms, voltages)
+    assert result is not None
+    assert result["n_points"] == n
+    assert np.isfinite(result["rate_ml_per_day"])
+    assert result["rate_ci_low"] <= result["rate_ml_per_day"]
+    assert result["rate_ml_per_day"] <= result["rate_ci_high"]

@@ -49,8 +49,9 @@ def mcmc_log_likelihood(
     )
     if np.any(mu_c <= 0):
         return -np.inf
+    log_mu_c = np.log(mu_c) - sigma**2 / 2
     ll += np.sum(
-        -0.5 * ((np.log(delta_swc) - np.log(mu_c)) / sigma) ** 2
+        -0.5 * ((np.log(delta_swc) - log_mu_c) / sigma) ** 2
         - log_sigma
         - np.log(delta_swc)
         - 0.5 * np.log(2 * np.pi)
@@ -369,6 +370,27 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         if self._debug:
             _logger.debug(self._diagnostic_dump(data, pos, "post-fit diagnostic"))
         return self
+
+    def posterior_samples_at(self, x, n=None):
+        x = np.atleast_1d(x)
+        if n is not None and n < len(self._scale_s):
+            idx = np.random.choice(len(self._scale_s), n, replace=False)
+            return samples_at(
+                x,
+                self._scale_s[idx],
+                self._k_s[idx],
+                self._f_int_s[idx],
+                self._xmin_arr[idx],
+                self._xmax,
+            )
+        return samples_at(
+            x,
+            self._scale_s,
+            self._k_s,
+            self._f_int_s,
+            self._xmin_arr,
+            self._xmax,
+        )
 
     def _diagnostic_dump(self, data, pos, exc):
         xs = data["x_starts"]

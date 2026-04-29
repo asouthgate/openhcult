@@ -14,8 +14,9 @@ export default function Sensors() {
   const [calibration, setCalibration] = useState(null)
   const [calibError, setCalibError] = useState(null)
   const [calibLoading, setCalibLoading] = useState(false)
+  const [dryingRate, setDryingRate] = useState(null)
   const [calibParams, setCalibParams] = useState({
-    offsetMin: '5', widthMin: '50', gpStdMl: '50', scalePriorMean: '', scalePriorStd: '', prior: 'power', priorMin: '867', priorMax: '2009', priorAlpha: '5.4523129367441685', estimator: 'exp_mcmc', priorWeight: '1.0', nBurn: '10', nSteps: '30', xminLow: '800', xminHigh: '1100',
+    offsetMin: '5', widthMin: '50', prior: 'power', priorMin: '867', priorMax: '2009', priorAlpha: '5.4523129367441685', estimator: 'exp_mcmc', priorWeight: '1.0', nBurn: '10', nSteps: '30', xminLow: '800', xminHigh: '1100',
   })
 
   const autoStdSet = useRef(false)
@@ -46,29 +47,27 @@ export default function Sensors() {
     autoStdSet.current = false
   }
 
+  const isCombined = sensorFilter === '__combined__'
+
   useEffect(() => {
-    if (!plantFilter) { setCalibration(null); setCalibError(null); return }
+    if (!plantFilter) { setCalibration(null); setCalibError(null); setDryingRate(null); return }
     const controller = new AbortController()
     setCalibLoading(true)
     setCalibError(null)
-    const { offsetMin, widthMin, gpStdMl, scalePriorMean, scalePriorStd, prior, priorMin, priorMax, priorAlpha, estimator, priorWeight, nBurn, nSteps, xminLow, xminHigh } = calibParams
+    const { offsetMin, widthMin, prior, priorMin, priorMax, priorAlpha, estimator, priorWeight, nBurn, nSteps, xminLow, xminHigh } = calibParams
     const params = new URLSearchParams({
       plant: plantFilter,
       offset_ms: Number(offsetMin) * 60 * 1000,
       width_ms: Number(widthMin) * 60 * 1000,
     })
-    if (sensorFilter) {
+    if (isCombined) {
+      params.set('combined', 'true')
+    } else if (sensorFilter) {
       const sep = sensorFilter.lastIndexOf(':')
       params.set('sensor', sensorFilter.slice(sep + 1))
       params.set('device_address', sensorFilter.slice(0, sep))
     }
-    if (estimator !== 'gp') params.set('estimator', estimator)
-    if (estimator === 'gp') {
-      params.set('gp_std_ml', Number(gpStdMl))
-      if (scalePriorMean !== '') params.set('scale_prior_mean', scalePriorMean)
-      if (scalePriorStd !== '') params.set('scale_prior_std', scalePriorStd)
-    }
-    if (estimator === 'powerlaw' && priorWeight !== '') params.set('prior_weight', priorWeight)
+    if (estimator !== 'exp_mcmc') params.set('estimator', estimator)
     if (estimator === 'exponential' && priorWeight !== '') params.set('prior_weight', priorWeight)
     if (estimator === 'exp_mcmc') {
       if (priorWeight !== '') params.set('prior_weight', priorWeight)
@@ -90,15 +89,22 @@ export default function Sensors() {
     apiJson(`/water_calibration?${params}`, { signal: controller.signal })
       .then(d => {
         setCalibration(d)
-        if (!autoStdSet.current && d.chords_dy?.length > 0) {
-          const mean = d.chords_dy.reduce((a, b) => a + b, 0) / d.chords_dy.length
-          setCalibParam('gpStdMl', String(Math.round(mean)))
-          if (d.chords_x?.length > 0) {
-            const endpoints = d.chords_x.map((x, i) => x + (d.chords_dx?.[i] ?? 0))
-            setCalibParam('priorMin', String(Math.round(Math.min(...d.chords_x, ...endpoints))))
-          }
+        if (!autoStdSet.current && d.chords_x?.length > 0) {
+          const endpoints = d.chords_x.map((x, i) => x + (d.chords_dx?.[i] ?? 0))
+          setCalibParam('priorMin', String(Math.round(Math.min(...d.chords_x, ...endpoints))))
           autoStdSet.current = true
         }
+        const drParams = new URLSearchParams({ plant: plantFilter, offset_ms: Number(offsetMin) * 60 * 1000, width_ms: Number(widthMin) * 60 * 1000 })
+        if (isCombined) drParams.set('combined', 'true')
+        else if (sensorFilter) { const sep = sensorFilter.lastIndexOf(':'); drParams.set('sensor', sensorFilter.slice(sep + 1)); drParams.set('device_address', sensorFilter.slice(0, sep)) }
+        if (priorMin !== '') drParams.set('prior_min', priorMin)
+        if (priorMax !== '') drParams.set('prior_max', priorMax)
+        if (prior !== 'calibrated') drParams.set('prior', prior)
+        if (prior === 'power' && priorAlpha !== '') drParams.set('prior_alpha', priorAlpha)
+        if (estimator !== 'exp_mcmc') drParams.set('estimator', estimator)
+        if (priorWeight !== '') drParams.set('prior_weight', priorWeight)
+        if (estimator === 'exp_mcmc') { if (nBurn !== '') drParams.set('n_burn', nBurn); if (nSteps !== '') drParams.set('n_steps', nSteps); if (xminLow !== '') drParams.set('xmin_low', xminLow); if (xminHigh !== '') drParams.set('xmin_high', xminHigh) }
+        apiJson(`/drying_rate?${drParams}`, { signal: controller.signal }).then(dr => setDryingRate(dr)).catch(() => setDryingRate(null))
       })
       .catch(err => { if (err.name !== 'AbortError') { setCalibration(null); setCalibError(String(err)) } })
       .finally(() => setCalibLoading(false))
@@ -121,6 +127,7 @@ export default function Sensors() {
           {sensorsForPlant.length > 0 && (
             <select value={sensorFilter} onChange={e => handleSensorChange(e.target.value)}>
               <option value="">All sensors</option>
+              <option value="__combined__">Combined</option>
               {sensorsForPlant.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
             </select>
           )}
@@ -133,11 +140,12 @@ export default function Sensors() {
             plantFilter={plantFilter} sensorFilter={sensorFilter} calibration={calibration}
             sensorAssignedAt={sensorsForPlant.find(s => s.key === sensorFilter)?.assignedAt ?? null}
             calibParams={calibParams} setCalibParam={setCalibParam} plantSensors={plantSensors}
+            dryingRate={dryingRate}
           />
         : <CalibrationPane
             plantFilter={plantFilter} sensorFilter={sensorFilter}
             calibration={calibration} calibError={calibError} calibLoading={calibLoading}
-            calibParams={calibParams} setCalibParam={setCalibParam}
+            calibParams={calibParams} setCalibParam={setCalibParam} dryingRate={dryingRate}
           />
       }
     </div>
