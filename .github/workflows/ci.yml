@@ -42,9 +42,10 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Install pytest
+      - name: Install pytest and dependencies
         run: |
           pip install pytest psycopg
+          pip install ./hcultinf
 
       - name: Run Smoke Test Script
         env:
