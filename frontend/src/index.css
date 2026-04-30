@@ -445,6 +445,12 @@ section.pane-grid h3 {
   border-color: var(--orange);
 }
 
+.pane-grid .full.error {
+  color: #f87171;
+  font-size: 14px;
+  padding: 16px;
+}
+
 .login .error {
   color: #f87171;
   font-size: 12px;

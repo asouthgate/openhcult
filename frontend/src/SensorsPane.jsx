@@ -52,9 +52,8 @@ function ObservationsTable({ observations, sensorAssignedAt, calibration, onDele
 }
 
 export default function SensorsPane({
-  plantFilter, sensorFilter, sensorAssignedAt, calibration, calibParams, setCalibParam, plantSensors, dryingRate, combinedSwc,
+  plantFilter, sensorFilter, sensorAssignedAt, calibration, calibParams, setCalibParam, plantSensors, dryingRate, combinedSwc, calibLoading, calibError, rangeHours, setRangeHours,
 }) {
-  const [rangeHours, setRangeHours] = useState(48)
   const [measureMode, setMeasureMode] = useState('voltage')
   const [series, setSeries] = useState([])
   const [observations, setObservations] = useState([])
@@ -102,11 +101,12 @@ export default function SensorsPane({
       .finally(() => setLoading(false))
   }, [rangeHours, plantFilter, sensorFilter, plantSensors])
 
-  const { mappedSeries, bands } = useMemo(() => {
+  const { mappedSeries, bands, combinedReady } = useMemo(() => {
     const isWaterMode = measureMode === 'water' || measureMode === 'water_pct'
-    const isCombinedWater = isCombined && isWaterMode && combinedSwc
+    const isCombinedWater = isCombined && isWaterMode
 
     if (isCombinedWater) {
+      if (!combinedSwc || !combinedSwc.times_ms?.length) return { mappedSeries: [], bands: [], combinedReady: false }
       const scale = combinedSwc.scale ?? 1
       const toV = ml => toWater(ml, scale, measureMode === 'water_pct')
       const ref = combinedSwc.mean_swc[combinedSwc.mean_swc.length - 1] ?? 0
@@ -114,7 +114,9 @@ export default function SensorsPane({
         const v = combinedSwc.mean_swc[i]
         return { t, v: v != null ? toV(v - ref) : null, raw: 0 }
       })
-      const swcSeries = { label: 'Combined SWC', points: points.filter(p => p.v != null), color: '#d0fffc' }
+      const validPoints = points.filter(p => p.v != null)
+      if (!validPoints.length) return { mappedSeries: [], bands: [], combinedReady: false }
+      const swcSeries = { label: 'Combined SWC', points: validPoints, color: '#d0fffc' }
       const swcBands = [{
         color: '#d0fffc',
         points: combinedSwc.times_ms.map((t, i) => ({
@@ -123,7 +125,7 @@ export default function SensorsPane({
           hi: combinedSwc.ci_high[i] != null ? toV(combinedSwc.ci_high[i] - ref) : null,
         })).filter(p => p.lo != null && p.hi != null),
       }]
-      return { mappedSeries: [swcSeries], bands: swcBands }
+      return { mappedSeries: [swcSeries], bands: swcBands, combinedReady: true }
     }
 
     const isWater = isWaterMode && calibration
@@ -139,7 +141,7 @@ export default function SensorsPane({
       }),
     }))
 
-    if (!isWater) return { mappedSeries: ms, bands: [] }
+    if (!isWater) return { mappedSeries: ms, bands: [], combinedReady: true }
 
     const loArr = calibration.ci_low ?? calibration.mean.map((m, i) => m - 2 * (calibration.std?.[i] ?? 0))
     const hiArr = calibration.ci_high ?? calibration.mean.map((m, i) => m + 2 * (calibration.std?.[i] ?? 0))
@@ -151,7 +153,7 @@ export default function SensorsPane({
         hi: toV(interp(p.raw, calibration.prior_x, hiArr)),
       })),
     }))
-    return { mappedSeries: ms, bands: bs }
+    return { mappedSeries: ms, bands: bs, combinedReady: true }
   }, [series, measureMode, calibration, isCombined, combinedSwc])
 
   const submitWatering = () => {
@@ -182,6 +184,24 @@ export default function SensorsPane({
       <div className="full">
         {loading
           ? <div className="loading">Loading…</div>
+          : isCombined && (measureMode === 'water' || measureMode === 'water_pct')
+            ? calibLoading
+              ? <div className="loading"><span className="spinner" />Computing combined SWC…</div>
+              : calibError
+                ? <div className="full error">{calibError}</div>
+                : !combinedReady
+                  ? <div className="empty">No combined SWC data available.</div>
+                  : <TimeseriesChart
+                      series={mappedSeries}
+                      bands={bands}
+                      observations={sensorAssignedAt != null ? observations.filter(o => new Date(o.observed_at).getTime() >= sensorAssignedAt) : observations}
+                      rangeMs={rangeHours * 3600 * 1000}
+                      onTimePick={t => { setPendingTime(t); setPendingPlant(plantFilter || ''); setPendingMl('') }}
+                      pendingTime={pendingTime}
+                      yLabel={Y_LABELS[measureMode]}
+                      eventWindowOffset={Number(calibParams.offsetMin) * 60 * 1000}
+                      eventWindowWidth={Number(calibParams.widthMin) * 60 * 1000}
+                    />
           : series.length === 0
             ? <div className="empty">No data in range.</div>
             : <TimeseriesChart

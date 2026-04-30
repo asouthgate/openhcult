@@ -57,11 +57,10 @@ export default function CalibrationParams({ calibParams, setCalibParam }) {
             <div className="range-btns">
               <button className={prior === 'calibrated' ? 'active' : ''} onClick={() => setCalibParam('prior', 'calibrated')}>calibrated</button>
               <button className={prior === 'linear' ? 'active' : ''} onClick={() => setCalibParam('prior', 'linear')}>linear</button>
-              <button className={prior === 'power' ? 'active' : ''} onClick={() => setCalibParam('prior', 'power')}>power</button>
             </div>
           </td>
         </tr>
-        {(prior === 'linear' || prior === 'power') && <>
+        {prior === 'linear' && <>
           <tr>
             <td>prior min</td>
             <td><input type="number" className="param-input" value={priorMin} onChange={e => setCalibParam('priorMin', e.target.value)} placeholder="mV" /></td>
@@ -73,13 +72,6 @@ export default function CalibrationParams({ calibParams, setCalibParam }) {
             <td>mV</td>
           </tr>
         </>}
-        {prior === 'power' && (
-          <tr>
-            <td>α</td>
-            <td><input type="number" min="0.01" step="0.05" className="param-input" value={priorAlpha} onChange={e => setCalibParam('priorAlpha', e.target.value)} /></td>
-            <td></td>
-          </tr>
-        )}
       </tbody>
     </table>
   )
