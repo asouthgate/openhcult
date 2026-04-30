@@ -10,8 +10,12 @@ To run the unit tests:
 bash tests/run_unit_tests.sh
 ```
 
-To run the smoke tests with docker-compose:
+To run the smoke tests:
 
 ```
-python3 tests/run_docker_smoke_tests.py
+# Locally (requires ctrl running)
+python3 dev.py test
+
+# Full CI (builds docker, tests, tears down)
+python3 dev.py ci
 ```

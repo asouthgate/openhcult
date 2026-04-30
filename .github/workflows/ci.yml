@@ -45,18 +45,14 @@ jobs:
       - name: Install pytest and dependencies
         run: |
           pip install pytest psycopg
-          pip install ./hcultinf
+          pip install ./hcultinf ./hcultdb ./hcultctrl
 
-      - name: Run Smoke Test Script
+      - name: Run Smoke Tests
         env:
           OPENHCULT_COMPOSE_CMD: "docker compose"
           OPENHCULT_BASE_URL: "http://127.0.0.1:8000"
-          OPENHCULT_SMOKE_TIMEOUT_S: "120"
-          # CICD dummy user/pass
-          OPENHCULT_SMOKE_DB_URL: "postgresql://hcult:hcult@postgres:5432/hcult"
-        run: |
-          chmod +x tests/run_docker_smoke_tests.py
-          python3 tests/run_docker_smoke_tests.py
+          OPENHCULT_TIMEOUT: "120"
+        run: python3 dev.py ci
 
       - name: Cleanup on Failure
         if: failure()
