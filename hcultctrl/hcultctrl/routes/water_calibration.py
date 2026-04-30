@@ -541,11 +541,24 @@ def combined_swc_timeseries(
         len(all_times),
     )
 
+    per_sensor_swc = []
+    for cal, volts in zip(calibrators, voltages_per_sensor):
+        mean_swc = cal(volts)
+        std_swc = cal.std(volts)
+        per_sensor_swc.append(
+            {
+                "mean_swc": _to_json_safe(mean_swc),
+                "ci_low": _to_json_safe(mean_swc - 1.96 * std_swc),
+                "ci_high": _to_json_safe(mean_swc + 1.96 * std_swc),
+            }
+        )
+
     return {
-        "times_ms": all_times,
+        "times_ms": [int(v) for v in all_times],
         "mean_swc": _to_json_safe(fused["mean"]),
         "ci_low": _to_json_safe(fused["ci_low"]),
         "ci_high": _to_json_safe(fused["ci_high"]),
         "n_sensors": fused["n_sensors"].tolist(),
         "scale": float(calibrators[0].scale),
+        "per_sensor_swc": per_sensor_swc,
     }

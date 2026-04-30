@@ -136,57 +136,33 @@ def test_combined_water_between_individual_sensors(seeded_db):
     now_ms = int(time.time() * 1000)
     start_ms = now_ms - 7 * 24 * 3600 * 1000
 
-    cap1 = request_json(
-        f"/swc_timeseries?plant={_FIDDLE_LEAF}&sensor=capacitive1"
-        f"&device_address={_FIDDLE_DEVICE}&prior=calibrated"
-        f"&start_ms={start_ms}&end_ms={now_ms}"
-    )
-    cap2 = request_json(
-        f"/swc_timeseries?plant={_FIDDLE_LEAF}&sensor=capacitive2"
-        f"&device_address={_FIDDLE_DEVICE}&prior=calibrated"
-        f"&start_ms={start_ms}&end_ms={now_ms}"
-    )
     combined = request_json(
         f"/combined_swc_timeseries?plant={_FIDDLE_LEAF}&prior=calibrated"
         f"&start_ms={start_ms}&end_ms={now_ms}"
     )
 
-    cap1_vals = [m for m in cap1["mean_swc"] if m is not None]
-    cap2_vals = [m for m in cap2["mean_swc"] if m is not None]
-    combined_vals = [m for m in combined["mean_swc"] if m is not None]
+    fused_swc = np.array([v if v is not None else np.nan for v in combined["mean_swc"]])
+    sensor_swcs = []
+    for ps in combined["per_sensor_swc"]:
+        arr = np.array([v if v is not None else np.nan for v in ps["mean_swc"]])
+        sensor_swcs.append(arr)
 
-    for label, vals in [
-        ("cap1", cap1_vals),
-        ("cap2", cap2_vals),
-        ("combined", combined_vals),
+    for label, vals in [("fused", fused_swc)] + [
+        (f"sensor{i}", s) for i, s in enumerate(sensor_swcs)
     ]:
-        arr = np.array(vals)
+        finite = vals[np.isfinite(vals)]
         print(
-            f"{label}: n={len(arr)} mean={arr.mean():.2f} std={arr.std():.2f}"
-            f" min={arr.min():.2f} max={arr.max():.2f}"
+            f"{label}: n={len(finite)} mean={finite.mean():.2f} std={finite.std():.2f}"
+            f" min={finite.min():.2f} max={finite.max():.2f}"
         )
 
-    def _interp(times, swc, query_times):
-        t = np.array(times)
-        s = np.array(swc)
-        mask = np.isfinite(s)
-        return np.interp(query_times, t[mask], s[mask], left=np.nan, right=np.nan)
+    valid = np.isfinite(fused_swc)
+    for s in sensor_swcs:
+        valid &= np.isfinite(s)
 
-    combined_times = np.array(combined["times_ms"])
-    combined_swc = np.array(
-        [v if v is not None else np.nan for v in combined["mean_swc"]]
-    )
-    cap1_interp = _interp(cap1["times_ms"], cap1["mean_swc"], combined_times)
-    cap2_interp = _interp(cap2["times_ms"], cap2["mean_swc"], combined_times)
-
-    valid = (
-        np.isfinite(combined_swc) & np.isfinite(cap1_interp) & np.isfinite(cap2_interp)
-    )
-    lo = np.minimum(cap1_interp[valid], cap2_interp[valid])
-    hi = np.maximum(cap1_interp[valid], cap2_interp[valid])
-    between_count = int(
-        np.sum((combined_swc[valid] >= lo) & (combined_swc[valid] <= hi))
-    )
+    lo = np.minimum(sensor_swcs[0][valid], sensor_swcs[1][valid])
+    hi = np.maximum(sensor_swcs[0][valid], sensor_swcs[1][valid])
+    between_count = int(np.sum((fused_swc[valid] >= lo) & (fused_swc[valid] <= hi)))
     total_count = int(valid.sum())
 
     print(f"overlap points: {total_count}, between: {between_count}")
