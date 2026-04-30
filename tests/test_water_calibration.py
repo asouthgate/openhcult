@@ -3,6 +3,7 @@ import uuid
 from datetime import datetime, timezone
 from urllib.error import HTTPError
 
+import numpy as np
 import pytest
 
 from hcultinf.simulation import simulate_plant_moisture
@@ -159,31 +160,36 @@ def test_combined_water_between_individual_sensors(seeded_db):
         ("cap2", cap2_vals),
         ("combined", combined_vals),
     ]:
-        arr = __import__("numpy").array(vals)
+        arr = np.array(vals)
         print(
             f"{label}: n={len(arr)} mean={arr.mean():.2f} std={arr.std():.2f}"
             f" min={arr.min():.2f} max={arr.max():.2f}"
         )
 
-    cap1_by_time = {
-        t: m for t, m in zip(cap1["times_ms"], cap1["mean_swc"]) if m is not None
-    }
-    cap2_by_time = {
-        t: m for t, m in zip(cap2["times_ms"], cap2["mean_swc"]) if m is not None
-    }
+    def _interp(times, swc, query_times):
+        t = np.array(times)
+        s = np.array(swc)
+        mask = np.isfinite(s)
+        return np.interp(query_times, t[mask], s[mask], left=np.nan, right=np.nan)
 
-    between_count = 0
-    for t, c_swc in zip(combined["times_ms"], combined["mean_swc"]):
-        if c_swc is None:
-            continue
-        s1 = cap1_by_time.get(t)
-        s2 = cap2_by_time.get(t)
-        if s1 is None or s2 is None:
-            continue
-        lo, hi = min(s1, s2), max(s1, s2)
-        if lo <= c_swc <= hi:
-            between_count += 1
+    combined_times = np.array(combined["times_ms"])
+    combined_swc = np.array(
+        [v if v is not None else np.nan for v in combined["mean_swc"]]
+    )
+    cap1_interp = _interp(cap1["times_ms"], cap1["mean_swc"], combined_times)
+    cap2_interp = _interp(cap2["times_ms"], cap2["mean_swc"], combined_times)
 
+    valid = (
+        np.isfinite(combined_swc) & np.isfinite(cap1_interp) & np.isfinite(cap2_interp)
+    )
+    lo = np.minimum(cap1_interp[valid], cap2_interp[valid])
+    hi = np.maximum(cap1_interp[valid], cap2_interp[valid])
+    between_count = int(
+        np.sum((combined_swc[valid] >= lo) & (combined_swc[valid] <= hi))
+    )
+    total_count = int(valid.sum())
+
+    print(f"overlap points: {total_count}, between: {between_count}")
     assert (
         between_count > 0
     ), "combined SWC should fall between individual sensor SWC at overlapping times"
