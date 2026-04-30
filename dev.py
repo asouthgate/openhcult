@@ -9,6 +9,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 from urllib.request import urlopen, Request
 from urllib.error import URLError
 
@@ -24,13 +25,15 @@ VENV_PYTHON = os.path.join(REPO_ROOT, ".venv", "bin", "python")
 VENV_BIN = os.path.join(REPO_ROOT, ".venv", "bin")
 TIMEOUT = int(os.environ.get("OPENHCULT_TIMEOUT", "30"))
 DEV_PASSWORD = "dev"
-PID_DIR = os.path.join(REPO_ROOT, ".dev")
 
 DEFAULT_TESTS = [
     "tests/test_api.py",
     "tests/test_seed_visualisation.py",
     "tests/test_water_calibration.py",
 ]
+
+_proc_ctrl = None
+_proc_frontend = None
 
 
 def _color(text, code):
@@ -53,32 +56,27 @@ def _compose(*args):
     subprocess.run([*COMPOSE_CMD, *args], check=True)
 
 
-def _pid_file(name):
-    return os.path.join(PID_DIR, f"{name}.pid")
+def _stop_children():
+    global _proc_ctrl, _proc_frontend
+    for p in (_proc_ctrl, _proc_frontend):
+        if p is None:
+            continue
+        try:
+            p.terminate()
+            p.wait(timeout=5)
+        except Exception:
+            try:
+                p.kill()
+            except Exception:
+                pass
+    _proc_ctrl = None
+    _proc_frontend = None
 
 
-def _read_pid(name):
-    path = _pid_file(name)
-    try:
-        return int(Path(path).read_text().strip())
-    except (ValueError, OSError, FileNotFoundError):
-        return None
-
-
-def _write_pid(name, pid):
-    os.makedirs(PID_DIR, exist_ok=True)
-    Path(_pid_file(name)).write_text(str(pid))
-
-
-def _kill_pid(name):
-    pid = _read_pid(name)
-    if pid is None:
-        return
-    try:
-        os.kill(pid, signal.SIGTERM)
-    except ProcessLookupError:
-        pass
-    Path(_pid_file(name)).unlink(missing_ok=True)
+def _shutdown():
+    _stop_children()
+    _compose("down", "--remove-orphans")
+    print(gray("Stopped all services"))
 
 
 def _wait_for_postgres():
@@ -121,7 +119,6 @@ def _ctrl_running():
 def _reset_db():
     import psycopg
     from hcultdb import setup
-    from urllib.parse import urlparse
 
     parsed = urlparse(DB_URL)
     postgres_url = f"postgresql://{parsed.username}:{parsed.password}@{parsed.hostname}:{parsed.port or 5432}/postgres"
@@ -209,24 +206,31 @@ def _run_tests(password, test_paths):
     raise SystemExit(result.returncode)
 
 
-def cmd_up(_args):
+def cmd_start(_args):
+    _stop_children()
+
+    def _sig_handler(_sig, _frame):
+        _shutdown()
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGINT, _sig_handler)
+    signal.signal(signal.SIGTERM, _sig_handler)
+
     _compose("up", "-d", "postgres")
     _wait_for_postgres()
     print(gray("Ensuring database schema..."))
     from hcultdb import setup
 
     setup.setup_db(DB_URL)
-    print(green("Schema ok"))
 
-    os.makedirs(PID_DIR, exist_ok=True)
-    _kill_pid("ctrl")
+    global _proc_ctrl, _proc_frontend
+
     env = {
         **os.environ,
         "HCULT_CONFIG_PATH": DEV_CONF,
         "HCULT_CALIBRATION_CSV": CALIB_CSV,
     }
-    log = open(os.path.join(PID_DIR, "ctrl.log"), "w")
-    proc = subprocess.Popen(
+    _proc_ctrl = subprocess.Popen(
         [
             os.path.join(VENV_BIN, "uvicorn"),
             "hcultctrl.api:app",
@@ -241,45 +245,35 @@ def cmd_up(_args):
             os.path.join(REPO_ROOT, "hcultdb", "src"),
         ],
         env=env,
-        stdout=log,
-        stderr=log,
     )
-    _write_pid("ctrl", proc.pid)
-    print(green(f"Ctrl started (pid {proc.pid}, log: .dev/ctrl.log)"))
     _wait_for_ctrl()
     _setup_auth(DEV_PASSWORD)
 
-    _kill_pid("frontend")
     frontend_dir = os.path.join(REPO_ROOT, "frontend")
     vite = os.path.join(frontend_dir, "node_modules", ".bin", "vite")
     if not os.path.exists(vite):
         vite = "npx"
-    fe_log = open(os.path.join(PID_DIR, "frontend.log"), "w")
-    fe_proc = subprocess.Popen(
-        [vite, "run", "dev"], cwd=frontend_dir, stdout=fe_log, stderr=fe_log
-    )
-    _write_pid("frontend", fe_proc.pid)
-    print(green(f"Frontend started (pid {fe_proc.pid}, log: .dev/frontend.log)"))
+    _proc_frontend = subprocess.Popen([vite, "run", "dev"], cwd=frontend_dir)
+
     print()
     print(green("All services running:"))
     print(f"  API:      {CTRL_URL}")
     print(f"  Frontend: http://127.0.0.1:5173")
     print(f"  Login:    admin / {DEV_PASSWORD}")
-    print(f"  Logs:     {PID_DIR}/")
     print()
-    print(gray("Stop everything with: python3 dev.py down"))
+    print(gray("Press Ctrl+C to stop all services"))
 
-
-def cmd_down(_args):
-    _kill_pid("ctrl")
-    _kill_pid("frontend")
-    _compose("down", "--remove-orphans")
-    print(green("Stopped all services"))
+    try:
+        _proc_ctrl.wait()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        _shutdown()
 
 
 def cmd_test(args):
     if not _ctrl_running():
-        print(red("Ctrl is not running. Start it with: python3 dev.py up"))
+        print(red("Ctrl is not running. Start it with: python3 dev.py start"))
         raise SystemExit(1)
     password = os.environ.get("OPENHCULT_SMOKE_PASSWORD", DEV_PASSWORD)
     test_paths = args.tests or DEFAULT_TESTS
@@ -314,8 +308,7 @@ def main():
         description="Local development orchestrator for openhcult",
     )
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("up", help="Start postgres + ctrl + frontend, setup auth")
-    sub.add_parser("down", help="Stop all services")
+    sub.add_parser("start", help="Start postgres + ctrl + frontend. Ctrl+C to stop")
     test_p = sub.add_parser("test", help="Run smoke tests (resets DB, auto-auth)")
     test_p.add_argument(
         "tests", nargs="*", help="Test paths (default: all smoke tests)"
@@ -323,7 +316,7 @@ def main():
     ci_p = sub.add_parser("ci", help="Run full CI: build docker, test, teardown")
     ci_p.add_argument("tests", nargs="*", help="Test paths (default: all smoke tests)")
     args = parser.parse_args()
-    {"up": cmd_up, "down": cmd_down, "test": cmd_test, "ci": cmd_ci}[args.command](args)
+    {"start": cmd_start, "test": cmd_test, "ci": cmd_ci}[args.command](args)
 
 
 if __name__ == "__main__":

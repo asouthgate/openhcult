@@ -4,48 +4,20 @@ OpenHCult is robotics system for horticultural applications
 
 ## Development
 
-Start everything with one command (postgres, ctrl, frontend, auth):
+Start the full stack (postgres, ctrl with hot-reload, frontend with HMR):
 
 ```
 python3 dev.py start
 ```
 
-This brings up all services in the background, sets up auth, and prints
-URLs and credentials. Log files go to `.dev/`.
-
-Run smoke tests against the live services:
+Ctrl+C stops everything. Run tests in a separate terminal while it's running:
 
 ```
 python3 dev.py test
 ```
 
-Stop everything:
+Full CI (builds docker, tests, tears down):
 
 ```
-python3 dev.py stop
-```
-
-For hot-reload development with live logs, run services individually:
-
-```
-python3 dev.py up        # postgres only (one-time, persists)
-python3 dev.py ctrl      # ctrl in foreground with --reload
-python3 dev.py frontend  # frontend in foreground with HMR
-```
-
-Other commands: `status`, `init-db`, `reset-db`. Run `python3 dev.py -h` for details.
-
-## Running tests
-
-Unit tests:
-
-```
-bash tests/run_unit_tests.sh
-```
-
-Smoke tests:
-
-```
-python3 dev.py test    # against running services
-python3 dev.py ci      # full CI: build docker, test, teardown
+python3 dev.py ci
 ```
