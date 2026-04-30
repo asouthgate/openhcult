@@ -67,16 +67,15 @@ def _fetch_cord_data(
     prior,
     prior_min,
     prior_max,
-    prior_alpha,
 ):
     if sensor and not device_address:
         raise HTTPException(
             status_code=400,
             detail="device_address is required when sensor is specified",
         )
-    if prior not in ("calibrated", "linear", "power"):
+    if prior not in ("calibrated", "linear"):
         raise HTTPException(
-            status_code=400, detail="prior must be 'calibrated', 'linear', or 'power'"
+            status_code=400, detail="prior must be 'calibrated' or 'linear'"
         )
 
     obs = list(
@@ -139,10 +138,10 @@ def _fetch_cord_data(
     dx_arr = np.array([c[1] for c in chords])
     dy_arr = np.array([c[2] for c in chords])
 
-    if prior in ("linear", "power"):
+    if prior == "linear":
         prior_x = np.linspace(prior_min, prior_max, 500)
         t = (prior_x - prior_min) / (prior_max - prior_min)
-        prior_y = (1 - t) ** (1.0 if prior == "linear" else prior_alpha)
+        prior_y = 1.0 - t
         x_anchor = np.array([prior_max])
     else:
         csv_path = os.environ.get("HCULT_CALIBRATION_CSV")
@@ -238,7 +237,6 @@ def water_cord_data(
         prior,
         prior_min,
         prior_max,
-        prior_alpha,
     )
     return {
         "chords_x": d["x_arr"].tolist(),
@@ -262,7 +260,6 @@ def water_calibration(
     prior: str = "calibrated",
     prior_min: float | None = None,
     prior_max: float | None = None,
-    prior_alpha: float = 0.5,
     estimator: str = "exp_mcmc",
     prior_weight: float = 1.0,
     n_burn: int = 10,
@@ -276,10 +273,10 @@ def water_calibration(
             status_code=400,
             detail="estimator must be 'exponential' or 'exp_mcmc'",
         )
-    if prior in ("linear", "power") and (prior_min is None or prior_max is None):
+    if prior == "linear" and (prior_min is None or prior_max is None):
         raise HTTPException(
             status_code=400,
-            detail="prior_min and prior_max are required for linear and power priors",
+            detail="prior_min and prior_max are required for linear prior",
         )
 
     logger.info(
@@ -302,7 +299,6 @@ def water_calibration(
         prior,
         prior_min,
         prior_max,
-        prior_alpha,
     )
     cal = _build_calibrator(
         estimator,
@@ -361,7 +357,6 @@ def drying_rate(
     prior: str = "calibrated",
     prior_min: float | None = None,
     prior_max: float | None = None,
-    prior_alpha: float = 0.5,
     estimator: str = "exp_mcmc",
     prior_weight: float = 1.0,
     n_burn: int = 10,
@@ -405,7 +400,6 @@ def drying_rate(
         prior,
         prior_min,
         prior_max,
-        prior_alpha,
     )
     cal = _build_calibrator(
         estimator,
@@ -465,7 +459,6 @@ def combined_swc_timeseries(
     prior: str = "calibrated",
     prior_min: float | None = None,
     prior_max: float | None = None,
-    prior_alpha: float = 0.5,
     prior_weight: float = 1.0,
     n_burn: int = 10,
     n_steps: int = 30,
@@ -476,10 +469,10 @@ def combined_swc_timeseries(
     end_ms: int | None = None,
     conn=Depends(get_db_conn),
 ):
-    if prior in ("linear", "power") and (prior_min is None or prior_max is None):
+    if prior == "linear" and (prior_min is None or prior_max is None):
         raise HTTPException(
             status_code=400,
-            detail="prior_min and prior_max are required for linear and power priors",
+            detail="prior_min and prior_max are required for linear prior",
         )
 
     sensors = list(database.fetch_plant_sensors(conn, limit=1000))
@@ -501,9 +494,14 @@ def combined_swc_timeseries(
                 prior,
                 prior_min,
                 prior_max,
-                prior_alpha,
             )
-        except HTTPException:
+        except HTTPException as e:
+            logger.warning(
+                "combined_swc: calibration failed for %s/%s: %s",
+                ps["device_address"],
+                ps["sensor"],
+                e.detail,
+            )
             continue
         cal = _build_calibrator(
             "exp_mcmc",
@@ -543,6 +541,16 @@ def combined_swc_timeseries(
         )
     )
 
+    logger.info(
+        "combined_swc: plant=%s calibrators=%d sensor_keys=%s readings=%d start_ms=%s end_ms=%s",
+        plant,
+        len(calibrators),
+        sensor_keys,
+        len(all_readings),
+        start_time,
+        end_time,
+    )
+
     times_by_sensor = {}
     volts_by_sensor = {}
     for r in all_readings:
@@ -568,9 +576,23 @@ def combined_swc_timeseries(
         for t, v in zip(ts, vs):
             if t in time_idx:
                 arr[time_idx[t]] = v
+        logger.info(
+            "combined_swc: key=%s ts=%d vs=%d arr_non_nan=%d",
+            key,
+            len(ts),
+            len(vs),
+            int(np.isfinite(arr).sum()),
+        )
         voltages_per_sensor.append(arr)
 
     fused = fuse_swc(calibrators, voltages_per_sensor, sigma_bias=sigma_bias)
+
+    logger.info(
+        "combined_swc: fused mean_non_nan=%d ci_low_non_nan=%d times=%d",
+        int(np.isfinite(fused["mean"]).sum()),
+        int(np.isfinite(fused["ci_low"]).sum()),
+        len(all_times),
+    )
 
     return {
         "times_ms": all_times,
