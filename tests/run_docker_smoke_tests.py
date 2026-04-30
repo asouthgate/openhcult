@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
+import argparse as ap
 import json
 import os
 import secrets
 import subprocess
-import sys
 import time
 from urllib import request, error
 
@@ -59,8 +59,30 @@ def _setup_auth(password: str) -> None:
         resp.read()
 
 
+def _dump_logs():
+    _run(f"{COMPOSE_CMD} logs --no-color hcultctrl", check=False)
+
+
 def main() -> int:
-    interactive = "--interactive" in sys.argv or "-i" in sys.argv
+    args = ap.ArgumentParser(description="Run smoke tests against hcultctrl in Docker")
+    args.add_argument(
+        "-i",
+        "--interactive",
+        action="store_true",
+        help="Keep the stack running and stream logs after tests",
+    )
+    args.add_argument(
+        "-p",
+        "--password",
+        type=str,
+        default=secrets.token_urlsafe(12),
+        help="Password for the admin user (default: random)",
+    )
+
+    args = args.parse_args()
+    interactive = args.interactive
+    password = args.password
+
     _run(f"{COMPOSE_CMD} down -v --remove-orphans")
     _run(f"{COMPOSE_CMD} up --build -d")
     try:
@@ -71,22 +93,30 @@ def main() -> int:
             f"setup.setup_db('{DB_URL}')\""
         )
         _wait_for_ctrl()
-        _run("pytest -q tests/test_unauthenticated.py")
-        password = secrets.token_urlsafe(12)
+        _run("pytest -s -q tests/test_unauthenticated.py")
         _setup_auth(password)
         print(f"\nSmoke test credentials: admin / {password}\n")
         result = _run(
-            "pytest -q tests/test_api.py tests/test_seed_visualisation.py tests/test_water_calibration.py",
+            "pytest -s -q tests/test_api.py tests/test_seed_visualisation.py tests/test_water_calibration.py",
             extra_env={"OPENHCULT_SMOKE_PASSWORD": password},
         ).returncode
+        if result != 0:
+            _dump_logs()
+            return result
         if interactive:
             print(f"\nStack is up. Frontend: {CTRL_URL}/frontend/app/")
             print(f"Login: admin / {password}")
-            input("Press Enter to tear down.\n")
+            print("Streaming hcultctrl logs (Ctrl+C to stop)...\n")
+            try:
+                subprocess.run(
+                    f"{COMPOSE_CMD} logs -f --no-color hcultctrl",
+                    shell=True,
+                )
+            except KeyboardInterrupt:
+                pass
         return result
     except Exception:
-        _run(f"{COMPOSE_CMD} logs --no-color hcultctrl", check=False)
-        _run(f"{COMPOSE_CMD} logs --no-color postgres", check=False)
+        _dump_logs()
         raise
     finally:
         _run(f"{COMPOSE_CMD} down -v --remove-orphans", check=False)
