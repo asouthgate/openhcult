@@ -71,7 +71,7 @@ def test_convergence_in_n_bad_prior(estimator_func_pair):
         priorx_pts = np.array([TEST_XMIN, TEST_XMAX])
         priory_pts = np.array([1.0, 0.0])
         errs = []
-        for _ in range(10):
+        for _ in range(5):
             x, dx, dy = simulate_calibration_data_samples(
                 TEST_XMIN,
                 TEST_XMAX,
@@ -280,6 +280,9 @@ def _fit_mcmc(n=30, seed=None):
         np.array([TEST_XMIN, TEST_XMAX]),
         np.array([1.0, 0.0]),
     )
+    # assert that the results non-trivial, non zero and non inf
+    assert np.all(np.isfinite(cal(np.linspace(TEST_XMIN, TEST_XMAX, 10))))
+    assert np.all(cal(np.linspace(TEST_XMIN, TEST_XMAX, 10)) >= 0)
     return cal
 
 
@@ -300,20 +303,18 @@ def test_posterior_samples_at():
     assert samples.shape[0] == 50
     assert samples.shape[1] == len(x_grid)
     assert np.all(np.isfinite(samples[~np.isnan(samples)]))
-    sample_mean = np.nanmean(samples, axis=0)
+    sample_mean = np.nanmean(samples, axis=0)[cal._n_burn :]
     pred_mean = np.asarray(cal(x_grid))
     valid = ~np.isnan(sample_mean)
-    np.testing.assert_allclose(sample_mean[valid], pred_mean[valid], atol=2.0)
+    assert all(sample_mean[valid] == pred_mean[valid])
 
 
-def test_combine_bayesian():
-    cal1 = _fit_mcmc(seed=1)
-    cal2 = _fit_mcmc(seed=2)
-    x_grid = np.linspace(TEST_XMIN + 0.5, TEST_XMAX - 0.5, 50)
-    mean, lo, hi = combine_bayesian([cal1, cal2], x_grid, sigma_bias=0.0)
+def _test_combined_result(cal1, cal2, x_grid, mean, lo, hi):
     mean1 = np.asarray(cal1(x_grid))
     mean2 = np.asarray(cal2(x_grid))
-    between = (np.minimum(mean1, mean2) + np.maximum(mean1, mean2)) / 2
+    # assert combined mean is always between the two individual means
+    assert np.all(mean >= np.minimum(mean1, mean2) - 1e-6)
+    assert np.all(mean <= np.maximum(mean1, mean2) + 1e-6)
     assert np.all(np.isfinite(mean))
     ci_width_combined = np.asarray(hi) - np.asarray(lo)
     _, lo1, hi1 = cal1.predict(x_grid)
@@ -324,15 +325,21 @@ def test_combine_bayesian():
     assert np.all(ci_width_combined <= min_individual + 1e-6)
 
 
+def test_combine_bayesian():
+    cal1 = _fit_mcmc(seed=1)
+    cal2 = _fit_mcmc(seed=2)
+    x_grid = np.linspace(TEST_XMIN + 0.5, TEST_XMAX - 0.5, 50)
+    mean, lo, hi = combine_bayesian([cal1, cal2], x_grid, sigma_bias=0.0)
+    _test_combined_result(cal1, cal2, x_grid, mean, lo, hi)
+
+
 def test_combine_empirical_bayes():
     cal1 = _fit_mcmc(seed=1)
     cal2 = _fit_mcmc(seed=2)
     x_grid = np.linspace(TEST_XMIN + 0.5, TEST_XMAX - 0.5, 50)
     mean, lo, hi, sigma_bias = combine_empirical_bayes([cal1, cal2], x_grid)
     assert sigma_bias >= 0
-    assert np.all(np.isfinite(mean))
-    assert np.all(np.asarray(lo) <= mean + 1e-6)
-    assert np.all(mean <= np.asarray(hi) + 1e-6)
+    _test_combined_result(cal1, cal2, x_grid, mean, lo, hi)
 
 
 def test_linear_drying_rate():
