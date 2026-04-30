@@ -313,6 +313,63 @@ def water_calibration(p: CalibrationParams = Depends(), conn=Depends(get_db_conn
     }
 
 
+@router.get("/swc_timeseries")
+def swc_timeseries(
+    p: CalibrationParams = Depends(),
+    start_ms: int | None = None,
+    end_ms: int | None = None,
+    conn=Depends(get_db_conn),
+):
+    _validate_estimator(p.estimator)
+    _validate_linear_prior(p.prior, p.prior_min, p.prior_max)
+
+    if not p.sensor or not p.device_address:
+        raise HTTPException(
+            status_code=400, detail="sensor and device_address are required"
+        )
+
+    d, cal = _calibrate(conn, p)
+
+    end_time = end_ms if end_ms is not None else int(__import__("time").time() * 1000)
+    start_time = start_ms if start_ms is not None else (end_time - 48 * 3600 * 1000)
+
+    readings = list(
+        database.fetch_timeseries(
+            conn,
+            plant=p.plant,
+            sensor=p.sensor,
+            device=p.device_address,
+            start_ms=start_time,
+            end_ms=end_time,
+            limit=50000,
+        )
+    )
+    if len(readings) < 2:
+        raise HTTPException(
+            status_code=400,
+            detail="Not enough sensor readings in the specified time range",
+        )
+
+    times_ms = np.array([r["adjusted_time_ms"] for r in readings])
+    voltages_mv = np.array([r["voltage_mv"] for r in readings])
+    order = np.argsort(times_ms)
+    times_ms = times_ms[order]
+    voltages_mv = voltages_mv[order]
+
+    mean_swc = cal(voltages_mv)
+    std_swc = cal.std(voltages_mv)
+    ci_low = mean_swc - 1.96 * std_swc
+    ci_high = mean_swc + 1.96 * std_swc
+
+    return {
+        "times_ms": [int(v) for v in times_ms],
+        "mean_swc": _to_json_safe(mean_swc),
+        "ci_low": _to_json_safe(ci_low),
+        "ci_high": _to_json_safe(ci_high),
+        "scale": float(cal.scale),
+    }
+
+
 @router.get("/drying_rate")
 def drying_rate(
     p: CalibrationParams = Depends(),

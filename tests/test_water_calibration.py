@@ -120,3 +120,70 @@ def test_water_calibration_with_waterings(db_conn):
 
     request_json(f"/plants/{plant_name}", method="DELETE")
     request_json(f"/species/{species_name}", method="DELETE")
+
+
+_FIDDLE_LEAF = "fiddle-leaf-bedroom"
+_FIDDLE_DEVICE = "AA:11:22:33:44:02"
+
+
+def test_combined_water_between_individual_sensors(seeded_db):
+    if not os.path.exists(_CALIB_CSV):
+        pytest.skip("calib/calibration.csv not found")
+
+    import time
+
+    now_ms = int(time.time() * 1000)
+    start_ms = now_ms - 7 * 24 * 3600 * 1000
+
+    cap1 = request_json(
+        f"/swc_timeseries?plant={_FIDDLE_LEAF}&sensor=capacitive1"
+        f"&device_address={_FIDDLE_DEVICE}&prior=calibrated"
+        f"&start_ms={start_ms}&end_ms={now_ms}"
+    )
+    cap2 = request_json(
+        f"/swc_timeseries?plant={_FIDDLE_LEAF}&sensor=capacitive2"
+        f"&device_address={_FIDDLE_DEVICE}&prior=calibrated"
+        f"&start_ms={start_ms}&end_ms={now_ms}"
+    )
+    combined = request_json(
+        f"/combined_swc_timeseries?plant={_FIDDLE_LEAF}&prior=calibrated"
+        f"&start_ms={start_ms}&end_ms={now_ms}"
+    )
+
+    cap1_vals = [m for m in cap1["mean_swc"] if m is not None]
+    cap2_vals = [m for m in cap2["mean_swc"] if m is not None]
+    combined_vals = [m for m in combined["mean_swc"] if m is not None]
+
+    for label, vals in [
+        ("cap1", cap1_vals),
+        ("cap2", cap2_vals),
+        ("combined", combined_vals),
+    ]:
+        arr = __import__("numpy").array(vals)
+        print(
+            f"{label}: n={len(arr)} mean={arr.mean():.2f} std={arr.std():.2f}"
+            f" min={arr.min():.2f} max={arr.max():.2f}"
+        )
+
+    cap1_by_time = {
+        t: m for t, m in zip(cap1["times_ms"], cap1["mean_swc"]) if m is not None
+    }
+    cap2_by_time = {
+        t: m for t, m in zip(cap2["times_ms"], cap2["mean_swc"]) if m is not None
+    }
+
+    between_count = 0
+    for t, c_swc in zip(combined["times_ms"], combined["mean_swc"]):
+        if c_swc is None:
+            continue
+        s1 = cap1_by_time.get(t)
+        s2 = cap2_by_time.get(t)
+        if s1 is None or s2 is None:
+            continue
+        lo, hi = min(s1, s2), max(s1, s2)
+        if lo <= c_swc <= hi:
+            between_count += 1
+
+    assert (
+        between_count > 0
+    ), "combined SWC should fall between individual sensor SWC at overlapping times"

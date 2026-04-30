@@ -16,6 +16,9 @@ SEED_DSN = os.environ.get(
 
 _5MIN_MS = 5 * 60 * 1000
 
+_SENSOR2_DRY_MV = 2200
+_SENSOR2_WET_MV = 800
+
 PLANTS = [
     {
         "species": "Monstera deliciosa",
@@ -56,14 +59,14 @@ SENSORS = [
         "plant": "fiddle-leaf-bedroom",
         "address": "AA:11:22:33:44:02",
         "sensor": "capacitive2",
-        "base": SENSOR_DRY_MV,
-        "wet": SENSOR_WET_MV,
+        "base": _SENSOR2_DRY_MV,
+        "wet": _SENSOR2_WET_MV,
         "noise": 20,
     },
 ]
 
 
-def _simulate_plant_fc(p):
+def _simulate_plant_fc(p, n_days=30):
     result = simulate_plant_moisture(
         p["max_swc_ml"],
         base=1,
@@ -74,6 +77,7 @@ def _simulate_plant_fc(p):
         noise=0,
         response_fn=lambda fc: fc,
         rng=random.Random(42),
+        n_days=n_days,
     )
     readings, watering_times, ml_amounts, before_fcs, after_fcs = result
     fc_times = [(t, fc_val) for t, fc_val, _ in readings]
