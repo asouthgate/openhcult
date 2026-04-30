@@ -1,13 +1,6 @@
-import os
-import random
-import psycopg
 from hcultinf.simulation import simulate_plant_moisture
+from hcultdb import queries as database
 from test_utils import request_json, SENSOR_DRY_MV, SENSOR_WET_MV
-
-SEED_DSN = os.environ.get(
-    "OPENHCULT_SEED_DSN",
-    "postgresql://hcult:hcult@127.0.0.1:5432/hcult",
-)
 
 _PLANTS = [
     {
@@ -35,11 +28,10 @@ _PLANTS = [
         "drain_per_day": 0.05,
     },
 ]
-
 _5MIN_MS = 5 * 60 * 1000
 
 
-def test_seed_visualisation_data():
+def test_seed_visualisation_data(db_conn):
     for p in _PLANTS:
         request_json("/species", method="POST", payload={"name": p["species"]})
         request_json(
@@ -48,70 +40,49 @@ def test_seed_visualisation_data():
             payload={"plant_name": p["plant"], "species_name": p["species"]},
         )
 
-    with psycopg.connect(SEED_DSN) as conn:
-        with conn.cursor() as cur:
-            for p in _PLANTS:
-                cur.execute(
-                    "INSERT INTO devices (name, address) VALUES (%s, %s) "
-                    "ON CONFLICT (address) DO UPDATE SET name = EXCLUDED.name RETURNING id",
-                    (p["plant"], p["address"]),
-                )
-                device_id = cur.fetchone()[0]
+    for p in _PLANTS:
+        device_id = database.register_device(db_conn, p["plant"], p["address"])
+        plant_id = database.fetch_plant_by_name(db_conn, plant_name=p["plant"])["id"]
 
-                cur.execute(
-                    "SELECT id FROM plants WHERE plant_name = %s", (p["plant"],)
-                )
-                plant_id = cur.fetchone()[0]
+        database.assign_plant_sensor(
+            db_conn,
+            plant_id=plant_id,
+            device_id=device_id,
+            sensor=p["sensor"],
+            assigned_at=0,
+        )
 
-                cur.execute(
-                    "UPDATE plant_sensors SET unassigned_at = extract(epoch from now())::bigint * 1000 "
-                    "WHERE device_id = %s AND sensor = %s AND unassigned_at IS NULL",
-                    (device_id, p["sensor"]),
-                )
-                cur.execute(
-                    "INSERT INTO plant_sensors (plant_id, device_id, sensor) VALUES (%s, %s, %s)",
-                    (plant_id, device_id, p["sensor"]),
-                )
+        base, wet = p["base"], p["wet"]
 
-                base, wet = p["base"], p["wet"]
+        readings, watering_times, ml_amounts, before_vals, after_vals = (
+            simulate_plant_moisture(
+                p["max_swc_ml"],
+                base,
+                wet,
+                dose_frac_range=p["dose_frac_range"],
+                target_fc_range=p["target_wc_range"],
+                drain_per_day=p["drain_per_day"],
+            )
+        )
 
-                readings, watering_times, ml_amounts, before_vals, after_vals = (
-                    simulate_plant_moisture(
-                        p["max_swc_ml"],
-                        base,
-                        wet,
-                        dose_frac_range=p["dose_frac_range"],
-                        target_fc_range=p["target_wc_range"],
-                        drain_per_day=p["drain_per_day"],
-                    )
-                )
+        window_readings = [
+            (t - _5MIN_MS, bv) for t, bv in zip(watering_times, before_vals)
+        ] + [(t + _5MIN_MS, av) for t, av in zip(watering_times, after_vals)]
 
-                window_readings = [
-                    (t - _5MIN_MS, bv) for t, bv in zip(watering_times, before_vals)
-                ] + [(t + _5MIN_MS, av) for t, av in zip(watering_times, after_vals)]
+        database.write_sensor_readings(
+            db_conn,
+            device_id=device_id,
+            readings=[(p["sensor"], v, mv, t * 1000, t, t) for t, v, mv in readings]
+            + [(p["sensor"], v, v, t, t, t) for t, v in window_readings],
+        )
 
-                cur.executemany(
-                    "INSERT INTO sensor_readings "
-                    "(device_id, sensor, measurement, voltage_mv, measurement_time_us, collection_time_ms, adjusted_time_ms) "
-                    "VALUES (%s, %s, %s, %s, %s, %s, %s)",
-                    [
-                        (device_id, p["sensor"], v, mv, t * 1000, t, t)
-                        for t, v, mv in readings
-                    ]
-                    + [
-                        (device_id, p["sensor"], v, v, t, t, t)
-                        for t, v in window_readings
-                    ],
-                )
-                cur.executemany(
-                    "INSERT INTO observations (observed_at, note, plant_id) VALUES (%s, %s, %s)",
-                    [
-                        (t, f"WATER manual ml={round(ml)}", plant_id)
-                        for t, ml in zip(watering_times, ml_amounts)
-                    ],
-                )
-
-        conn.commit()
+        for t, ml in zip(watering_times, ml_amounts):
+            database.insert_observation(
+                db_conn,
+                note=f"WATER manual ml={round(ml)}",
+                observed_at_ms=int(t),
+                plant_name=p["plant"],
+            )
 
     series = request_json(f"/timeseries?limit=100&plant={_PLANTS[0]['plant']}")
     assert series["count"] > 0
