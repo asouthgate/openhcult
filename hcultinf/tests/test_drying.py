@@ -1,0 +1,150 @@
+import os
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from hcultinf.drying import drying_rate
+from hcultinf.simulation import simulate_plant_moisture
+
+
+def _ms_to_datetime64(times_ms):
+    return pd.to_datetime(times_ms, unit="ms").values
+
+
+def _simulate_drying_data(n_days=60):
+    readings, watering_times, ml_amounts, before_vals, after_vals = (
+        simulate_plant_moisture(
+            max_swc_ml=75.0,
+            base=3000,
+            wet=1000,
+            dose_frac_range=(0.4, 0.8),
+            target_fc_range=(0.05, 0.2),
+            drain_per_day=0.1,
+            noise=25,
+            n_days=n_days,
+            step_ms=30 * 60 * 1000,
+        )
+    )
+    times_ms = np.array([t for t, _, _ in readings])
+    values = np.array([mv for _, _, mv in readings], dtype=float)
+    times = _ms_to_datetime64(times_ms)
+    return times, values, watering_times
+
+
+def test_drying_rate_detects_events_and_drying():
+    times, values, watering_times = _simulate_drying_data()
+
+    result = drying_rate(
+        times,
+        values,
+        emwa_tau_minutes=30,
+        trigger_thresh=-0.75,
+        release_thresh=-0.70,
+    )
+
+    resampled_times = result["times"]
+    rate = result["rate"]
+    valid = result["valid"]
+
+    assert len(resampled_times) > 0
+    assert len(rate) == len(resampled_times)
+    assert len(valid) == len(resampled_times)
+    assert valid.sum() > 0
+    assert (~valid).sum() > 0
+
+    valid_rate = rate[valid]
+    mean_valid_rate = np.mean(valid_rate)
+    assert mean_valid_rate > 0, f"Expected positive drying rate, got {mean_valid_rate}"
+
+
+def test_drying_rate_event_regions_track_waterings():
+    times, values, watering_times = _simulate_drying_data()
+
+    result = drying_rate(
+        times,
+        values,
+        emwa_tau_minutes=30,
+        trigger_thresh=-0.75,
+        release_thresh=-0.70,
+    )
+
+    resampled_times = result["times"]
+    valid = result["valid"]
+
+    watering_dt = _ms_to_datetime64(np.array(watering_times))
+
+    near_watering = np.zeros(len(resampled_times), dtype=bool)
+    for wt in watering_dt[:5]:
+        near_watering |= np.abs(resampled_times - wt) < np.timedelta64(30, "m")
+
+    invalid_near_watering = (~valid) & near_watering
+    assert invalid_near_watering.sum() > 0
+
+
+def test_drying_rate_consistent_sign_in_valid_regions():
+    times, values, _ = _simulate_drying_data()
+
+    result = drying_rate(
+        times,
+        values,
+        emwa_tau_minutes=30,
+        trigger_thresh=-0.75,
+        release_thresh=-0.70,
+    )
+
+    valid_rate = result["rate"][result["valid"]]
+    positive_frac = np.mean(valid_rate > 0)
+    assert (
+        positive_frac > 0.7
+    ), f"Expected mostly positive rate during drying, got {positive_frac:.2f}"
+
+
+def test_drying_rate_too_few_points_raises():
+    t = pd.date_range("2026-03-17", periods=1, freq="1min").values
+    v = np.array([2000.0])
+    with pytest.raises(ValueError, match="at least 2"):
+        drying_rate(t, v)
+
+
+def test_drying_rate_plot():
+    times, values, watering_times = _simulate_drying_data(n_days=30)
+
+    result = drying_rate(
+        times,
+        values,
+        emwa_tau_minutes=30,
+        trigger_thresh=-0.75,
+        release_thresh=-0.70,
+    )
+
+    import matplotlib.pyplot as plt
+    from hcultinf.plot_style import apply_dark_theme, CLOUD_BLUE, ORANGE, YELLOW, MUTED
+
+    apply_dark_theme()
+
+    rt = result["times"]
+    rate = result["rate"]
+    valid = result["valid"]
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 8), sharex=True)
+
+    ax1.scatter(times, values, s=1, alpha=0.3, color=MUTED, label="raw")
+    ax1.set_ylabel("sensor value")
+    ax1.legend()
+
+    ax2.plot(rt, rate, color=ORANGE, label="rate (EWMA velocity)")
+    ax2.scatter(rt[valid], rate[valid], s=4, color=CLOUD_BLUE, label="valid (drying)")
+    ax2.scatter(rt[~valid], rate[~valid], s=4, color=YELLOW, label="event")
+    ax2.axhline(0, color=MUTED, linewidth=0.5)
+    ax2.set_ylabel("rate")
+    ax2.legend()
+
+    fig.suptitle("Drying rate: valid segments vs detected events")
+    fig.tight_layout()
+
+    os.makedirs("artifacts", exist_ok=True)
+    fig.savefig("artifacts/drying_rate.png")
+    if os.environ.get("HCULT_TEST_DEBUG_PLOT", "0") == "1":
+        plt.show()
+    plt.close(fig)
