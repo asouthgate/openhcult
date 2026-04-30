@@ -3,6 +3,7 @@ import argparse
 import json
 import os
 import secrets
+import shlex
 import subprocess
 import sys
 import time
@@ -15,7 +16,7 @@ DB_URL = os.environ.get(
 )
 
 CTRL_URL = os.environ.get("OPENHCULT_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
-COMPOSE_CMD = os.environ.get("OPENHCULT_COMPOSE_CMD", "docker-compose")
+COMPOSE_CMD = shlex.split(os.environ.get("OPENHCULT_COMPOSE_CMD", "docker-compose"))
 DEV_CONF = os.path.join(REPO_ROOT, "docker", "openhcult.dev.conf")
 CALIB_CSV = os.path.join(REPO_ROOT, "calib", "calibration.csv")
 VENV_PYTHON = os.path.join(REPO_ROOT, ".venv", "bin", "python")
@@ -45,7 +46,7 @@ def gray(text):
 
 
 def _compose(*args):
-    subprocess.run([COMPOSE_CMD, *args], check=True)
+    subprocess.run([*COMPOSE_CMD, *args], check=True)
 
 
 def _wait_for_postgres():
