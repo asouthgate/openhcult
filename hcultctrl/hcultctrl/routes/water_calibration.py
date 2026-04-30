@@ -15,7 +15,7 @@ from hcultdb import queries as database
 from hcultinf.exp import ExponentialCordCalibrator
 from hcultinf.exp_mcmc import ExponentialCordCalibratorMCMC
 from hcultinf.combiner import fuse_swc
-from hcultinf.drying import linear_drying_rate
+from hcultinf.drying import drying_rate as compute_drying_rate
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -248,6 +248,94 @@ def _calibrate(conn, p: CalibrationParams):
     return d, cal
 
 
+def _calibrate_all_sensors(conn, plant_name, params_base):
+    sensors = list(database.fetch_plant_sensors(conn, limit=1000))
+    plant_sensors = [s for s in sensors if s["plant_name"] == plant_name]
+    if not plant_sensors:
+        raise HTTPException(status_code=400, detail="No sensors found for this plant")
+
+    calibrators = []
+    sensor_keys = []
+    for ps in plant_sensors:
+        try:
+            p_cal = CalibrationParams(
+                **params_base, sensor=ps["sensor"], device_address=ps["device_address"]
+            )
+            _, cal = _calibrate(conn, p_cal)
+        except HTTPException as e:
+            logger.warning(
+                "calibration failed for %s/%s: %s",
+                ps["device_address"],
+                ps["sensor"],
+                e.detail,
+            )
+            continue
+        calibrators.append(cal)
+        sensor_keys.append((ps["device_address"], ps["sensor"]))
+
+    if not calibrators:
+        raise HTTPException(
+            status_code=400, detail="No sensors produced calibration data"
+        )
+
+    return calibrators, sensor_keys
+
+
+def _align_readings_by_sensor(all_readings, sensor_keys):
+    times_by_sensor = {}
+    volts_by_sensor = {}
+    for r in all_readings:
+        key = (r["device_address"], r["sensor"])
+        if key not in sensor_keys:
+            continue
+        times_by_sensor.setdefault(key, []).append(r["adjusted_time_ms"])
+        volts_by_sensor.setdefault(key, []).append(r["voltage_mv"])
+
+    all_times = (
+        sorted(set().union(*[set(v) for v in times_by_sensor.values()]))
+        if times_by_sensor
+        else []
+    )
+    n = len(all_times)
+    time_idx = {t: i for i, t in enumerate(all_times)}
+
+    voltages_per_sensor = []
+    for key in sensor_keys:
+        ts = times_by_sensor.get(key, [])
+        vs = volts_by_sensor.get(key, [])
+        arr = np.full(n, np.nan)
+        for t, v in zip(ts, vs):
+            if t in time_idx:
+                arr[time_idx[t]] = v
+        voltages_per_sensor.append(arr)
+
+    return all_times, voltages_per_sensor
+
+
+def _compute_drying_result(times_ms_arr, swc_values, scale):
+    import pandas as pd
+
+    times = pd.to_datetime(times_ms_arr, unit="ms").values
+    neg_swc = -swc_values
+    result = compute_drying_rate(
+        times,
+        neg_swc,
+        emwa_tau_minutes=30,
+        trigger_thresh=-0.15,
+        release_thresh=-0.10,
+        max_x_value=0.0,
+        min_x_value=-scale,
+    )
+    rate_ml_per_day = -result["rate"] * 1440.0
+    resampled_ms = (pd.to_datetime(result["times"]).astype(np.int64) // 10**6).tolist()
+    return {
+        "times_ms": resampled_ms,
+        "rate_ml_per_day": rate_ml_per_day.tolist(),
+        "valid": result["valid"].tolist(),
+        "scale": scale,
+    }
+
+
 @router.get("/water_cord_data")
 def water_cord_data(
     p: CordDataParams = Depends(),
@@ -397,8 +485,44 @@ def drying_rate(
     start_ms_time = int(start_dt.timestamp() * 1000)
     end_ms_time = int(end_dt.timestamp() * 1000)
 
-    d, cal = _calibrate(conn, p)
+    if combined:
+        _validate_linear_prior(p.prior, p.prior_min, p.prior_max)
+        params_base = {
+            k: v
+            for k, v in p.model_dump().items()
+            if k not in ("sensor", "device_address")
+        }
+        calibrators, sensor_keys = _calibrate_all_sensors(conn, p.plant, params_base)
 
+        all_readings = list(
+            database.fetch_timeseries(
+                conn,
+                plant=p.plant,
+                start_ms=start_ms_time,
+                end_ms=end_ms_time,
+                limit=50000,
+            )
+        )
+        all_times, voltages_per_sensor = _align_readings_by_sensor(
+            all_readings, sensor_keys
+        )
+
+        fused = fuse_swc(calibrators, voltages_per_sensor, sigma_bias=sigma_bias)
+        fused_mean = fused["mean"]
+        valid_mask = np.isfinite(fused_mean)
+        if valid_mask.sum() < 20:
+            raise HTTPException(
+                status_code=400,
+                detail="Not enough valid SWC readings for drying rate estimation",
+            )
+
+        return _compute_drying_result(
+            np.array(all_times)[valid_mask],
+            fused_mean[valid_mask],
+            float(calibrators[0].scale),
+        )
+
+    d, cal = _calibrate(conn, p)
     readings = list(
         database.fetch_timeseries(
             conn,
@@ -410,10 +534,10 @@ def drying_rate(
             limit=50000,
         )
     )
-    if len(readings) < 2:
+    if len(readings) < 20:
         raise HTTPException(
             status_code=400,
-            detail="Not enough sensor readings in the specified time range",
+            detail="Not enough sensor readings for drying rate estimation",
         )
 
     times_ms = np.array([r["adjusted_time_ms"] for r in readings])
@@ -422,13 +546,9 @@ def drying_rate(
     times_ms = times_ms[order]
     voltages_mv = voltages_mv[order]
 
-    result = linear_drying_rate(cal, times_ms, voltages_mv)
-    if result is None:
-        raise HTTPException(
-            status_code=400, detail="Could not estimate drying rate from the data"
-        )
-
-    return result
+    return _compute_drying_result(
+        times_ms, np.asarray(cal(voltages_mv)), float(cal.scale)
+    )
 
 
 @router.get("/combined_swc_timeseries")
@@ -442,38 +562,8 @@ def combined_swc_timeseries(
 ):
     _validate_linear_prior(wp.prior, wp.prior_min, wp.prior_max)
 
-    sensors = list(database.fetch_plant_sensors(conn, limit=1000))
-    plant_sensors = [s for s in sensors if s["plant_name"] == wp.plant]
-    if not plant_sensors:
-        raise HTTPException(status_code=400, detail="No sensors found for this plant")
-
-    calibrators = []
-    sensor_keys = []
-    for ps in plant_sensors:
-        try:
-            p_cal = CalibrationParams(
-                **wp.model_dump(),
-                **tp.model_dump(),
-                sensor=ps["sensor"],
-                device_address=ps["device_address"],
-                estimator="exp_mcmc",
-            )
-            _, cal = _calibrate(conn, p_cal)
-        except HTTPException as e:
-            logger.warning(
-                "combined_swc: calibration failed for %s/%s: %s",
-                ps["device_address"],
-                ps["sensor"],
-                e.detail,
-            )
-            continue
-        calibrators.append(cal)
-        sensor_keys.append((ps["device_address"], ps["sensor"]))
-
-    if not calibrators:
-        raise HTTPException(
-            status_code=400, detail="No sensors produced calibration data"
-        )
+    params_base = {**wp.model_dump(), **tp.model_dump(), "estimator": "exp_mcmc"}
+    calibrators, sensor_keys = _calibrate_all_sensors(conn, wp.plant, params_base)
 
     end_time = end_ms if end_ms is not None else int(__import__("time").time() * 1000)
     start_time = start_ms if start_ms is not None else (end_time - 48 * 3600 * 1000)
@@ -498,39 +588,9 @@ def combined_swc_timeseries(
         end_time,
     )
 
-    times_by_sensor = {}
-    volts_by_sensor = {}
-    for r in all_readings:
-        key = (r["device_address"], r["sensor"])
-        if key not in sensor_keys:
-            continue
-        times_by_sensor.setdefault(key, []).append(r["adjusted_time_ms"])
-        volts_by_sensor.setdefault(key, []).append(r["voltage_mv"])
-
-    all_times = (
-        sorted(set().union(*[set(v) for v in times_by_sensor.values()]))
-        if times_by_sensor
-        else []
+    all_times, voltages_per_sensor = _align_readings_by_sensor(
+        all_readings, sensor_keys
     )
-    n = len(all_times)
-    time_idx = {t: i for i, t in enumerate(all_times)}
-
-    voltages_per_sensor = []
-    for key in sensor_keys:
-        ts = times_by_sensor.get(key, [])
-        vs = volts_by_sensor.get(key, [])
-        arr = np.full(n, np.nan)
-        for t, v in zip(ts, vs):
-            if t in time_idx:
-                arr[time_idx[t]] = v
-        logger.info(
-            "combined_swc: key=%s ts=%d vs=%d arr_non_nan=%d",
-            key,
-            len(ts),
-            len(vs),
-            int(np.isfinite(arr).sum()),
-        )
-        voltages_per_sensor.append(arr)
 
     fused = fuse_swc(calibrators, voltages_per_sensor, sigma_bias=sigma_bias)
 
