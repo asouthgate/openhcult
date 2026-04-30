@@ -4,43 +4,36 @@ OpenHCult is robotics system for horticultural applications
 
 ## Development
 
-Bring up the database (one-time, persists across restarts):
+Start everything with one command (postgres, ctrl, frontend, auth):
 
 ```
-python3 dev.py up
+python3 dev.py start
 ```
 
-Start ctrl with hot-reload (separate terminal):
+This brings up all services in the background, sets up auth, and prints
+URLs and credentials. Log files go to `.dev/`.
 
-```
-python3 dev.py ctrl
-```
-
-Start the frontend dev server with HMR (separate terminal):
-
-```
-python3 dev.py frontend
-```
-
-Check what's running:
-
-```
-python3 dev.py status
-```
-
-Run smoke tests against the live services (resets the database):
+Run smoke tests against the live services:
 
 ```
 python3 dev.py test
 ```
 
-Tear everything down:
+Stop everything:
 
 ```
-python3 dev.py down
+python3 dev.py stop
 ```
 
-Other commands: `init-db`, `reset-db`. Run `python3 dev.py -h` for details.
+For hot-reload development with live logs, run services individually:
+
+```
+python3 dev.py up        # postgres only (one-time, persists)
+python3 dev.py ctrl      # ctrl in foreground with --reload
+python3 dev.py frontend  # frontend in foreground with HMR
+```
+
+Other commands: `status`, `init-db`, `reset-db`. Run `python3 dev.py -h` for details.
 
 ## Running tests
 
@@ -53,9 +46,6 @@ bash tests/run_unit_tests.sh
 Smoke tests:
 
 ```
-# Locally (requires postgres + ctrl running)
-python3 dev.py test
-
-# Full CI (builds docker, tests, tears down)
-python3 dev.py ci
+python3 dev.py test    # against running services
+python3 dev.py ci      # full CI: build docker, test, teardown
 ```
