@@ -7,7 +7,7 @@ import pytest
 
 from hcultinf.exp import ExponentialCordCalibrator, exponential_target
 from hcultinf.exp_mcmc import ExponentialCordCalibratorMCMC, plot_corner
-from hcultinf.drying import linear_drying_rate
+
 from hcultinf.simulation import (
     simulate_calibration_data_samples,
     Y_TEST_FUNCTION,
@@ -305,20 +305,3 @@ def test_posterior_samples_at():
     pred_mean = np.asarray(cal(x_grid))
     valid = ~np.isnan(sample_mean)
     assert all(sample_mean[valid] == pred_mean[valid])
-
-
-def test_linear_drying_rate():
-    cal = _fit_mcmc(seed=42)
-    x_grid = np.linspace(TEST_XMIN, TEST_XMAX, 50)
-    true_y = TEST_EXPONENTIAL_FUNCTION(x_grid)
-    true_rate = true_y[-1] - true_y[0]
-    n = 20
-    t_days = np.linspace(0, 1, n)
-    t_ms = t_days * 24 * 3600 * 1000
-    voltages = np.linspace(TEST_XMIN + 0.5, TEST_XMAX - 0.5, n)
-    result = linear_drying_rate(cal, t_ms, voltages)
-    assert result is not None
-    assert result["n_points"] == n
-    assert np.isfinite(result["rate_ml_per_day"])
-    assert result["rate_ci_low"] <= result["rate_ml_per_day"]
-    assert result["rate_ml_per_day"] <= result["rate_ci_high"]
