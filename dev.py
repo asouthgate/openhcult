@@ -5,7 +5,6 @@ import json
 import os
 import secrets
 import shlex
-import signal
 import subprocess
 import sys
 import time
@@ -225,13 +224,6 @@ def cmd_start(ctx, args):
     parsed_ctrl = urlparse(ctx.ctrl_url)
     ctrl_host = parsed_ctrl.hostname or "127.0.0.1"
     ctrl_port = parsed_ctrl.port or 8000
-
-    def _sig_handler(_sig, _frame):
-        _shutdown(ctx)
-        raise SystemExit(0)
-
-    signal.signal(signal.SIGINT, _sig_handler)
-    signal.signal(signal.SIGTERM, _sig_handler)
 
     _compose(ctx, "up", "-d", "postgres")
     _wait_for_postgres(ctx)
