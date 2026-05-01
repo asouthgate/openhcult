@@ -418,6 +418,12 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         dswc = data["delta_swc"]
         x_anc = data["x_anchors"]
         dmin = float(min(xs.min(), xe.min(), x_anc.min()))
+        prior_min = (
+            float(data["prior_x"].min()) if len(data["prior_x"]) > 0 else float("nan")
+        )
+        prior_max = (
+            float(data["prior_x"].max()) if len(data["prior_x"]) > 0 else float("nan")
+        )
         return (
             f"MCMC diagnostic: {exc}\n"
             f"  Input params: xmin_low_orig={self._xmin_low} xmin_high_orig={self._xmin_high}"
@@ -430,7 +436,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             f"    x_ends:    min={xe.min():.4f} max={xe.max():.4f}\n"
             f"    delta_swc: min={dswc.min():.4f} max={dswc.max():.4f}\n"
             f"    x_anchors: min={x_anc.min():.4f} max={x_anc.max():.4f}\n"
-            f"    prior_x:   min={data['prior_x'].min():.4f} max={data['prior_x'].max():.4f}\n"
+            f"    prior_x:   min={prior_min} max={prior_max}\n"
             f"  Walker init: cond={np.linalg.cond(pos):.2f}\n"
             f"    per-col min: {pos.min(axis=0).tolist()}\n"
             f"    per-col max: {pos.max(axis=0).tolist()}\n"
