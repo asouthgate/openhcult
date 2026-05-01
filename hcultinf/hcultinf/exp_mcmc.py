@@ -356,8 +356,21 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         )
 
     def fit(
-        self, x_anchors, swc_anchors, x_starts, delta_x, delta_swc, prior_x, prior_y
+        self,
+        x_anchors,
+        swc_anchors,
+        x_starts,
+        delta_x,
+        delta_swc,
+        prior_x=None,
+        prior_y=None,
     ):
+
+        if prior_x is None:
+            prior_x = []
+        if prior_y is None:
+            prior_y = []
+
         data = self._prepare_fit_data(
             x_anchors, swc_anchors, x_starts, delta_x, delta_swc, prior_x, prior_y
         )
