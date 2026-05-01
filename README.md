@@ -10,7 +10,7 @@ Start the full stack (postgres, ctrl with hot-reload, frontend with HMR):
 python3 dev.py start
 ```
 
-Ctrl+C stops everything. Run tests in a separate terminal while it's running:
+Run tests in a separate terminal while it's running:
 
 ```
 python3 dev.py test

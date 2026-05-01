@@ -20,7 +20,6 @@ from hcultinf.drying import drying_rate as compute_drying_rate
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-_ML_RE = re.compile(r"\bml=(\d+(?:\.\d+)?)\b")
 _DEFAULT_OFFSET_MS = 10 * 60 * 1000
 _DEFAULT_WIDTH_MS = 50 * 60 * 1000
 
@@ -49,11 +48,6 @@ class CordDataParams(WindowParams):
 
 class CalibrationParams(CordDataParams, TuningParams):
     estimator: str = "exp_mcmc"
-
-
-def _volume_ml(note: str) -> float | None:
-    m = _ML_RE.search(note or "")
-    return float(m.group(1)) if m else None
 
 
 def _load_calibration(csv_path: str) -> tuple[np.ndarray, np.ndarray]:
@@ -95,55 +89,14 @@ def _fetch_cord_data(conn, p: CordDataParams):
             status_code=400, detail="prior must be 'calibrated' or 'linear'"
         )
 
-    obs = list(
-        database.fetch_observations_for_plant(conn, plant_name=p.plant, limit=1000)
+    chords, chord_times = database.fetch_chords(
+        conn,
+        offset_ms=p.offset_ms,
+        width_ms=p.width_ms,
+        plant_name=p.plant,
+        sensor=p.sensor,
+        device_address=p.device_address,
     )
-    waterings = [
-        (o["observed_at"], _volume_ml(o["note"]))
-        for o in obs
-        if o.get("note")
-        and "WATER" in o["note"]
-        and "AUTO" not in o["note"]
-        and _volume_ml(o["note"]) is not None
-    ]
-
-    if not waterings:
-        raise HTTPException(
-            status_code=400,
-            detail="No watering observations with ml data for this plant",
-        )
-
-    chords = []
-    chord_times = []
-    for t_ms, ml in waterings:
-        before = list(
-            database.fetch_timeseries(
-                conn,
-                plant=p.plant,
-                sensor=p.sensor,
-                device=p.device_address,
-                start_ms=t_ms - p.offset_ms - p.width_ms,
-                end_ms=t_ms - p.offset_ms,
-                limit=5000,
-            )
-        )
-        after = list(
-            database.fetch_timeseries(
-                conn,
-                plant=p.plant,
-                sensor=p.sensor,
-                device=p.device_address,
-                start_ms=t_ms + p.offset_ms,
-                end_ms=t_ms + p.offset_ms + p.width_ms,
-                limit=5000,
-            )
-        )
-        if not before or not after:
-            continue
-        x = float(np.median([r["voltage_mv"] for r in before]))
-        x_after = float(np.median([r["voltage_mv"] for r in after]))
-        chords.append((x, x_after - x, ml))
-        chord_times.append(t_ms)
 
     if not chords:
         raise HTTPException(
@@ -312,7 +265,7 @@ def _align_readings_by_sensor(all_readings, sensor_keys):
     return all_times, voltages_per_sensor
 
 
-def _compute_drying_result(times_ms_arr, swc_values, scale):
+def _compute_drying_result(times_ms_arr, swc_values, scale, ema_tau_min=60.0):
     import pandas as pd
 
     times = pd.to_datetime(times_ms_arr, unit="ms").values
@@ -320,14 +273,17 @@ def _compute_drying_result(times_ms_arr, swc_values, scale):
     result = compute_drying_rate(
         times,
         neg_swc,
-        emwa_tau_minutes=30,
+        emwa_tau_minutes=ema_tau_min,
         trigger_thresh=-0.15,
         release_thresh=-0.10,
         max_x_value=0.0,
         min_x_value=-scale,
     )
     rate_ml_per_day = -result["rate"] * 1440.0
-    resampled_ms = (pd.to_datetime(result["times"]).astype(np.int64) // 10**6).tolist()
+    resampled_ms = (
+        pd.to_datetime(result["times"]).astype("datetime64[ns]").astype(np.int64)
+        // 10**6
+    ).tolist()
     return {
         "times_ms": resampled_ms,
         "rate_ml_per_day": rate_ml_per_day.tolist(),
@@ -466,6 +422,7 @@ def drying_rate(
     combined: bool = False,
     combine_method: str = "bayesian",
     sigma_bias: float = 0.0,
+    ema_tau_min: float = 60.0,
     conn=Depends(get_db_conn),
 ):
     from datetime import datetime, timezone
@@ -520,6 +477,7 @@ def drying_rate(
             np.array(all_times)[valid_mask],
             fused_mean[valid_mask],
             float(calibrators[0].scale),
+            ema_tau_min=ema_tau_min,
         )
 
     d, cal = _calibrate(conn, p)
@@ -547,7 +505,10 @@ def drying_rate(
     voltages_mv = voltages_mv[order]
 
     return _compute_drying_result(
-        times_ms, np.asarray(cal(voltages_mv)), float(cal.scale)
+        times_ms,
+        np.asarray(cal(voltages_mv)),
+        float(cal.scale),
+        ema_tau_min=ema_tau_min,
     )
 
 
