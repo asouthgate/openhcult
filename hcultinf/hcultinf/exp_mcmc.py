@@ -113,6 +113,31 @@ def samples_at(x, scale_s, k_s, f_int_s, xmin_arr, xmax):
     return result
 
 
+def samples_sequences(x, scale_s, k_s, f_int_s, xmin_arr, xmax):
+    """For each sample of parameters, compute the full sequence of f(x) = swc_est.
+
+    This function returns, for N samples, N sequences f(x, theta_i), where theta_i are the sample parameters.
+    """
+    # For each sample of parameters, and sequence x
+    # Predict f(x, theta_i), f(x, theta_i+1), to get full
+    mapped_samples = []
+    n_samples = len(scale_s)
+    assert (
+        len(k_s) == n_samples
+        and len(f_int_s) == n_samples
+        and len(xmin_arr) == n_samples
+    )
+    for i in range(n_samples):
+        scale = scale_s[i]
+        k = k_s[i]
+        f_int = f_int_s[i]
+        xmin = xmin_arr[i]
+        g = exponential_target(x, k, f_int, xmin, xmax)
+        f_x = scale * g
+        mapped_samples.append(f_x)
+    return mapped_samples
+
+
 def samples_mean(x, scale_s, k_s, f_int_s, xmin_arr, xmax):
     vals = samples_at(x, scale_s, k_s, f_int_s, xmin_arr, xmax)
     with np.errstate(all="ignore"):
@@ -406,6 +431,38 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             self._xmin_arr,
             self._xmax,
         )
+
+    def posterior_sequences(self, x, n=None):
+        x = np.atleast_1d(x)
+        params_d = self.posterior_params(n=n)
+        return samples_sequences(
+            x,
+            params_d["scale"],
+            params_d["k"],
+            params_d["f_int"],
+            params_d["xmin"],
+            self._xmax,
+        )
+
+    def estimate_velocity_window(self, v_window, t_window):
+        """Estimate velocity in a time window"""
+
+        swc_samples = self.posterior_sequences(v_window)
+
+        t_ref = t_window[0]
+        t_norm = t_window - t_ref
+
+        slopes = []
+        intercepts = []
+
+        for sample in swc_samples:
+            if np.any(np.isnan(sample)) or np.any(np.isinf(sample)):
+                continue  # Skip this sample
+            m, c = np.polyfit(t_norm, sample, 1)
+            slopes.append(m)
+            intercepts.append(c - m * t_ref)
+
+        return np.array(slopes), np.array(intercepts), t_window
 
     def posterior_params(self, n=None):
         """Return dict of posterior parameter samples.
