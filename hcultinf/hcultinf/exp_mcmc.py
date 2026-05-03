@@ -421,7 +421,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         delta_swc = np.asarray(delta_swc)
         prior_x = np.asarray(prior_x)
         prior_y = np.asarray(prior_y)
-        x_achors = np.asarray(x_anchors)
+        x_anchors = np.asarray(x_anchors)
         swc_anchors = np.asarray(swc_anchors)
 
         initial_estimate = self._prepare_fit_data(
