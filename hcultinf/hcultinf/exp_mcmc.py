@@ -85,13 +85,20 @@ def mcmc_log_joint(
     f_int_min,
     f_int_max,
     n_sensors,
+    sensor_chord_labels,
 ):
+    assert len(sensor_chord_labels) == len(
+        x_starts
+    ), f"sensor_chord_labels must have the same length as x_starts, got {len(sensor_chord_labels)} vs {len(x_starts)}"
     s = theta[0]
     lps = _scale_prior(s)
     ll = 0.0
     dim = 4
     for sj in range(n_sensors):
         theta_j = theta[dim * sj + 1 : dim * sj + dim + 1]
+        x_starts_j = x_starts[sensor_chord_labels == sj]
+        x_ends_j = x_ends[sensor_chord_labels == sj]
+        delta_swc_j = delta_swc[sensor_chord_labels == sj]
         f0 = theta_j[1]
         xmin = theta_j[3]
         _, f0, _, xmin = theta_j
@@ -99,12 +106,12 @@ def mcmc_log_joint(
         if not np.isfinite(lpj):
             return -np.inf
         llj = mcmc_log_likelihood(
-            theta,
+            [s] + list(theta_j),
             x_anchors,
             swc_anchors,
-            x_starts,
-            x_ends,
-            delta_swc,
+            x_starts_j,
+            x_ends_j,
+            delta_swc_j,
             prior_x,
             prior_y,
             xmax,
@@ -275,13 +282,6 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         scale0, k0, f_int0 = quick.scale, quick.k, quick.f_int
 
         return dict(
-            # x_anchors=x_anchors,
-            # swc_anchors=swc_anchors,
-            # x_starts=x_starts,
-            # x_ends=x_ends,
-            # delta_swc=delta_swc,
-            # prior_x=prior_x,
-            # prior_y=prior_y,
             scale0=scale0,
             k0=k0,
             f_int0=f_int0,
@@ -337,25 +337,6 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
 
         return init_pos
 
-    # def _posterior_kwargs(self, data):
-    #     return dict(
-    #         x_anchors=data["x_anchors"],
-    #         swc_anchors=data["swc_anchors"],
-    #         x_starts=data["x_starts"],
-    #         x_ends=data["x_ends"],
-    #         delta_swc=data["delta_swc"],
-    #         prior_x=data["prior_x"],
-    #         prior_y=data["prior_y"],
-    #         xmax=data["xmax"],
-    #         xmin_low=data["xmin_low"],
-    #         xmin_high=data["xmin_high"],
-    #         sigma_anchor=data["sigma_anchor"],
-    #         sigma_prior=data["sigma_prior"],
-    #         f_int_min=self.f_int_min,
-    #         f_int_max=self.f_int_max,
-    #         n_sensors=self.n_sensors,
-    #     )
-
     def _run_sampler(self, pos, posterior_kwargs):
         sampler = emcee.EnsembleSampler(
             self._n_walkers,
@@ -407,7 +388,14 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         delta_swc,
         prior_x=None,
         prior_y=None,
+        sensor_chord_labels=None,
     ):
+
+        if sensor_chord_labels is None:
+            assert (
+                self.n_sensors == 1
+            ), "sensor_chord_labels must be provided if n_sensors > 1"
+            sensor_chord_labels = np.array([0] * len(x_starts))
 
         if prior_x is None:
             prior_x = []
@@ -426,6 +414,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             delta_swc=delta_swc,
             prior_x=prior_x,
             prior_y=prior_y,
+            sensor_chord_labels=sensor_chord_labels,
         )
         posterior_kwargs = dict(
             xmax=initial_estimate["xmax"],
