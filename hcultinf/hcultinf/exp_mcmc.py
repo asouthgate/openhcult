@@ -124,39 +124,38 @@ def mcmc_log_joint(
 
 
 def samples_swc_at(x, scale_s, k_s, f_int_s, xmin_arr, xmax):
-    x = np.atleast_1d(x)
-    g = exponential_target(
-        x[None, :], k_s[:, None], f_int_s[:, None], xmin_arr[:, None], xmax
-    )
-    result = scale_s[:, None] * g
-    out_of_domain = x[None, :] < xmin_arr[:, None]
-    result[out_of_domain] = np.nan
-    return result
+    """Compute f(x) = scale * exponential_target(x, k, f_int, xmin, xmax) for each sample of parameters.
 
+    This function returns an array of shape (NSamples, NX), where NSamples is the number of parameter samples,
+    and NX is the length of x. Each row corresponds to f(x) for one sample of parameters.
 
-def samples_sequences(x, scale_s, k_s, f_int_s, xmin_arr, xmax):
-    """For each sample of parameters, compute the full sequence of f(x) = swc_est.
+    Parameters:
+    - x: array of shape (NX,), input x values
+    - scale_s: array of shape (NSamples,), scale parameter for each sample
+    - k_s: array of shape (NSamples,), k parameter for each sample
+    - f_int_s: array of shape (NSamples,), f_int parameter for each sample
+    - xmin_arr: array of shape (NSamples,), xmin parameter for each sample
+    - xmax: scalar, xmax parameter (assumed fixed across samples)
 
-    This function returns, for N samples, N sequences f(x, theta_i), where theta_i are the sample parameters.
+    Returns:
+    - swc: array of shape (NSamples, NX), where swc[i, j] = scale_s[i] * exponential_target(x[j], k_s[i], f_int_s[i], xmin_arr[i], xmax)
     """
-    # For each sample of parameters, and sequence x
-    # Predict f(x, theta_i), f(x, theta_i+1), to get full
-    mapped_samples = []
-    n_samples = len(scale_s)
-    assert (
-        len(k_s) == n_samples
-        and len(f_int_s) == n_samples
-        and len(xmin_arr) == n_samples
-    )
-    for i in range(n_samples):
-        scale = scale_s[i]
-        k = k_s[i]
-        f_int = f_int_s[i]
-        xmin = xmin_arr[i]
-        g = exponential_target(x, k, f_int, xmin, xmax)
-        f_x = scale * g
-        mapped_samples.append(f_x)
-    return mapped_samples
+    x = np.atleast_1d(x)
+    scale_s = np.array(scale_s).reshape(-1, 1)
+    k_s = np.atleast_2d(k_s)
+    f_int_s = np.atleast_2d(f_int_s)
+    xmin_arr = np.atleast_2d(xmin_arr)
+
+    x_3d = x[None, :, None]  # (1, NX, 1)
+    k_3d = k_s[:, None, :]  # (NSamples, 1, NSensors)
+    f_3d = f_int_s[:, None, :]  # (NSamples, 1, NSensors)
+    xmin_3d = xmin_arr[:, None, :]  # (NSamples, 1, NSensors)
+    g_s = exponential_target(x_3d, k_3d, f_3d, xmin_3d, xmax)
+    g_s[x_3d < xmin_3d] = np.nan
+
+    g = np.nanmean(g_s, axis=2)
+    swc = scale_s * g
+    return swc
 
 
 def samples_mean(x, scale_s, k_s, f_int_s, xmin_arr, xmax):
@@ -236,16 +235,16 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
     def _prepare_fit_data(
         self, x_anchors, swc_anchors, x_starts, delta_x, delta_swc, prior_x, prior_y
     ):
-        x_anchors = np.asarray(x_anchors)
-        swc_anchors = np.asarray(swc_anchors)
-        x_starts = np.asarray(x_starts)
-        delta_swc = np.asarray(delta_swc)
+        # x_anchors = np.asarray(x_anchors)
+        # swc_anchors = np.asarray(swc_anchors)
+        # x_starts = np.asarray(x_starts)
+        # delta_swc = np.asarray(delta_swc)
         assert np.all(
             delta_swc > 0
         ), "delta_swc must be strictly positive for lognormal likelihood"
-        prior_x = np.asarray(prior_x)
-        prior_y = np.asarray(prior_y)
-        delta_x = np.asarray(delta_x)
+        # prior_x = np.asarray(prior_x)
+        # prior_y = np.asarray(prior_y)
+        # delta_x = np.asarray(delta_x)
         x_ends = x_starts + delta_x
         xmax = self._xmax
 
@@ -416,6 +415,15 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         if prior_y is None:
             prior_y = []
 
+        # convert data to numpy types
+        x_starts = np.asarray(x_starts)
+        delta_x = np.asarray(delta_x)
+        delta_swc = np.asarray(delta_swc)
+        prior_x = np.asarray(prior_x)
+        prior_y = np.asarray(prior_y)
+        x_achors = np.asarray(x_anchors)
+        swc_anchors = np.asarray(swc_anchors)
+
         initial_estimate = self._prepare_fit_data(
             x_anchors, swc_anchors, x_starts, delta_x, delta_swc, prior_x, prior_y
         )
@@ -476,22 +484,10 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             self._xmax,
         )
 
-    def posterior_sequences(self, x, n=None):
-        x = np.atleast_1d(x)
-        params_d = self.posterior_params(n=n)
-        return samples_sequences(
-            x,
-            params_d["scale"],
-            params_d["k"],
-            params_d["f_int"],
-            params_d["xmin"],
-            self._xmax,
-        )
-
     def estimate_velocity_samples(self, v_window, t_window):
         """Estimate velocity in a time window"""
 
-        swc_samples = self.posterior_sequences(v_window)
+        swc_samples = self.posterior_samples_swc_at(v_window)
 
         t_ref = t_window[0]
         t_norm = t_window - t_ref
