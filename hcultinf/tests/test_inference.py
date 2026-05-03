@@ -294,10 +294,10 @@ def test_std_consistent_with_ci():
     np.testing.assert_allclose(ci_width, expected_width, rtol=1e-6)
 
 
-def test_posterior_samples_at():
+def test_posterior_samples_swc_at():
     cal = _fit_mcmc(seed=42)
     x_grid = np.linspace(TEST_XMIN + 0.5, TEST_XMAX - 0.5, 20)
-    samples = cal.posterior_samples_at(x_grid, n=50)
+    samples = cal.posterior_samples_swc_at(x_grid, n=50)
     assert samples.shape[0] == 50
     assert samples.shape[1] == len(x_grid)
     assert np.all(np.isfinite(samples[~np.isnan(samples)]))

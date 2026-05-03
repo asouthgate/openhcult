@@ -46,7 +46,7 @@ def combine_empirical_bayes(calibrators, x_grid):
 
 def combine_posteriors(calibrators, x_grid, sigma_bias=0.0, method="bayesian"):
     for c in calibrators:
-        if not hasattr(c, "posterior_samples_at"):
+        if not hasattr(c, "posterior_samples_swc_at"):
             raise TypeError(
                 f"{c.__class__.__name__} does not support posterior sampling; "
                 "combine_posteriors requires MCMC calibrators"

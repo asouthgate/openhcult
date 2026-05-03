@@ -123,7 +123,7 @@ def mcmc_log_joint(
     return lps + ll if np.isfinite(ll) else -np.inf
 
 
-def samples_at(x, scale_s, k_s, f_int_s, xmin_arr, xmax):
+def samples_swc_at(x, scale_s, k_s, f_int_s, xmin_arr, xmax):
     x = np.atleast_1d(x)
     g = exponential_target(
         x[None, :], k_s[:, None], f_int_s[:, None], xmin_arr[:, None], xmax
@@ -160,19 +160,19 @@ def samples_sequences(x, scale_s, k_s, f_int_s, xmin_arr, xmax):
 
 
 def samples_mean(x, scale_s, k_s, f_int_s, xmin_arr, xmax):
-    vals = samples_at(x, scale_s, k_s, f_int_s, xmin_arr, xmax)
+    vals = samples_swc_at(x, scale_s, k_s, f_int_s, xmin_arr, xmax)
     with np.errstate(all="ignore"):
         return np.nanmean(vals, axis=0)
 
 
 def samples_ci_low(x, scale_s, k_s, f_int_s, xmin_arr, xmax):
-    vals = samples_at(x, scale_s, k_s, f_int_s, xmin_arr, xmax)
+    vals = samples_swc_at(x, scale_s, k_s, f_int_s, xmin_arr, xmax)
     with np.errstate(all="ignore"):
         return np.nanpercentile(vals, 2.5, axis=0)
 
 
 def samples_ci_high(x, scale_s, k_s, f_int_s, xmin_arr, xmax):
-    vals = samples_at(x, scale_s, k_s, f_int_s, xmin_arr, xmax)
+    vals = samples_swc_at(x, scale_s, k_s, f_int_s, xmin_arr, xmax)
     with np.errstate(all="ignore"):
         return np.nanpercentile(vals, 97.5, axis=0)
 
@@ -222,8 +222,16 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
 
         self.f_int_min = f_int_min
         self.f_int_max = f_int_max
-
         self.n_sensors = n_sensors
+
+        self._per_sensor_param_dim = 4
+
+        # Resulting samples
+        self._fit_samples = None
+        self._scale_s = None
+        self._k_s = None
+        self._f_int_s = None
+        self._xmin_arr = None
 
     def _prepare_fit_data(
         self, x_anchors, swc_anchors, x_starts, delta_x, delta_swc, prior_x, prior_y
@@ -363,9 +371,15 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         thin = max(1, len(samples) // self._n_thin_target)
         idx = np.arange(0, len(samples), thin)
         self._scale_s = samples[idx, 0]
-        self._k_s = samples[idx, 1]
-        self._f_int_s = samples[idx, 2]
-        self._xmin_arr = samples[idx, 4]
+        self._k_s = samples[
+            idx, [1 + self._per_sensor_param_dim * j for j in range(self.n_sensors)]
+        ]
+        self._f_int_s = samples[
+            idx, [2 + self._per_sensor_param_dim * j for j in range(self.n_sensors)]
+        ]
+        self._xmin_arr = samples[
+            idx, [4 + self._per_sensor_param_dim * j for j in range(self.n_sensors)]
+        ]
 
         self._mean = lambda x: samples_mean(
             x, self._scale_s, self._k_s, self._f_int_s, self._xmin_arr, xmax
@@ -441,11 +455,11 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             )
         return self
 
-    def posterior_samples_at(self, x, n=None):
+    def posterior_samples_swc_at(self, x, n=None):
         x = np.atleast_1d(x)
         if n is not None and n < len(self._scale_s):
             idx = np.random.choice(len(self._scale_s), n, replace=False)
-            return samples_at(
+            return samples_swc_at(
                 x,
                 self._scale_s[idx],
                 self._k_s[idx],
@@ -453,7 +467,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
                 self._xmin_arr[idx],
                 self._xmax,
             )
-        return samples_at(
+        return samples_swc_at(
             x,
             self._scale_s,
             self._k_s,
