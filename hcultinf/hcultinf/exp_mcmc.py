@@ -444,7 +444,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             self._xmax,
         )
 
-    def estimate_velocity_window(self, v_window, t_window):
+    def estimate_velocity_samples(self, v_window, t_window):
         """Estimate velocity in a time window"""
 
         swc_samples = self.posterior_sequences(v_window)
