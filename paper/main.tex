@@ -8,11 +8,8 @@
 \usepackage{xcolor}
 \sethlcolor{yellow} % default is yellow
 
-\begin{document}
 
-
-
-\title{A Bayesian method for estimation of soil water content and consumption with low-cost capacitive moisture sensors.}
+\title{A hierarchical Bayesian method for estimation of soil water content with low-cost capacitive moisture sensors.}
 \author{Alex Southgate\\
 \texttt{alex.southgate@equalitylabs.cymru}
 }
@@ -73,6 +70,8 @@ See Appendix \ref{fig:myfigure} for an example of segmentation for a single segm
 
 \subsection{Calibration}
 
+\subsubsection{Integral data and the inverse response function}
+
 Let $Y_t$ be the absolute SWC at time $t$, $X_t = h(Y_t)$ the sensor response. We cannot directly measure $Y_t$ non-destructively for an arbitrary container pot. If the total wet soil mass or volume, excluding plant matter, was known, $Y_t$ could be deduced from a relative measurement, combined with a known field capacity of the soil, from a known small volume. These paramters may not be available for an arbitrary container. In the opposite direction, the sensor measurements $X_t$ are readily available, and if the inverse response function $h^{-1}$ is known, $Y_t = h^{-1}(X_t)$ could be computed. Unfortunately, the response function can depend on both soil parameters, environmental factors, and sensor paramters including placement (e.g. how densely packed soil is around the sensor). \\
 
 Another quantity that is readily available is the applied water dosage given to a plant, $\Delta Y_i$, if it is recorded. Paired with sensor measurements $X_i$, in principle the response curve can be reconstructed by considering the integral or "cord" data $\Delta Y_i = Y_{after} - Y_{before} = X_{after} - X_{before}$. For example, if the inverse response was a linear function, assuming no noise, the slope could be reconstructed from $\Delta Y_i$ and $\Delta X_i$, and the intercept from a single measurement $X = h^{-1}(0)$. In practice, the response curve is non-linear, and plants are usually sensitive to water content, tolerating only a narrow range of saturation. As such, only a narrow section of the curve $h^{-1}$ can be sampled. \\
@@ -80,10 +79,12 @@ Another quantity that is readily available is the applied water dosage given to 
 In order to resolve these issues, cord data can be used to estimate absolute soil water content provided a sufficiently flexible parametric form. The sensor response has two plateaus, one at dry (low SWC) and one at wet (high SWC), which can be modelled with polynomials \hl{cite}. For a plant that does not tolerate dry conditions, it is not possible to characterise the dry part of this curve. In our case, this part of the curve was also not of interest, so a simpler function such as an exponential can be used with unknown scale and shape. Given that the response function becomes flat at saturation, the inverse response function becomes vertical at full saturation. In order to model this, the sensor value at full saturation $x_{wet}$ and zero saturation $x_{dry}$ is also a required parameter. In our framework, $x_{wet}$ is a free parameter, and $x_{dry}$ is assumed to be known. It is assumed that $x_{wet}$ is not measurable in general since sampling sufficient soil may be destructive, and $x_{wet}$ depends on sensor packing or placement in heterogeneous media.
 
 \begin{equation}
-h^{-1}(X_t) = S g(X_t) = \cdot \exp\Big\{-k (1 - u(X_t; x_{wet}, x_{dry}) \Big\}
+h^{-1}(X_t) = S g(X_t) = S \cdot \Big((1-q_{dry})\exp\Big\{-k (1 - u(X_t; x_{wet}, x_{dry})\Big\} + q_{dry}\Big)
 \end{equation}
 
-Where $u(X_t)$ is a rescaling of $[x_{wet}, x_{dry}]$ to the interval $[0, 1]$. In principle, any function representing proportional SWC could be used for $g(X_t)$, the shape of the inverse response, and may perform better than an exponential curve.  \\
+Where $u(X_t)$ is a rescaling of $[x_{wet}, x_{dry}]$ to the interval $[0, 1]$. In principle, any function representing proportional SWC could be used for $g(X_t)$, the shape of the inverse response, and may perform better than an exponential curve. In order to accommodate an intercept at the dry end of the response function, the parameter $q_{dry}$ allows the normalized curve $g(x)$ to be squashed into the interval $[q_{dry}, 1.0]$ to accommodate the non-zero SWC in this part of the curve until the dry end. \\
+
+\subsubsection{Bayesian estimation}
 
 To combine the cord data $(\Delta Y_i, \Delta X_i, X_i)$, dry anchor sample $X = h^{-1}(Y=0)$, prior assumptions on the parametric form of $h^{-1}$, optional prior calibration points, and the unknown scale parameter $S$, we adopt a Bayesian framework. We assume lognormal dosage samples:
 
@@ -100,19 +101,23 @@ With the target parameters $\theta = (S, k, x_{wet}, \sigma^2)$. Priors on the l
     \label{tab:priors}
     \begin{tabular}{lll}
         \toprule
-        \textbf{Parameter} & \textbf{Prior Distribution} & \textbf{Interpretation/Description} \\
+        \textbf{Parameter} & \textbf{Prior Distribution} & \textbf{Description} \\
         \midrule
-        $\alpha$ (Intercept) & $Normal(0, 10)$ & Weakly informative; centered at 0 \\
-        $\beta_{1 \dots k}$ & $Normal(0, 2.5)$ & Regularizing; assumes small effects \\
-        $\sigma$ (Error)     & $Exponential(1)$ & Non-negative; constrains variance \\
-        $\phi$ (Group SD)    & $Half-Cauchy(0, 5)$ & Robust prior for hierarchical variance \\
+        $S$ (Scale) & $Normal$ & Weakly informative; roughly estimated by user from e.g. container size \\
+        $k$ (Exponential shape) & $Improper$ & Unconstrained shape \\
+        $x_{wet}$ (Sensor saturation)     & $Uniform$ & User-specified, upper bound from data, default chosen from experiment\\
+        $q_{dry}$ (Intercept fraction)    & $Uniform(0, 0.5)$ & User-specified, default chosen from experiment  \\
+        $\sigma^2$ (Cord data variance)    & $Improper$ & Accommodates noise sources including error in water measurement \\
         \bottomrule
     \end{tabular}
 \end{table}
 
-\subsection{Water consumption estimation}
+For a given posterior calibration curve sample and input time interval, water consumption rate is approximated by a linear estimate. Current water consumption is calculated by computing the linear rate over a time period for each posterior sample of calibration curves, providing uncertainty over calibration curves.\\
 
-\subsection{Combining per-sensor estimates}
+\subsubsection{Hierarchical modelling}
+
+
+
 
 \section{Results}
 
