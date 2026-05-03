@@ -12,9 +12,7 @@ from .plot_style import apply_dark_theme, CLOUD_BLUE, ORANGE
 _logger = logging.getLogger(__name__)
 
 
-def mcmc_log_prior(theta, xmin_low, xmin_high, f_int_min, f_int_max):
-    f0 = theta[2]
-    xmin = theta[4]
+def mcmc_log_prior(f0, xmin, xmin_low, xmin_high, f_int_min, f_int_max):
     p = 0.0
     if not (xmin_low <= xmin <= xmin_high):
         p = -np.inf
@@ -66,7 +64,11 @@ def mcmc_log_likelihood(
     return ll
 
 
-def mcmc_log_posterior(
+def _scale_prior(s):
+    return 1.0  # improper flat prior on scale; could be changed to something else if desired
+
+
+def mcmc_log_joint(
     theta,
     x_anchors,
     swc_anchors,
@@ -82,24 +84,36 @@ def mcmc_log_posterior(
     sigma_prior,
     f_int_min,
     f_int_max,
+    n_sensors,
 ):
-    lp = mcmc_log_prior(theta, xmin_low, xmin_high, f_int_min, f_int_max)
-    if not np.isfinite(lp):
-        return -np.inf
-    ll = mcmc_log_likelihood(
-        theta,
-        x_anchors,
-        swc_anchors,
-        x_starts,
-        x_ends,
-        delta_swc,
-        prior_x,
-        prior_y,
-        xmax,
-        sigma_anchor,
-        sigma_prior,
-    )
-    return lp + ll if np.isfinite(ll) else -np.inf
+    s = theta[0]
+    lps = _scale_prior(s)
+    ll = 0.0
+    dim = 4
+    for sj in range(n_sensors):
+        theta_j = theta[dim * sj + 1 : dim * sj + dim + 1]
+        f0 = theta_j[1]
+        xmin = theta_j[3]
+        _, f0, _, xmin = theta_j
+        lpj = mcmc_log_prior(f0, xmin, xmin_low, xmin_high, f_int_min, f_int_max)
+        if not np.isfinite(lpj):
+            return -np.inf
+        llj = mcmc_log_likelihood(
+            theta,
+            x_anchors,
+            swc_anchors,
+            x_starts,
+            x_ends,
+            delta_swc,
+            prior_x,
+            prior_y,
+            xmax,
+            sigma_anchor,
+            sigma_prior,
+        )
+        ll += lpj + llj
+
+    return lps + ll if np.isfinite(ll) else -np.inf
 
 
 def samples_at(x, scale_s, k_s, f_int_s, xmin_arr, xmax):
@@ -174,6 +188,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         f_int_max=0.3,
         f_int_min=0.0,
         debug=True,
+        n_sensors=1,
     ):
         super().__init__()
         self._debug = debug
@@ -200,6 +215,8 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
 
         self.f_int_min = f_int_min
         self.f_int_max = f_int_max
+
+        self.n_sensors = n_sensors
 
     def _prepare_fit_data(
         self, x_anchors, swc_anchors, x_starts, delta_x, delta_swc, prior_x, prior_y
@@ -258,13 +275,13 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         scale0, k0, f_int0 = quick.scale, quick.k, quick.f_int
 
         return dict(
-            x_anchors=x_anchors,
-            swc_anchors=swc_anchors,
-            x_starts=x_starts,
-            x_ends=x_ends,
-            delta_swc=delta_swc,
-            prior_x=prior_x,
-            prior_y=prior_y,
+            # x_anchors=x_anchors,
+            # swc_anchors=swc_anchors,
+            # x_starts=x_starts,
+            # x_ends=x_ends,
+            # delta_swc=delta_swc,
+            # prior_x=prior_x,
+            # prior_y=prior_y,
             scale0=scale0,
             k0=k0,
             f_int0=f_int0,
@@ -276,13 +293,13 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             sigma_prior=sigma_prior,
         )
 
-    def _init_walker_pos(self, data):
-        scale0 = data["scale0"]
-        k0 = data["k0"]
+    def _init_walker_pos(self, initial_estimate):
+        scale0 = initial_estimate["scale0"]
+        k0 = initial_estimate["k0"]
         # f_int0 = data["f_int0"]
         # xmin_hat = data["xmin_hat"]
-        xmin_low = data["xmin_low"]
-        xmin_high = data["xmin_high"]
+        xmin_low = initial_estimate["xmin_low"]
+        xmin_high = initial_estimate["xmin_high"]
 
         walker_scale0 = np.clip(
             scale0
@@ -320,29 +337,30 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
 
         return init_pos
 
-    def _posterior_kwargs(self, data):
-        return dict(
-            x_anchors=data["x_anchors"],
-            swc_anchors=data["swc_anchors"],
-            x_starts=data["x_starts"],
-            x_ends=data["x_ends"],
-            delta_swc=data["delta_swc"],
-            prior_x=data["prior_x"],
-            prior_y=data["prior_y"],
-            xmax=data["xmax"],
-            xmin_low=data["xmin_low"],
-            xmin_high=data["xmin_high"],
-            sigma_anchor=data["sigma_anchor"],
-            sigma_prior=data["sigma_prior"],
-            f_int_min=self.f_int_min,
-            f_int_max=self.f_int_max,
-        )
+    # def _posterior_kwargs(self, data):
+    #     return dict(
+    #         x_anchors=data["x_anchors"],
+    #         swc_anchors=data["swc_anchors"],
+    #         x_starts=data["x_starts"],
+    #         x_ends=data["x_ends"],
+    #         delta_swc=data["delta_swc"],
+    #         prior_x=data["prior_x"],
+    #         prior_y=data["prior_y"],
+    #         xmax=data["xmax"],
+    #         xmin_low=data["xmin_low"],
+    #         xmin_high=data["xmin_high"],
+    #         sigma_anchor=data["sigma_anchor"],
+    #         sigma_prior=data["sigma_prior"],
+    #         f_int_min=self.f_int_min,
+    #         f_int_max=self.f_int_max,
+    #         n_sensors=self.n_sensors,
+    #     )
 
     def _run_sampler(self, pos, posterior_kwargs):
         sampler = emcee.EnsembleSampler(
             self._n_walkers,
-            5,
-            mcmc_log_posterior,
+            1 + 4 * self.n_sensors,
+            mcmc_log_joint,
             kwargs=posterior_kwargs,
         )
         state = sampler.run_mcmc(pos, self._n_burn, progress=False)
@@ -396,19 +414,42 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         if prior_y is None:
             prior_y = []
 
-        data = self._prepare_fit_data(
+        initial_estimate = self._prepare_fit_data(
             x_anchors, swc_anchors, x_starts, delta_x, delta_swc, prior_x, prior_y
         )
-        pos = self._init_walker_pos(data)
-        posterior_kwargs = self._posterior_kwargs(data)
+        walker_pos = self._init_walker_pos(initial_estimate)
+        data = dict(
+            x_anchors=x_anchors,
+            swc_anchors=swc_anchors,
+            x_starts=x_starts,
+            x_ends=x_starts + delta_x,
+            delta_swc=delta_swc,
+            prior_x=prior_x,
+            prior_y=prior_y,
+        )
+        posterior_kwargs = dict(
+            xmax=initial_estimate["xmax"],
+            xmin_low=initial_estimate["xmin_low"],
+            xmin_high=initial_estimate["xmin_high"],
+            sigma_anchor=initial_estimate["sigma_anchor"],
+            sigma_prior=initial_estimate["sigma_prior"],
+            f_int_min=self.f_int_min,
+            f_int_max=self.f_int_max,
+            n_sensors=self.n_sensors,
+        )
+        posterior_kwargs.update(data)
         try:
-            sampler = self._run_sampler(pos, posterior_kwargs)
+            sampler = self._run_sampler(walker_pos, posterior_kwargs)
         except ValueError as exc:
-            _logger.error(self._diagnostic_dump(data, pos, exc))
+            _logger.error(self._diagnostic_dump(posterior_kwargs, walker_pos, exc))
             raise
-        self._postprocess(sampler, data)
+        self._postprocess(sampler, posterior_kwargs)
         if self._debug:
-            _logger.debug(self._diagnostic_dump(data, pos, "post-fit diagnostic"))
+            _logger.debug(
+                self._diagnostic_dump(
+                    posterior_kwargs, walker_pos, "post-fit diagnostic"
+                )
+            )
         return self
 
     def posterior_samples_at(self, x, n=None):
