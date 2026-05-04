@@ -120,14 +120,17 @@ def mcmc_log_joint(
     assert len(sensor_chord_labels) == len(
         x_starts
     ), f"sensor_chord_labels must have the same length as x_starts, got {len(sensor_chord_labels)} vs {len(x_starts)}"
-    s = theta[0]
+    log_scale = theta[0]
+    scale = np.exp(log_scale)
+    if not np.isfinite(scale) or scale <= 0:
+        return -np.inf
     n = n_sensors
     k_all = theta[1 : 1 + n]
     f_int_all = theta[1 + n : 1 + 2 * n]
     log_sigma_all = theta[1 + 2 * n : 1 + 3 * n]
     xmin_all = theta[1 + 3 * n : 1 + 4 * n]
 
-    lp = priors.scale_log_prior(s)
+    lp = priors.scale_log_prior(log_scale)
     if not np.isfinite(lp):
         return -np.inf
     for j in range(n):
@@ -149,7 +152,7 @@ def mcmc_log_joint(
             return -np.inf
 
     ll = mcmc_log_anchor_prior_likelihood(
-        s,
+        scale,
         k_all,
         f_int_all,
         xmin_all,
@@ -166,7 +169,7 @@ def mcmc_log_joint(
     for j in range(n):
         mask = sensor_chord_labels == j
         ll += mcmc_log_chord_likelihood(
-            s,
+            scale,
             k_all[j],
             f_int_all[j],
             log_sigma_all[j],
@@ -256,7 +259,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         self._init_spread = init_spread
         self._n_thin_target = n_thin_target
 
-        self._init_spread_scale = init_spread * 1.0
+        self._init_spread_scale = init_spread * 0.3
         self._init_spread_k = init_spread
         self._init_spread_f_int = init_spread * 1.0
         self._init_spread_sigma = init_spread
@@ -269,7 +272,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             self._priors = priors
         else:
             self._priors = MCMCPriors(
-                f_int_log_prior=_bounded_log_prior(f_int_min, f_int_max),
+                f_int_log_prior=_bounded_log_prior(self.f_int_min, self.f_int_max),
             )
 
         self._fit_samples = None
@@ -388,15 +391,14 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         xmin_sigma = initial_estimate["xmin_sigma"]
         xmin_high = initial_estimate["xmin_high"]
 
-        walker_scale0 = np.clip(
-            scale0
-            + np.random.uniform(
-                -self._init_spread_scale, self._init_spread_scale, self._n_walkers
-            ),
-            1.0,
-            1e10,
+        log_scale_bounds = np.log([1.0, 1e10])
+        walker_log_scale = np.clip(
+            np.log(max(scale0, 1.0))
+            + np.random.normal(0.0, self._init_spread_scale, self._n_walkers),
+            log_scale_bounds[0],
+            log_scale_bounds[1],
         )
-        cols = [walker_scale0]
+        cols = [walker_log_scale]
         for sj in range(self.n_sensors):
             k0j = k0[sj]
             walker_k_j = np.clip(
@@ -458,7 +460,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         samples = sampler.get_chain(flat=True)
 
         self._fit_samples = samples
-        self.scale = float(np.median(samples[:, 0]))
+        self.scale = float(np.exp(np.median(samples[:, 0])))
         n = self.n_sensors
         self.noise = [
             float(np.exp(np.median(samples[:, 1 + 2 * n + j]))) for j in range(n)
@@ -469,7 +471,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
 
         thin = max(1, len(samples) // self._n_thin_target)
         idx = np.arange(0, len(samples), thin)
-        self._scale_s = samples[idx, 0]
+        self._scale_s = np.exp(samples[idx, 0])
         self._k_s = samples[idx][:, [1 + j for j in range(n)]]
         self._f_int_s = samples[idx][:, [1 + n + j for j in range(n)]]
         self._xmin_arr = samples[idx][:, [1 + 3 * n + j for j in range(n)]]
@@ -717,7 +719,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         sigma_cols = [1 + 2 * n_s + j for j in range(n_s)]
         xmin_cols = [1 + 3 * n_s + j for j in range(n_s)]
         return dict(
-            scale=s[:, 0],
+            scale=np.exp(s[:, 0]),
             k=s[:, k_cols],
             f_int=s[:, f_cols],
             sigma2=np.exp(2 * s[:, sigma_cols]),

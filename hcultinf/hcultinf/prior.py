@@ -38,13 +38,14 @@ class MCMCPriors:
     Parameters
     ----------
     scale_log_prior : callable, optional
-        Log-prior on the shared scale parameter. Default: improper flat prior.
+        Log-prior on log(scale). Default: flat (Jeffreys prior on scale,
+        p(scale) ∝ 1/scale).
     k_log_prior : callable, optional
         Log-prior on each sensor's k (curvature) parameter.
         Default: uniform on [1e-4, 1e4].
     f_int_log_prior : callable, optional
-        Log-prior on each sensor's f_int (intercept) parameter.
-        Default: uniform on [0, 0.3].
+        Log-prior on each sensor's f_int (intercept fraction) parameter.
+        Default: uniform on [0.0, 0.3] (flat in linear space).
     log_sigma_log_prior : callable, optional
         Log-prior on each sensor's log(sigma) (log-noise) parameter.
         Default: uniform on [log(1e-3), log(10)].
