@@ -58,7 +58,8 @@ def response_curve_estimate_main(ctrl_url: str, args) -> int:
         )
 
     cal = ExponentialCordCalibratorMCMC(
-        xmin_low=800,
+        xmin_mu=950,
+        xmin_sigma=75,
         xmin_high=1100,
         xmax=2000,
         prior_weight=0.1,

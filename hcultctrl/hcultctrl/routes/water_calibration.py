@@ -37,7 +37,8 @@ class TuningParams(BaseModel):
     prior_weight: float = 1.0
     n_burn: int = 10
     n_steps: int = 30
-    xmin_low: float = 800.0
+    xmin_mu: float = 950.0
+    xmin_sigma: float = 75.0
     xmin_high: float = 1100.0
 
 
@@ -178,12 +179,13 @@ def _calibrate(conn, p: CalibrationParams):
             d["prior_y"],
         )
     else:
-        if p.xmin_high <= p.xmin_low:
-            raise HTTPException(
-                status_code=400, detail="xmin_high must be greater than xmin_low"
-            )
+        if p.xmin_high <= 0:
+            raise HTTPException(status_code=400, detail="xmin_high must be positive")
+        if p.xmin_sigma <= 0:
+            raise HTTPException(status_code=400, detail="xmin_sigma must be positive")
         cal = ExponentialCordCalibratorMCMC(
-            xmin_low=p.xmin_low,
+            xmin_mu=p.xmin_mu,
+            xmin_sigma=p.xmin_sigma,
             xmin_high=p.xmin_high,
             xmax=exp_xmax,
             prior_weight=p.prior_weight,

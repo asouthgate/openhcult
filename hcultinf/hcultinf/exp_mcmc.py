@@ -9,7 +9,12 @@ import emcee
 from .calibrator import CordCalibrator
 from .exp import ExponentialCordCalibrator, exponential_target
 from .plot_style import apply_dark_theme, CLOUD_BLUE, ORANGE
-from .prior import MCMCPriors, _bounded_log_prior
+from .prior import (
+    MCMCPriors,
+    _bounded_log_prior,
+    _truncated_normal_logpdf,
+    _truncated_normal_ppf,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -104,7 +109,8 @@ def mcmc_log_joint(
     prior_y,
     sensor_chord_labels,
     xmax,
-    xmin_low,
+    xmin_mu,
+    xmin_sigma,
     xmin_high,
     sigma_anchor,
     sigma_prior,
@@ -134,7 +140,12 @@ def mcmc_log_joint(
         lp += priors.log_sigma_log_prior(log_sigma_all[j])
         if not np.isfinite(lp):
             return -np.inf
-        if not (xmin_low[j] <= xmin_all[j] <= xmin_high[j]):
+        if xmin_all[j] > xmin_high[j]:
+            return -np.inf
+        lp += _truncated_normal_logpdf(
+            xmin_all[j], xmin_mu[j], xmin_sigma[j], xmin_high[j]
+        )
+        if not np.isfinite(lp):
             return -np.inf
 
     ll = mcmc_log_anchor_prior_likelihood(
@@ -209,7 +220,8 @@ def samples_ci_high(x, scale_s, k_s, f_int_s, xmin_arr, xmax):
 class ExponentialCordCalibratorMCMC(CordCalibrator):
     def __init__(
         self,
-        xmin_low,
+        xmin_mu,
+        xmin_sigma,
         xmin_high,
         xmax,
         prior_weight=1.0,
@@ -226,15 +238,13 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         debug=True,
         n_sensors=1,
         priors=None,
-        xmin_padding=1.0,
     ):
         super().__init__()
         self._debug = debug
-        self._xmin_low = xmin_low
+        self._xmin_mu = xmin_mu
+        self._xmin_sigma = xmin_sigma
         self._xmin_high = xmin_high
-        assert (
-            self._xmin_high > self._xmin_low
-        ), "xmin_high must be greater than xmin_low"
+        assert self._xmin_sigma > 0, "xmin_sigma must be positive"
         self._xmax = xmax
         self._prior_weight = prior_weight
         self._n_walkers = n_walkers
@@ -254,7 +264,6 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         self.f_int_min = f_int_min
         self.f_int_max = f_int_max
         self.n_sensors = n_sensors
-        self._xmin_padding = xmin_padding
 
         if priors is not None:
             self._priors = priors
@@ -304,12 +313,9 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             f"chord x_starts (min={min(x_starts):.1f}) exceed model xmax ({xmax:.1f}); "
             f"sensor readings are outside the calibration domain"
         )
-        assert max(x_starts) >= self._xmin_low, (
-            f"chord x_starts (max={max(x_starts):.1f}) are below model xmin_low ({self._xmin_low:.1f}); "
-            f"sensor readings are outside the calibration domain"
-        )
 
-        xmin_low_arr = np.full(self.n_sensors, self._xmin_low, dtype=float)
+        xmin_mu_arr = np.full(self.n_sensors, self._xmin_mu, dtype=float)
+        xmin_sigma_arr = np.full(self.n_sensors, self._xmin_sigma, dtype=float)
         xmin_high_arr = np.full(self.n_sensors, self._xmin_high, dtype=float)
         x_ends = x_starts + delta_x
 
@@ -318,12 +324,6 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             xs_j = x_starts[mask]
             xe_j = x_ends[mask]
             data_min_x_j = min(min(xs_j), min(xe_j), min(x_anchors))
-            if xmin_low_arr[sj] >= data_min_x_j:
-                xmin_low_arr[sj] = data_min_x_j - self._xmin_padding
-                _logger.warning(
-                    f"xmin_low {self._xmin_low} is greater than or equal to "
-                    f"data minimum x {data_min_x_j} for sensor {sj}, adjusting xmin_low to {xmin_low_arr[sj]}"
-                )
             if xmin_high_arr[sj] >= data_min_x_j:
                 xmin_high_arr[sj] = data_min_x_j
                 _logger.warning(
@@ -340,7 +340,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             assert xmin_high_arr[sj] <= min(
                 x_anchors
             ), f"xmin_high[{sj}] must be less than or equal to the smallest x_anchor"
-        xmin_hat_arr = (xmin_low_arr + xmin_high_arr) / 2.0
+        xmin_hat_arr = np.clip(xmin_mu_arr, None, xmin_high_arr)
         xmax = self._xmax
         sigma_anchor = self._sigma_anchor
         sigma_prior = 1.0 / max(np.sqrt(self._prior_weight), self._sigma_prior_floor)
@@ -373,7 +373,8 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             f_int0=np.array(f_int0s),
             xmin_hat=xmin_hat_arr,
             xmax=xmax,
-            xmin_low=xmin_low_arr,
+            xmin_mu=xmin_mu_arr,
+            xmin_sigma=xmin_sigma_arr,
             xmin_high=xmin_high_arr,
             sigma_anchor=sigma_anchor,
             sigma_prior=sigma_prior,
@@ -383,7 +384,8 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         scale0 = initial_estimate["scale0"]
         k0 = initial_estimate["k0"]
         f_int0 = initial_estimate["f_int0"]
-        xmin_low = initial_estimate["xmin_low"]
+        xmin_mu = initial_estimate["xmin_mu"]
+        xmin_sigma = initial_estimate["xmin_sigma"]
         xmin_high = initial_estimate["xmin_high"]
 
         walker_scale0 = np.clip(
@@ -426,8 +428,14 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             )
             cols.append(walker_sigma_j)
         for sj in range(self.n_sensors):
-            walker_xmin_j = np.random.uniform(
-                xmin_low[sj], xmin_high[sj], self._n_walkers
+            u = np.random.uniform(0.0, 1.0, self._n_walkers)
+            walker_xmin_j = np.array(
+                [
+                    _truncated_normal_ppf(
+                        ui, xmin_mu[sj], xmin_sigma[sj], xmin_high[sj]
+                    )
+                    for ui in u
+                ]
             )
             cols.append(walker_xmin_j)
 
@@ -524,7 +532,8 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         )
         posterior_kwargs = dict(
             xmax=initial_estimate["xmax"],
-            xmin_low=initial_estimate["xmin_low"],
+            xmin_mu=initial_estimate["xmin_mu"],
+            xmin_sigma=initial_estimate["xmin_sigma"],
             xmin_high=initial_estimate["xmin_high"],
             sigma_anchor=initial_estimate["sigma_anchor"],
             sigma_prior=initial_estimate["sigma_prior"],
@@ -729,11 +738,11 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         )
         return (
             f"MCMC diagnostic: {exc}\n"
-            f"  Input params: xmin_low_orig={self._xmin_low} xmin_high_orig={self._xmin_high}"
+            f"  Input params: xmin_mu={self._xmin_mu} xmin_sigma={self._xmin_sigma} xmin_high_orig={self._xmin_high}"
             f" xmax={self._xmax} n_walkers={self._n_walkers}"
             f" n_burn={self._n_burn} n_steps={self._n_steps}"
             f" prior_weight={self._prior_weight}\n"
-            f"  Adjusted bounds: xmin_low={data['xmin_low']} xmin_high={data['xmin_high']}\n"
+            f"  Adjusted bounds: xmin_mu={data['xmin_mu']} xmin_high={data['xmin_high']}\n"
             f"  Data summary: N_chords={len(xs)} data_min_x={dmin}\n"
             f"    x_starts:  min={xs.min():.4f} max={xs.max():.4f}\n"
             f"    x_ends:    min={xe.min():.4f} max={xe.max():.4f}\n"

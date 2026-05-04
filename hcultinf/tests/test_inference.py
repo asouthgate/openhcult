@@ -43,8 +43,9 @@ TEST_EXPONENTIAL_FUNCTION = lambda x: 10.0 * exponential_target(
     [
         (
             ExponentialCordCalibratorMCMC(
-                xmin_low=2.5,
-                xmin_high=3.0,
+                xmin_mu=2.75,
+                xmin_sigma=0.125,
+                xmin_high=3.5,
                 xmax=TEST_XMAX,
                 prior_weight=1.0,
                 n_burn=30,
@@ -136,8 +137,9 @@ def test_realistic():
     anchor_swc = np.array([0.0])
 
     estimator = ExponentialCordCalibratorMCMC(
-        xmin_low=750.0,
-        xmin_high=1000.0,
+        xmin_mu=875.0,
+        xmin_sigma=75.0,
+        xmin_high=1100.0,
         xmax=xmax,
         n_burn=250,
         n_steps=400,
@@ -264,8 +266,9 @@ def _fit_mcmc(n=30, seed=None):
         uniform=True,
     )
     cal = ExponentialCordCalibratorMCMC(
-        xmin_low=2.5,
-        xmin_high=3.0,
+        xmin_mu=2.75,
+        xmin_sigma=0.125,
+        xmin_high=3.5,
         xmax=TEST_XMAX,
         prior_weight=1.0,
         n_burn=30,
@@ -312,8 +315,9 @@ def test_multi_sensor_happy_path():
     K0, K1 = 15.0, 15.0
     F_INT0, F_INT1 = 0.05, 0.05
     XMIN0, XMIN1 = 2.7, 2.8
-    xmin_low = 1.05
     xmin_high = 2.7
+    XMIN_MU = 2.75
+    XMIN_SIGMA = 0.5
     samples = 500
     burnin = 250
 
@@ -349,7 +353,8 @@ def test_multi_sensor_happy_path():
     sensor_chord_labels = np.array([0] * len(x0) + [1] * len(x1))
     print(TEST_XMAX)
     estimator_multi = ExponentialCordCalibratorMCMC(
-        xmin_low=xmin_low,
+        xmin_mu=XMIN_MU,
+        xmin_sigma=XMIN_SIGMA,
         xmin_high=xmin_high,
         xmax=TEST_XMAX,
         prior_weight=1.0,
@@ -375,7 +380,7 @@ def test_multi_sensor_happy_path():
         xmax=TEST_XMAX, prior_weight=1.0, n_burn=burnin, n_steps=samples, n_sensors=1
     )
     cal_s0 = ExponentialCordCalibratorMCMC(
-        xmin_low=xmin_low, xmin_high=xmin_high, **est_kw
+        xmin_mu=XMIN_MU, xmin_sigma=XMIN_SIGMA, xmin_high=xmin_high, **est_kw
     ).fit(
         np.array([TEST_XMAX]),
         np.array([0.0]),
@@ -386,7 +391,7 @@ def test_multi_sensor_happy_path():
         np.array([0.0]),
     )
     cal_s1 = ExponentialCordCalibratorMCMC(
-        xmin_low=xmin_low, xmin_high=xmin_high, **est_kw
+        xmin_mu=XMIN_MU, xmin_sigma=XMIN_SIGMA, xmin_high=xmin_high, **est_kw
     ).fit(
         np.array([TEST_XMAX]),
         np.array([0.0]),
@@ -531,8 +536,6 @@ def test_predict_warns_below_xmin(caplog):
 
 def test_prob_xmin():
     cal = _fit_mcmc(seed=42)
-    cal._xmin_high = 3.0
-    cal._xmin_low = 2.5
 
     p_at_xmax = cal.prob_xmin(np.array([TEST_XMAX]))
     assert p_at_xmax[0] == 1.0
