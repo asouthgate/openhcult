@@ -312,15 +312,15 @@ def test_multi_sensor_happy_path():
     K0, K1 = 15.0, 20.0
     F_INT0, F_INT1 = 0.0, 0.05
     XMIN0, XMIN1 = 2.7, 2.8
-    xmin_low = 1.00
+    xmin_low = 2.65
     xmin_high = 2.85
-    samples = 300
-    burnin = 150
+    samples = 500
+    burnin = 250
 
     fn0 = lambda x: SCALE * exponential_target(x, K0, F_INT0, XMIN0, TEST_XMAX)
     fn1 = lambda x: SCALE * exponential_target(x, K1, F_INT1, XMIN1, TEST_XMAX)
 
-    n_chords_per_sensor = 10
+    n_chords_per_sensor = 15
 
     x0, dx0, dy0 = simulate_calibration_data_samples(
         3.0,
@@ -370,7 +370,7 @@ def test_multi_sensor_happy_path():
     )
 
     print("Joint xmin MAP:", np.mean(cal_multi.posterior_params()["xmin"], axis=0))
-
+    print("Joint scale MAP:", np.mean(cal_multi.posterior_params()["scale"], axis=0))
     est_kw = dict(
         xmax=TEST_XMAX, prior_weight=1.0, n_burn=burnin, n_steps=samples, n_sensors=1
     )
@@ -472,15 +472,16 @@ def test_multi_sensor_happy_path():
                 label=label if j == 0 else None,
             )
         p = cal_i.posterior_params()
-        xmin_mean = float(np.mean(p["xmin"]))
-        swc_at_xmin = float(np.asarray(cal_i(xmin_mean)).item())
+        mean_scale = float(np.mean(p["scale"]))
+        xmin_per_sample = np.min(p["xmin"], axis=1)
+        xmin_eff = float(np.mean(xmin_per_sample))
         ax.scatter(
-            [xmin_mean],
-            [swc_at_xmin],
+            [xmin_eff],
+            [mean_scale],
             marker="x",
             s=80,
             zorder=5,
-            label=f"{label}",
+            label=label,
         )
 
     ax.set_xlabel("sensor reading")
