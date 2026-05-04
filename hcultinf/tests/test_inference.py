@@ -305,3 +305,271 @@ def test_posterior_samples_swc_at():
     pred_mean = np.asarray(cal(x_grid))
     valid = ~np.isnan(sample_mean)
     assert all(sample_mean[valid] == pred_mean[valid])
+
+
+def test_multi_sensor_happy_path():
+    SCALE = 270.0
+    K0, K1 = 15.0, 20.0
+    F_INT0, F_INT1 = 0.0, 0.05
+    XMIN0, XMIN1 = 2.7, 2.8
+    xmin_low = 1.00
+    xmin_high = 2.85
+    samples = 300
+    burnin = 150
+
+    fn0 = lambda x: SCALE * exponential_target(x, K0, F_INT0, XMIN0, TEST_XMAX)
+    fn1 = lambda x: SCALE * exponential_target(x, K1, F_INT1, XMIN1, TEST_XMAX)
+
+    n_chords_per_sensor = 10
+
+    x0, dx0, dy0 = simulate_calibration_data_samples(
+        3.0,
+        4.0,
+        TEST_DXMIN,
+        TEST_DXMAX,
+        TEST_NOISE_LEVEL / 2,
+        n_chords_per_sensor,
+        fn0,
+        uniform=True,
+    )
+    x1, dx1, dy1 = simulate_calibration_data_samples(
+        3.0,
+        4.0,
+        TEST_DXMIN,
+        TEST_DXMAX,
+        TEST_NOISE_LEVEL / 2,
+        n_chords_per_sensor,
+        fn1,
+        uniform=True,
+    )
+
+    x_starts = np.concatenate([x0, x1])
+    delta_x = np.concatenate([dx0, dx1])
+    delta_swc = np.concatenate([dy0, dy1])
+    sensor_chord_labels = np.array([0] * len(x0) + [1] * len(x1))
+    print(TEST_XMAX)
+    estimator_multi = ExponentialCordCalibratorMCMC(
+        xmin_low=xmin_low,
+        xmin_high=xmin_high,
+        xmax=TEST_XMAX,
+        prior_weight=1.0,
+        n_burn=burnin,
+        n_steps=samples,
+        n_sensors=2,
+    )
+
+    cal_multi = estimator_multi.fit(
+        np.array([TEST_XMAX]),
+        np.array([0.0]),
+        x_starts,
+        delta_x,
+        delta_swc,
+        np.array([TEST_XMAX]),
+        np.array([0.0]),
+        sensor_chord_labels=sensor_chord_labels,
+    )
+
+    print("Joint xmin MAP:", np.mean(cal_multi.posterior_params()["xmin"], axis=0))
+
+    est_kw = dict(
+        xmax=TEST_XMAX, prior_weight=1.0, n_burn=burnin, n_steps=samples, n_sensors=1
+    )
+    cal_s0 = ExponentialCordCalibratorMCMC(
+        xmin_low=xmin_low, xmin_high=xmin_high, **est_kw
+    ).fit(
+        np.array([TEST_XMAX]),
+        np.array([0.0]),
+        x0,
+        dx0,
+        dy0,
+        np.array([TEST_XMAX]),
+        np.array([0.0]),
+    )
+    cal_s1 = ExponentialCordCalibratorMCMC(
+        xmin_low=xmin_low, xmin_high=xmin_high, **est_kw
+    ).fit(
+        np.array([TEST_XMAX]),
+        np.array([0.0]),
+        x1,
+        dx1,
+        dy1,
+        np.array([TEST_XMAX]),
+        np.array([0.0]),
+    )
+    # print MAP estimates of scaleand xmin
+    print("Sensor 0 MAP scale:", float(cal_s0.posterior_params()["scale"].mean()))
+    print("Sensor 0 MAP xmin:", float(cal_s0.posterior_params()["xmin"].mean()))
+    print("Sensor 1 MAP scale:", float(cal_s1.posterior_params()["scale"].mean()))
+    print("Sensor 1 MAP xmin:", float(cal_s1.posterior_params()["xmin"].mean()))
+
+    cal = cal_multi
+
+    x_grid = np.linspace(TEST_XMIN, TEST_XMAX, 20)
+    mean, ci_low, ci_high = cal.predict(x_grid)
+    assert np.all(np.isfinite(mean))
+    assert np.all(mean >= 0)
+    assert np.all(np.isfinite(ci_low))
+    assert np.all(np.isfinite(ci_high))
+    assert np.all(ci_low <= mean)
+    assert np.all(mean <= ci_high)
+
+    params = cal.posterior_params()
+    assert "scale" in params
+    assert "k" in params
+    assert "f_int" in params
+    assert "sigma2" in params
+    assert "xmin" in params
+    assert params["scale"].ndim == 1
+    assert params["k"].shape == (params["scale"].shape[0], 2)
+    assert params["f_int"].shape == (params["scale"].shape[0], 2)
+    assert params["sigma2"].shape == (params["scale"].shape[0], 2)
+    assert params["xmin"].shape == (params["scale"].shape[0], 2)
+
+    samples = cal.posterior_samples_swc_at(x_grid, n=20)
+    assert samples.shape == (20, len(x_grid))
+
+    scale_est = cal.scale
+    # assert 1.0 < scale_est < 2 * SCALE, f"Scale estimate {scale_est} out of range"
+
+    cal.plot(
+        np.array([TEST_XMIN, TEST_XMAX]),
+        np.array([1.0, 0.0]),
+        np.array([TEST_XMAX]),
+        np.array([0.0]),
+        x_starts,
+        delta_x,
+        delta_swc,
+        out="artifacts/multi_sensor_mcmc.png",
+        title="Multi-sensor MCMC calibration",
+        show_chords_pane=False,
+    )
+
+    import matplotlib.pyplot as plt
+    from hcultinf.plot_style import (
+        apply_dark_theme,
+        CLOUD_BLUE,
+        CLOUD_WHITE,
+        ORANGE,
+        YELLOW,
+    )
+
+    apply_dark_theme()
+    plot_x = np.linspace(TEST_XMIN - 0.5, TEST_XMAX, 200)
+    fig, ax = plt.subplots(figsize=(10, 5))
+
+    for label, c, cal_i in [
+        ("sensor 0", CLOUD_BLUE, cal_s0),
+        ("sensor 1", ORANGE, cal_s1),
+        ("joint", CLOUD_WHITE, cal_multi),
+    ]:
+        paths, level = cal_i.curve_credible_region(plot_x, alpha=0.99, n_bins=100)
+        for j, path in enumerate(paths):
+            ax.plot(
+                path[:, 0],
+                path[:, 1],
+                color=c,
+                linewidth=1.5,
+                label=label if j == 0 else None,
+            )
+        p = cal_i.posterior_params()
+        xmin_mean = float(np.mean(p["xmin"]))
+        swc_at_xmin = float(np.asarray(cal_i(xmin_mean)).item())
+        ax.scatter(
+            [xmin_mean],
+            [swc_at_xmin],
+            marker="x",
+            s=80,
+            zorder=5,
+            label=f"{label}",
+        )
+
+    ax.set_xlabel("sensor reading")
+    ax.set_ylabel("SWC")
+    ax.legend(fontsize=7)
+    fig.tight_layout()
+    fig.savefig("artifacts/multi_sensor_comparison.png")
+    if os.environ.get("HCULT_TEST_DEBUG_PLOT", "0") == "1":
+        plt.show()
+    plt.close(fig)
+
+    plot_corner(
+        cal,
+        out="artifacts/multi_sensor_corner.png",
+        title="Multi-sensor MCMC posterior",
+        sensor_idx=0,
+    )
+    plot_corner(
+        cal,
+        out="artifacts/multi_sensor_corner_s1.png",
+        title="Multi-sensor MCMC posterior (sensor 1)",
+        sensor_idx=1,
+    )
+
+
+def test_predict_warns_below_xmin(caplog):
+    import logging
+
+    cal = _fit_mcmc(seed=42)
+
+    x_below = 2.0
+    caplog.set_level(logging.WARNING)
+    mean, ci_low, ci_high = cal.predict(np.array([x_below]))
+    assert "x values below 5% posterior probability" in caplog.text
+    assert "2.0000" in caplog.text
+    assert "(P=0.0%)" in caplog.text
+
+    caplog.clear()
+    x_ok = TEST_XMIN
+    mean, ci_low, ci_high = cal.predict(np.array([x_ok]))
+    assert "posterior probability of being >= xmin" not in caplog.text
+
+    mean_ok, ci_low_ok, ci_high_ok = mean, ci_low, ci_high
+    assert np.all(np.isfinite(mean_ok))
+    assert np.all(mean_ok >= 0)
+
+
+def test_prob_xmin():
+    cal = _fit_mcmc(seed=42)
+    cal._xmin_high = 3.0
+    cal._xmin_low = 2.5
+
+    p_at_xmax = cal.prob_xmin(np.array([TEST_XMAX]))
+    assert p_at_xmax[0] == 1.0
+
+    p_below = cal.prob_xmin(np.array([2.0]))
+    assert p_below[0] == 0.0
+
+    p_mid = cal.prob_xmin(np.array([2.75]))
+    assert 0.0 < p_mid[0] < 1.0
+
+
+def test_predict_return_prob_x():
+    cal = _fit_mcmc(seed=42)
+    x_grid = np.array([2.0, 3.0, TEST_XMAX])
+    mean, ci_low, ci_high, prob_x = cal.predict(x_grid, return_prob_x=True)
+    assert prob_x[0] == 0.0
+    assert prob_x[1] > 0.0
+    assert prob_x[2] == 1.0
+    assert len(mean) == 3
+    assert len(ci_low) == 3
+    assert len(ci_high) == 3
+
+
+def test_curve_credible_region():
+    cal = _fit_mcmc(seed=42)
+    x_grid = np.linspace(TEST_XMIN, TEST_XMAX, 100)
+    paths, level = cal.curve_credible_region(x_grid, alpha=0.95, n_bins=50)
+    assert level > 0.0
+    assert len(paths) >= 1
+    for path in paths:
+        assert path.ndim == 2
+        assert path.shape[1] == 2
+        assert np.all(path[:, 0] >= TEST_XMIN)
+        assert np.all(path[:, 0] <= TEST_XMAX)
+        assert np.all(np.isfinite(path))
+    x_grid_below = np.linspace(1.0, 2.4, 50)
+    paths_none, level_none = cal.curve_credible_region(
+        x_grid_below, alpha=0.95, n_bins=50
+    )
+    assert paths_none == []
+    assert level_none == 0.0
