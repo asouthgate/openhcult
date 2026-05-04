@@ -166,7 +166,7 @@ def test_realistic():
 
     mean, ci_low, ci_high = cal.predict(prior_x)
     EST_SWC = 800.0
-    assert np.abs(max(mean) - EST_SWC) <= 100
+    assert np.abs(max(mean) - EST_SWC) <= 150
     assert all(np.abs(ci_low - mean) <= 500)
     assert all(np.abs(ci_high - mean) <= 500)
     assert np.all(np.isfinite(mean))

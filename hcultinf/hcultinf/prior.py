@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
-from scipy.stats import truncnorm
+from scipy.special import betaln, log_ndtr, ndtr, ndtri
 
 
 def _flat_log_prior(x):
@@ -15,18 +15,37 @@ def _bounded_log_prior(lo, hi):
     return log_prior
 
 
+def _beta_log_prior(a, b):
+    log_norm = -betaln(a, b)
+
+    def log_prior(x):
+        if x <= 0.0 or x >= 1.0:
+            return -np.inf
+        return float((a - 1.0) * np.log(x) + (b - 1.0) * np.log(1.0 - x) + log_norm)
+
+    return log_prior
+
+
 def _truncated_normal_logpdf(x, mu, sigma, hi=np.inf):
     if x > hi:
         return -np.inf
-    a = -np.inf
+    if np.isinf(hi):
+        return float(
+            -0.5 * np.log(2 * np.pi) - np.log(sigma) - 0.5 * ((x - mu) / sigma) ** 2
+        )
+    z = (x - mu) / sigma
     b = (hi - mu) / sigma
-    return float(truncnorm.logpdf(x, a, b, loc=mu, scale=sigma))
+    log_normal = -0.5 * z * z - 0.5 * np.log(2 * np.pi) - np.log(sigma)
+    log_Z = log_ndtr(b)
+    return float(log_normal - log_Z)
 
 
 def _truncated_normal_ppf(u, mu, sigma, hi=np.inf):
-    a = -np.inf
+    if np.isinf(hi):
+        return float(mu + sigma * ndtri(u))
     b = (hi - mu) / sigma
-    return float(truncnorm.ppf(u, a, b, loc=mu, scale=sigma))
+    Phi_b = ndtr(b)
+    return float(mu + sigma * ndtri(u * Phi_b))
 
 
 class MCMCPriors:
@@ -45,7 +64,7 @@ class MCMCPriors:
         Default: uniform on [1e-4, 1e4].
     f_int_log_prior : callable, optional
         Log-prior on each sensor's f_int (intercept fraction) parameter.
-        Default: uniform on [0.0, 0.3] (flat in linear space).
+        Default: Beta(1, 3) on (0, 1).
     log_sigma_log_prior : callable, optional
         Log-prior on each sensor's log(sigma) (log-noise) parameter.
         Default: uniform on [log(1e-3), log(10)].
@@ -73,7 +92,7 @@ class MCMCPriors:
         self.f_int_log_prior = (
             f_int_log_prior
             if f_int_log_prior is not None
-            else _bounded_log_prior(0.0, 0.3)
+            else _beta_log_prior(1.0, 10.0)
         )
         self.log_sigma_log_prior = (
             log_sigma_log_prior

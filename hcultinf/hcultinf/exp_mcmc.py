@@ -5,6 +5,7 @@ import os
 
 import numpy as np
 import emcee
+from scipy.special import ndtr, ndtri
 
 from .calibrator import CordCalibrator
 from .exp import ExponentialCordCalibrator, exponential_target
@@ -13,7 +14,6 @@ from .prior import (
     MCMCPriors,
     _bounded_log_prior,
     _truncated_normal_logpdf,
-    _truncated_normal_ppf,
 )
 
 _logger = logging.getLogger(__name__)
@@ -236,8 +236,10 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         sigma_init=0.3,
         init_spread=1.0,
         n_thin_target=2000,
-        f_int_max=0.3,
+        f_int_max=1.0,
         f_int_min=0.0,
+        f_int_beta_a=1.0,
+        f_int_beta_b=3.0,
         debug=True,
         n_sensors=1,
         priors=None,
@@ -266,13 +268,17 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
 
         self.f_int_min = f_int_min
         self.f_int_max = f_int_max
+        self.f_int_beta_a = f_int_beta_a
+        self.f_int_beta_b = f_int_beta_b
         self.n_sensors = n_sensors
 
         if priors is not None:
             self._priors = priors
         else:
+            from .prior import _beta_log_prior
+
             self._priors = MCMCPriors(
-                f_int_log_prior=_bounded_log_prior(self.f_int_min, self.f_int_max),
+                f_int_log_prior=_beta_log_prior(self.f_int_beta_a, self.f_int_beta_b),
             )
 
         self._fit_samples = None
@@ -413,10 +419,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         for sj in range(self.n_sensors):
             f0j = f_int0[sj]
             walker_f_j = np.clip(
-                f0j
-                + np.random.uniform(
-                    -self._init_spread_f_int, self._init_spread_f_int, self._n_walkers
-                ),
+                np.random.beta(self.f_int_beta_a, self.f_int_beta_b, self._n_walkers),
                 self.f_int_min,
                 self.f_int_max,
             )
@@ -430,14 +433,9 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         cols.append(walker_sigma)
         for sj in range(self.n_sensors):
             u = np.random.uniform(0.0, 1.0, self._n_walkers)
-            walker_xmin_j = np.array(
-                [
-                    _truncated_normal_ppf(
-                        ui, xmin_mu[sj], xmin_sigma[sj], xmin_high[sj]
-                    )
-                    for ui in u
-                ]
-            )
+            b = (xmin_high[sj] - xmin_mu[sj]) / xmin_sigma[sj]
+            Phi_b = ndtr(b)
+            walker_xmin_j = xmin_mu[sj] + xmin_sigma[sj] * ndtri(u * Phi_b)
             cols.append(walker_xmin_j)
 
         init_pos = np.array(cols).T
