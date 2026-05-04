@@ -127,8 +127,8 @@ def mcmc_log_joint(
     n = n_sensors
     k_all = theta[1 : 1 + n]
     f_int_all = theta[1 + n : 1 + 2 * n]
-    log_sigma_all = theta[1 + 2 * n : 1 + 3 * n]
-    xmin_all = theta[1 + 3 * n : 1 + 4 * n]
+    log_sigma = theta[1 + 2 * n]
+    xmin_all = theta[1 + 2 * n + 1 : 1 + 3 * n + 1]
 
     lp = priors.scale_log_prior(log_scale)
     if not np.isfinite(lp):
@@ -140,9 +140,6 @@ def mcmc_log_joint(
         lp += priors.f_int_log_prior(f_int_all[j])
         if not np.isfinite(lp):
             return -np.inf
-        lp += priors.log_sigma_log_prior(log_sigma_all[j])
-        if not np.isfinite(lp):
-            return -np.inf
         if xmin_all[j] > xmin_high[j]:
             return -np.inf
         lp += _truncated_normal_logpdf(
@@ -150,6 +147,9 @@ def mcmc_log_joint(
         )
         if not np.isfinite(lp):
             return -np.inf
+    lp += priors.log_sigma_log_prior(log_sigma)
+    if not np.isfinite(lp):
+        return -np.inf
 
     ll = mcmc_log_anchor_prior_likelihood(
         scale,
@@ -172,7 +172,7 @@ def mcmc_log_joint(
             scale,
             k_all[j],
             f_int_all[j],
-            log_sigma_all[j],
+            log_sigma,
             xmin_all[j],
             x_starts[mask],
             x_ends[mask],
@@ -421,14 +421,13 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
                 self.f_int_max,
             )
             cols.append(walker_f_j)
-        for _ in range(self.n_sensors):
-            walker_sigma_j = np.clip(
-                np.log(self._sigma_init)
-                + np.random.normal(0.0, self._init_spread_sigma, self._n_walkers),
-                np.log(0.001),
-                np.log(10.0),
-            )
-            cols.append(walker_sigma_j)
+        walker_sigma = np.clip(
+            np.log(self._sigma_init)
+            + np.random.normal(0.0, self._init_spread_sigma, self._n_walkers),
+            np.log(0.001),
+            np.log(10.0),
+        )
+        cols.append(walker_sigma)
         for sj in range(self.n_sensors):
             u = np.random.uniform(0.0, 1.0, self._n_walkers)
             walker_xmin_j = np.array(
@@ -447,7 +446,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
     def _run_sampler(self, pos, posterior_kwargs):
         sampler = emcee.EnsembleSampler(
             self._n_walkers,
-            1 + 4 * self.n_sensors,
+            2 + 3 * self.n_sensors,
             mcmc_log_joint,
             kwargs=posterior_kwargs,
         )
@@ -462,9 +461,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         self._fit_samples = samples
         self.scale = float(np.exp(np.median(samples[:, 0])))
         n = self.n_sensors
-        self.noise = [
-            float(np.exp(np.median(samples[:, 1 + 2 * n + j]))) for j in range(n)
-        ]
+        self.noise = float(np.exp(np.median(samples[:, 1 + 2 * n])))
 
         log_posts = sampler.get_log_prob(flat=True)
         self.nlml = float(-np.max(log_posts))
@@ -474,7 +471,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         self._scale_s = np.exp(samples[idx, 0])
         self._k_s = samples[idx][:, [1 + j for j in range(n)]]
         self._f_int_s = samples[idx][:, [1 + n + j for j in range(n)]]
-        self._xmin_arr = samples[idx][:, [1 + 3 * n + j for j in range(n)]]
+        self._xmin_arr = samples[idx][:, [1 + 2 * n + 1 + j for j in range(n)]]
 
         self._mean = self._compute_mean
         self._ci_low = self._compute_ci_low
@@ -706,7 +703,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
 
         If n is given, subsample to at most n samples.
         Keys: scale (n_samples,), k (n_samples, n_sensors),
-              f_int (n_samples, n_sensors), sigma2 (n_samples, n_sensors),
+              f_int (n_samples, n_sensors), sigma2 (n_samples,),
               xmin (n_samples, n_sensors).
         """
         s = self._fit_samples
@@ -716,13 +713,13 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         n_s = self.n_sensors
         k_cols = [1 + j for j in range(n_s)]
         f_cols = [1 + n_s + j for j in range(n_s)]
-        sigma_cols = [1 + 2 * n_s + j for j in range(n_s)]
-        xmin_cols = [1 + 3 * n_s + j for j in range(n_s)]
+        sigma_col = 1 + 2 * n_s
+        xmin_cols = [1 + 2 * n_s + 1 + j for j in range(n_s)]
         return dict(
             scale=np.exp(s[:, 0]),
             k=s[:, k_cols],
             f_int=s[:, f_cols],
-            sigma2=np.exp(2 * s[:, sigma_cols]),
+            sigma2=np.exp(2 * s[:, sigma_col]),
             xmin=s[:, xmin_cols],
         )
 

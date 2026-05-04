@@ -427,7 +427,7 @@ def test_multi_sensor_happy_path():
     assert params["scale"].ndim == 1
     assert params["k"].shape == (params["scale"].shape[0], 2)
     assert params["f_int"].shape == (params["scale"].shape[0], 2)
-    assert params["sigma2"].shape == (params["scale"].shape[0], 2)
+    assert params["sigma2"].ndim == 1
     assert params["xmin"].shape == (params["scale"].shape[0], 2)
 
     samples = cal.posterior_samples_swc_at(x_grid, n=20)
