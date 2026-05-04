@@ -309,11 +309,11 @@ def test_posterior_samples_swc_at():
 
 def test_multi_sensor_happy_path():
     SCALE = 270.0
-    K0, K1 = 15.0, 20.0
-    F_INT0, F_INT1 = 0.0, 0.05
+    K0, K1 = 15.0, 15.0
+    F_INT0, F_INT1 = 0.05, 0.05
     XMIN0, XMIN1 = 2.7, 2.8
-    xmin_low = 2.65
-    xmin_high = 2.85
+    xmin_low = 1.05
+    xmin_high = 2.7
     samples = 500
     burnin = 250
 
@@ -327,7 +327,7 @@ def test_multi_sensor_happy_path():
         4.0,
         TEST_DXMIN,
         TEST_DXMAX,
-        TEST_NOISE_LEVEL / 2,
+        TEST_NOISE_LEVEL,
         n_chords_per_sensor,
         fn0,
         uniform=True,
@@ -337,7 +337,7 @@ def test_multi_sensor_happy_path():
         4.0,
         TEST_DXMIN,
         TEST_DXMAX,
-        TEST_NOISE_LEVEL / 2,
+        TEST_NOISE_LEVEL,
         n_chords_per_sensor,
         fn1,
         uniform=True,
