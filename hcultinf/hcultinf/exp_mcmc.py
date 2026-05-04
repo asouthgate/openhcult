@@ -236,10 +236,10 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         sigma_init=0.3,
         init_spread=1.0,
         n_thin_target=2000,
-        f_int_max=1.0,
+        f_int_max=0.2,
         f_int_min=0.0,
         f_int_beta_a=1.0,
-        f_int_beta_b=3.0,
+        f_int_beta_b=30.0,
         debug=True,
         n_sensors=1,
         priors=None,
@@ -393,8 +393,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         scale0 = initial_estimate["scale0"]
         k0 = initial_estimate["k0"]
         f_int0 = initial_estimate["f_int0"]
-        xmin_mu = initial_estimate["xmin_mu"]
-        xmin_sigma = initial_estimate["xmin_sigma"]
+        xmin_hat = initial_estimate["xmin_hat"]
         xmin_high = initial_estimate["xmin_high"]
 
         log_scale_bounds = np.log([1.0, 1e10])
@@ -419,7 +418,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         for sj in range(self.n_sensors):
             f0j = f_int0[sj]
             walker_f_j = np.clip(
-                np.random.beta(self.f_int_beta_a, self.f_int_beta_b, self._n_walkers),
+                f0j + np.random.normal(0, 0.01, self._n_walkers),
                 self.f_int_min,
                 self.f_int_max,
             )
@@ -432,10 +431,12 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         )
         cols.append(walker_sigma)
         for sj in range(self.n_sensors):
-            u = np.random.uniform(0.0, 1.0, self._n_walkers)
-            b = (xmin_high[sj] - xmin_mu[sj]) / xmin_sigma[sj]
-            Phi_b = ndtr(b)
-            walker_xmin_j = xmin_mu[sj] + xmin_sigma[sj] * ndtri(u * Phi_b)
+            xhat_j = xmin_hat[sj]
+            walker_xmin_j = np.clip(
+                xhat_j + np.random.normal(0, 0.01, self._n_walkers),
+                None,
+                xmin_high[sj],
+            )
             cols.append(walker_xmin_j)
 
         init_pos = np.array(cols).T
@@ -448,28 +449,35 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             mcmc_log_joint,
             kwargs=posterior_kwargs,
         )
-        state = sampler.run_mcmc(pos, self._n_burn, progress=False)
-        sampler.reset()
-        sampler.run_mcmc(state, self._n_steps, progress=False)
+        sampler.run_mcmc(pos, self._n_burn + self._n_steps, progress=False)
+        self._chain = sampler.get_chain()
+        self._log_prob = sampler.get_log_prob()
         return sampler
 
     def _postprocess(self, sampler, data):
-        samples = sampler.get_chain(flat=True)
+        chain = self._chain
+        log_probs = sampler.get_log_prob()
 
-        self._fit_samples = samples
-        self.scale = float(np.exp(np.median(samples[:, 0])))
+        self._log_probs = log_probs
+
         n = self.n_sensors
-        self.noise = float(np.exp(np.median(samples[:, 1 + 2 * n])))
+        burn = self._n_burn
+        post = chain[burn:]
+        post_flat = post.reshape(-1, post.shape[-1])
 
-        log_posts = sampler.get_log_prob(flat=True)
-        self.nlml = float(-np.max(log_posts))
+        self._fit_samples = post_flat
+        self.scale = float(np.exp(np.median(post_flat[:, 0])))
+        self.noise = float(np.exp(np.median(post_flat[:, 1 + 2 * n])))
 
-        thin = max(1, len(samples) // self._n_thin_target)
-        idx = np.arange(0, len(samples), thin)
-        self._scale_s = np.exp(samples[idx, 0])
-        self._k_s = samples[idx][:, [1 + j for j in range(n)]]
-        self._f_int_s = samples[idx][:, [1 + n + j for j in range(n)]]
-        self._xmin_arr = samples[idx][:, [1 + 2 * n + 1 + j for j in range(n)]]
+        flat_log_probs = log_probs[burn:].ravel()
+        self.nlml = float(-np.max(flat_log_probs))
+
+        thin = max(1, len(post_flat) // self._n_thin_target)
+        idx = np.arange(0, len(post_flat), thin)
+        self._scale_s = np.exp(post_flat[idx, 0])
+        self._k_s = post_flat[idx][:, [1 + j for j in range(n)]]
+        self._f_int_s = post_flat[idx][:, [1 + n + j for j in range(n)]]
+        self._xmin_arr = post_flat[idx][:, [1 + 2 * n + 1 + j for j in range(n)]]
 
         self._mean = self._compute_mean
         self._ci_low = self._compute_ci_low

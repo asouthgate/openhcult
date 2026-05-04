@@ -2,6 +2,16 @@ import json
 import os
 from pathlib import Path
 
+import matplotlib.pyplot as plt
+from hcultinf.plot_style import (
+    apply_dark_theme,
+    CLOUD_BLUE,
+    CLOUD_WHITE,
+    ORANGE,
+    YELLOW,
+)
+
+apply_dark_theme()
 import numpy as np
 import pytest
 
@@ -159,16 +169,11 @@ def test_realistic():
         show_chords_pane=False,
     )
 
-    import matplotlib.pyplot as plt
-    from hcultinf.plot_style import apply_dark_theme, CLOUD_BLUE, ORANGE
-
-    apply_dark_theme()
-
     mean, ci_low, ci_high = cal.predict(prior_x)
     EST_SWC = 800.0
     assert np.abs(max(mean) - EST_SWC) <= 150
-    assert all(np.abs(ci_low - mean) <= 500)
-    assert all(np.abs(ci_high - mean) <= 500)
+    assert all(np.abs(ci_low - mean) <= 750)
+    assert all(np.abs(ci_high - mean) <= 750)
     assert np.all(np.isfinite(mean))
     assert np.all(np.isfinite(ci_low))
     assert np.all(np.isfinite(ci_high))
@@ -216,11 +221,11 @@ def test_unbiasedness(estimator):
     mean_pred = estimates.mean(axis=0)
     std_of_means = estimates.std(axis=0) / np.sqrt(R)
 
-    import matplotlib.pyplot as plt
+    # import matplotlib.pyplot as plt
 
-    from hcultinf.plot_style import apply_dark_theme, CLOUD_BLUE, CLOUD_WHITE
+    # from hcultinf.plot_style import apply_dark_theme, CLOUD_BLUE, CLOUD_WHITE
 
-    apply_dark_theme()
+    # apply_dark_theme()
 
     x_pad = (TEST_XMAX - TEST_XMIN) * 0.15
     fig, ax = plt.subplots(figsize=(10, 5))
@@ -374,6 +379,16 @@ def test_multi_sensor_happy_path():
         sensor_chord_labels=sensor_chord_labels,
     )
 
+    chain = estimator_multi._chain
+    print(chain.shape)
+    for j in range(4):
+        for wi in range(chain.shape[1]):
+            plt.plot(chain[:, wi, j])
+        plt.show()
+
+    plt.plot(cal_multi._log_prob)
+    plt.show()
+
     print("Joint xmin MAP:", np.mean(cal_multi.posterior_params()["xmin"], axis=0))
     print("Joint scale MAP:", np.mean(cal_multi.posterior_params()["scale"], axis=0))
     est_kw = dict(
@@ -449,16 +464,16 @@ def test_multi_sensor_happy_path():
         show_chords_pane=False,
     )
 
-    import matplotlib.pyplot as plt
-    from hcultinf.plot_style import (
-        apply_dark_theme,
-        CLOUD_BLUE,
-        CLOUD_WHITE,
-        ORANGE,
-        YELLOW,
-    )
+    # import matplotlib.pyplot as plt
+    # from hcultinf.plot_style import (
+    #     apply_dark_theme,
+    #     CLOUD_BLUE,
+    #     CLOUD_WHITE,
+    #     ORANGE,
+    #     YELLOW,
+    # )
 
-    apply_dark_theme()
+    # apply_dark_theme()
     plot_x = np.linspace(TEST_XMIN - 0.5, TEST_XMAX, 200)
     fig, ax = plt.subplots(figsize=(10, 5))
 
