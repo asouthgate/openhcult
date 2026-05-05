@@ -61,7 +61,7 @@ export function SvgAxes({ xTicks, yTicks, x, y, m, vw, iw, ih, formatX, formatY,
   )
 }
 
-export function TimeseriesChart({ series, bands = [], observations, rangeMs, onTimePick, pendingTime, yLabel, eventWindowOffset, eventWindowWidth }) {
+export function TimeseriesChart({ series, bands = [], observations, rangeMs, onTimePick, pendingTime, yLabel, eventWindowOffset, eventWindowWidth, hideObsLegend }) {
   const [cursor, setCursor] = useState(null)
 
   const allT = series.flatMap(s => s.points.map(p => p.t))
@@ -82,6 +82,8 @@ export function TimeseriesChart({ series, bands = [], observations, rangeMs, onT
 
   const xTicks = timeTicks(tMin, tMax, 6)
   const yTicks = valueTicks(vMin, vMax, 8)
+  const yStep = yTicks.length > 1 ? Math.abs(yTicks[1] - yTicks[0]) : 1
+  const yDecimals = yStep >= 1 ? 0 : Math.max(0, -Math.floor(Math.log10(yStep)) + 1)
 
   const inRange = t => t >= tMin && t <= tMax
 
@@ -185,7 +187,7 @@ export function TimeseriesChart({ series, bands = [], observations, rangeMs, onT
           xTicks={xTicks} yTicks={yTicks}
           x={x} y={y}
           m={M} vw={VW} iw={IW} ih={IH}
-          formatX={t => fmtTime(t, rangeMs)} formatY={v => Math.round(v)}
+          formatX={t => fmtTime(t, rangeMs)} formatY={v => v.toFixed(yDecimals)}
           yLabel={yLabel}
         />
 
@@ -231,14 +233,18 @@ export function TimeseriesChart({ series, bands = [], observations, rangeMs, onT
             {s.label}
           </span>
         ))}
-        <span className="legend-item">
-          <span className="legend-dot" style={{ background: OBS_COLOR }} />
-          recorded watering
-        </span>
-        <span className="legend-item">
-          <span className="legend-dot" style={{ background: PENDING_COLOR }} />
-          candidate
-        </span>
+        {!hideObsLegend && (
+          <span className="legend-item">
+            <span className="legend-dot" style={{ background: OBS_COLOR }} />
+            recorded watering
+          </span>
+        )}
+        {!hideObsLegend && (
+          <span className="legend-item">
+            <span className="legend-dot" style={{ background: PENDING_COLOR }} />
+            candidate
+          </span>
+        )}
       </div>
     </div>
   )

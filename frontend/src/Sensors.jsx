@@ -17,12 +17,13 @@ export default function Sensors() {
   const [dryingRate, setDryingRate] = useState(null)
   const [combinedSwc, setCombinedSwc] = useState(null)
   const [calibParams, setCalibParams] = useState({
-    offsetMin: '5', widthMin: '50', prior: 'calibrated', priorMin: '867', priorMax: '2009', estimator: 'exp_mcmc', priorWeight: '1.0', nBurn: '10', nSteps: '30', xminLow: '800', xminHigh: '1100',
+    offsetMin: '5', widthMin: '50', prior: 'calibrated', priorMin: '867', priorMax: '2009', estimator: 'exp_mcmc', priorWeight: '1.0', nBurn: '10', nSteps: '30', xminLow: '800', xminHigh: '1100', emaTauMin: '60',
   })
   const [rangeHours, setRangeHours] = useState(48)
 
   const autoStdSet = useRef(false)
   const skipNextRefetch = useRef(false)
+  const drControllerRef = useRef(null)
   const setCalibParam = (key, val) => setCalibParams(p => ({ ...p, [key]: val }))
 
   useEffect(() => {
@@ -53,14 +54,17 @@ export default function Sensors() {
   const isCombined = sensorFilter === '__combined__'
 
   useEffect(() => {
-    if (!plantFilter) { setCalibration(null); setCalibError(null); setDryingRate(null); setCombinedSwc(null); return }
+    if (!plantFilter) { setCalibration(null); setCalibError(null); setDryingRate(null); setCombinedSwc(null); drControllerRef.current?.abort(); return }
     if (skipNextRefetch.current) { skipNextRefetch.current = false; return }
+    drControllerRef.current?.abort()
     const controller = new AbortController()
+    const drController = new AbortController()
+    drControllerRef.current = drController
     setCalibLoading(true)
     setCalibError(null)
 
     if (isCombined) {
-      const { offsetMin, widthMin, prior, priorMin, priorMax, priorWeight, nBurn, nSteps, xminLow, xminHigh } = calibParams
+      const { offsetMin, widthMin, prior, priorMin, priorMax, priorWeight, nBurn, nSteps, xminLow, xminHigh, emaTauMin } = calibParams
       const endMs = Date.now()
       const params = new URLSearchParams({
         plant: plantFilter,
@@ -78,14 +82,32 @@ export default function Sensors() {
       if (xminLow !== '') params.set('xmin_low', xminLow)
       if (xminHigh !== '') params.set('xmin_high', xminHigh)
       setCalibration(null)
-      apiJson(`/combined_swc_timeseries?${params}`, { signal: controller.signal })
+      apiJson(`/swc_timeseries?${params}`, { signal: controller.signal })
         .then(d => { setCombinedSwc(d); setCalibLoading(false) })
-        .catch(err => { if (err.name !== 'AbortError') { setCalibError(String(err)); setCalibLoading(false) } })
+        .catch(err => { if (err.name !== 'AbortError') { console.error(err); setCalibError('Computation failed'); setCalibLoading(false) } })
+      const drParams = new URLSearchParams({
+        plant: plantFilter,
+        offset_ms: Number(offsetMin) * 60 * 1000,
+        width_ms: Number(widthMin) * 60 * 1000,
+        combined: 'true',
+        start_utc: new Date(endMs - rangeHours * 3600 * 1000).toISOString(),
+        end_utc: new Date(endMs).toISOString(),
+      })
+      if (priorMin !== '') drParams.set('prior_min', priorMin)
+      if (priorMax !== '') drParams.set('prior_max', priorMax)
+      if (prior !== 'calibrated') drParams.set('prior', prior)
+      if (priorWeight !== '') drParams.set('prior_weight', priorWeight)
+      if (nBurn !== '') drParams.set('n_burn', nBurn)
+      if (nSteps !== '') drParams.set('n_steps', nSteps)
+      if (xminLow !== '') drParams.set('xmin_low', xminLow)
+      if (xminHigh !== '') drParams.set('xmin_high', xminHigh)
+      if (emaTauMin !== '') drParams.set('ema_tau_min', emaTauMin)
+      apiJson(`/drying_rate?${drParams}`, { signal: drController.signal }).then(dr => setDryingRate(dr)).catch(() => setDryingRate(null))
       return () => controller.abort()
     }
 
     setCombinedSwc(null)
-    const { offsetMin, widthMin, prior, priorMin, priorMax, estimator, priorWeight, nBurn, nSteps, xminLow, xminHigh } = calibParams
+    const { offsetMin, widthMin, prior, priorMin, priorMax, estimator, priorWeight, nBurn, nSteps, xminLow, xminHigh, emaTauMin } = calibParams
     const params = new URLSearchParams({
       plant: plantFilter,
       offset_ms: Number(offsetMin) * 60 * 1000,
@@ -126,7 +148,8 @@ export default function Sensors() {
           }
           autoStdSet.current = true
         }
-        const drParams = new URLSearchParams({ plant: plantFilter, offset_ms: Number(offsetMin) * 60 * 1000, width_ms: Number(widthMin) * 60 * 1000 })
+        const drEndMs = Date.now()
+        const drParams = new URLSearchParams({ plant: plantFilter, offset_ms: Number(offsetMin) * 60 * 1000, width_ms: Number(widthMin) * 60 * 1000, start_utc: new Date(drEndMs - rangeHours * 3600 * 1000).toISOString(), end_utc: new Date(drEndMs).toISOString() })
         if (sensorFilter) { const sep = sensorFilter.lastIndexOf(':'); drParams.set('sensor', sensorFilter.slice(sep + 1)); drParams.set('device_address', sensorFilter.slice(0, sep)) }
         if (priorMin !== '') drParams.set('prior_min', priorMin)
         if (priorMax !== '') drParams.set('prior_max', priorMax)
@@ -134,9 +157,10 @@ export default function Sensors() {
         if (estimator !== 'exp_mcmc') drParams.set('estimator', estimator)
         if (priorWeight !== '') drParams.set('prior_weight', priorWeight)
         if (estimator === 'exp_mcmc') { if (nBurn !== '') drParams.set('n_burn', nBurn); if (nSteps !== '') drParams.set('n_steps', nSteps); if (xminLow !== '') drParams.set('xmin_low', xminLow); if (xminHigh !== '') drParams.set('xmin_high', xminHigh) }
-        apiJson(`/drying_rate?${drParams}`, { signal: controller.signal }).then(dr => setDryingRate(dr)).catch(() => setDryingRate(null))
+        if (emaTauMin !== '') drParams.set('ema_tau_min', emaTauMin)
+        apiJson(`/drying_rate?${drParams}`, { signal: drController.signal }).then(dr => setDryingRate(dr)).catch(() => setDryingRate(null))
       })
-      .catch(err => { if (err.name !== 'AbortError') { setCalibration(null); setCalibError(String(err)) } })
+      .catch(err => { if (err.name !== 'AbortError') { console.error(err); setCalibration(null); setCalibError('Computation failed') } })
       .finally(() => setCalibLoading(false))
     return () => controller.abort()
   }, [plantFilter, sensorFilter, calibParams, rangeHours])
@@ -170,13 +194,14 @@ export default function Sensors() {
             plantFilter={plantFilter} sensorFilter={sensorFilter} calibration={calibration}
             sensorAssignedAt={sensorsForPlant.find(s => s.key === sensorFilter)?.assignedAt ?? null}
             calibParams={calibParams} setCalibParam={setCalibParam} plantSensors={plantSensors}
-            dryingRate={dryingRate} combinedSwc={combinedSwc} calibLoading={calibLoading} calibError={calibError}
+            combinedSwc={combinedSwc} calibLoading={calibLoading} calibError={calibError}
+            dryingRate={dryingRate}
             rangeHours={rangeHours} setRangeHours={setRangeHours}
           />
         : <CalibrationPane
             plantFilter={plantFilter} sensorFilter={sensorFilter}
             calibration={calibration} calibError={calibError} calibLoading={calibLoading}
-            calibParams={calibParams} setCalibParam={setCalibParam} dryingRate={dryingRate}
+            calibParams={calibParams} setCalibParam={setCalibParam}
           />
       }
     </div>

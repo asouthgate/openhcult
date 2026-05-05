@@ -5,7 +5,7 @@ import ScatterPlot from './ScatterPlot'
 import CalibrationParams from './CalibrationParams'
 
 export default function CalibrationPane({
-  plantFilter, sensorFilter, calibration, calibError, calibLoading, calibParams, setCalibParam, dryingRate,
+  plantFilter, sensorFilter, calibration, calibError, calibLoading, calibParams, setCalibParam,
 }) {
   const [showPct, setShowPct] = useState(false)
 
@@ -78,18 +78,6 @@ export default function CalibrationPane({
             ...(swcStats?.lo != null ? [['95% CI', `${swcStats.lo.toFixed(1)}–${swcStats.hi.toFixed(1)}${showPctLabel}`]] : []),
             ...(calibration.n_sensors ? [['Sensors combined', calibration.n_sensors]] : []),
           ]
-          return (
-            <table className="obs-table full">
-              <tbody>
-                {stats.map(([label, value]) => (
-                  <tr key={label}><td style={{ opacity: 0.6 }}>{label}</td><td>{value}</td></tr>
-                ))}
-              </tbody>
-            </table>
-          )
-        })()}
-        {dryingRate && (() => {
-          const stats = [['Drying rate', `${dryingRate.rate_ml_per_day.toFixed(2)} ml/day (${dryingRate.rate_ci_low.toFixed(2)} to ${dryingRate.rate_ci_high.toFixed(2)})`]]
           return (
             <table className="obs-table full">
               <tbody>
