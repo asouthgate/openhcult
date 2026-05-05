@@ -3,6 +3,7 @@ import { sensorPart, toWater } from './utils'
 import CalibrationCurve from './CalibrationCurve'
 import ScatterPlot from './ScatterPlot'
 import CalibrationParams from './CalibrationParams'
+import { computeSwcStats } from './computeSwcStats'
 
 export default function CalibrationPane({
   plantFilter, sensorFilter, calibration, calibError, calibLoading, calibParams, setCalibParam,
@@ -13,18 +14,9 @@ export default function CalibrationPane({
 
   if (sensorFilter === '__combined__') return <div className="empty">Combined view is available on the Sensors tab.</div>
 
-  const { chords_dx, chords_dy, chord_times, scale, nlml, mean, prior_x, ci_low, ci_high } = calibration ?? {}
-
+  const { chords_dx, chords_dy, chord_times, scale, nlml } = calibration ?? {}
+  const swcStats = computeSwcStats(calibration, showPct)
   const showPctLabel = showPct ? ' %SC' : ' ml'
-  const swcStats = calibration ? (() => {
-    const toV = v => toWater(v, scale, showPct)
-    const ref = mean[mean.length - 1]
-    const estMin = toV(Math.min(...mean) - ref)
-    const estMax = toV(Math.max(...mean) - ref)
-    const lo = ci_low ? toV(Math.min(...ci_low) - ref) : null
-    const hi = ci_high ? toV(Math.max(...ci_high) - ref) : null
-    return { estMin, estMax, lo, hi }
-  })() : null
 
   const sensorLabel = sensorFilter === '__combined__' ? 'Combined' : (sensorFilter ? ` / ${sensorPart(sensorFilter)}` : '')
 
@@ -43,7 +35,7 @@ export default function CalibrationPane({
         )}
       </div>
       {calibLoading && <div className="full loading"><span className="spinner" />Computing…</div>}
-      {calibError && <div className="full error">{calibError}</div>}
+      {calibError && !calibration && <div className="full error">{calibError}</div>}
       {calibration && <>
         <div className="full">
           <CalibrationCurve calibration={calibration} showPct={showPct} />

@@ -9,7 +9,7 @@ export const IH = VH - M.top - M.bottom
 
 const pts = (arr, fx, fy) => arr.map(p => `${fx(p).toFixed(1)},${fy(p).toFixed(1)}`).join(' ')
 
-function timeTicks(tMin, tMax, n) {
+export function timeTicks(tMin, tMax, n) {
   const step = (tMax - tMin) / n
   return Array.from({ length: n + 1 }, (_, i) => tMin + i * step)
 }

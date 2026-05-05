@@ -22,4 +22,8 @@ export default defineConfig({
       '/water_cord_data': 'http://localhost:8000',
     },
   },
+  test: {
+    globals: true,
+    environment: 'jsdom',
+  },
 })

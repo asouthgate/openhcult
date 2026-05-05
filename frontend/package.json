@@ -1,7 +1,14 @@
 {
   "scripts": {
     "dev": "vite",
-    "build": "vite build"
+    "build": "vite build",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "lint-staged": {
+    "src/**/*.{js,jsx}": [
+      "vitest run --changed --bail 1"
+    ]
   },
   "dependencies": {
     "react": "^19.2.4",
@@ -9,7 +16,13 @@
     "react-router-dom": "^7.13.1"
   },
   "devDependencies": {
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.2",
     "@vitejs/plugin-react": "^4.3.4",
-    "vite": "^6.3.2"
+    "husky": "^9.1.7",
+    "jsdom": "^29.1.1",
+    "lint-staged": "^16.4.0",
+    "vite": "^6.3.2",
+    "vitest": "^4.1.5"
   }
 }

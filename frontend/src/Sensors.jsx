@@ -1,9 +1,15 @@
-import { useState, useEffect, useRef } from 'react'
-import { apiJson } from './api'
-import { sensorKey, sensorPart } from './utils'
-import { clearToken } from './api'
+import { useState, useEffect } from 'react'
+import { apiJson, clearToken } from './api'
+import { sensorKey } from './utils'
 import SensorsPane from './SensorsPane'
 import CalibrationPane from './CalibrationPane'
+import { useCalibrationData } from './useCalibrationData'
+
+const DEFAULT_CALIB_PARAMS = {
+  offsetMin: '5', widthMin: '50', prior: 'calibrated', priorMin: '867', priorMax: '2009',
+  estimator: 'exp_mcmc', priorWeight: '1.0', nBurn: '10', nSteps: '30',
+  xminMu: '850', xminSigma: '75', xminHigh: '1100', emaTauMin: '60',
+}
 
 export default function Sensors() {
   const [view, setView] = useState('sensors')
@@ -11,20 +17,18 @@ export default function Sensors() {
   const [plants, setPlants] = useState([])
   const [plantSensors, setPlantSensors] = useState([])
   const [sensorFilter, setSensorFilter] = useState('')
-  const [calibration, setCalibration] = useState(null)
-  const [calibError, setCalibError] = useState(null)
-  const [calibLoading, setCalibLoading] = useState(false)
-  const [dryingRate, setDryingRate] = useState(null)
-  const [combinedSwc, setCombinedSwc] = useState(null)
-  const [calibParams, setCalibParams] = useState({
-    offsetMin: '5', widthMin: '50', prior: 'calibrated', priorMin: '867', priorMax: '2009', estimator: 'exp_mcmc', priorWeight: '1.0', nBurn: '10', nSteps: '30', xminMu: '850', xminSigma: '75', xminHigh: '1100', emaTauMin: '60',
-  })
+  const [calibParams, setCalibParams] = useState(DEFAULT_CALIB_PARAMS)
   const [rangeHours, setRangeHours] = useState(48)
 
-  const autoStdSet = useRef(false)
-  const skipNextRefetch = useRef(false)
-  const drControllerRef = useRef(null)
   const setCalibParam = (key, val) => setCalibParams(p => ({ ...p, [key]: val }))
+
+  const { calibration, calibError, calibLoading, dryingRate, combinedSwc } = useCalibrationData({
+    plantFilter,
+    sensorFilter,
+    calibParams,
+    rangeHours,
+    setCalibParam,
+  })
 
   useEffect(() => {
     apiJson('/plants?limit=1000').then(d => setPlants(d.data ?? []))
@@ -43,130 +47,11 @@ export default function Sensors() {
   function handlePlantChange(plant) {
     setPlantFilter(plant)
     setSensorFilter('')
-    autoStdSet.current = false
   }
 
   const handleSensorChange = sensor => {
     setSensorFilter(sensor)
-    autoStdSet.current = false
   }
-
-  const isCombined = sensorFilter === '__combined__'
-
-  useEffect(() => {
-    if (!plantFilter) { setCalibration(null); setCalibError(null); setDryingRate(null); setCombinedSwc(null); drControllerRef.current?.abort(); return }
-    if (skipNextRefetch.current) { skipNextRefetch.current = false; return }
-    drControllerRef.current?.abort()
-    const controller = new AbortController()
-    const drController = new AbortController()
-    drControllerRef.current = drController
-    setCalibLoading(true)
-    setCalibError(null)
-
-    if (isCombined) {
-      const { offsetMin, widthMin, prior, priorMin, priorMax, priorWeight, nBurn, nSteps, xminMu, xminSigma, xminHigh, emaTauMin } = calibParams
-      const endMs = Date.now()
-      const params = new URLSearchParams({
-        plant: plantFilter,
-        offset_ms: Number(offsetMin) * 60 * 1000,
-        width_ms: Number(widthMin) * 60 * 1000,
-        start_ms: endMs - rangeHours * 3600 * 1000,
-        end_ms: endMs,
-      })
-      if (priorMin !== '') params.set('prior_min', priorMin)
-      if (priorMax !== '') params.set('prior_max', priorMax)
-      if (prior !== 'calibrated') params.set('prior', prior)
-      if (priorWeight !== '') params.set('prior_weight', priorWeight)
-      if (nBurn !== '') params.set('n_burn', nBurn)
-      if (nSteps !== '') params.set('n_steps', nSteps)
-      if (xminMu !== '') params.set('xmin_mu', xminMu)
-      if (xminSigma !== '') params.set('xmin_sigma', xminSigma)
-      if (xminHigh !== '') params.set('xmin_high', xminHigh)
-      setCalibration(null)
-      apiJson(`/swc_timeseries?${params}`, { signal: controller.signal })
-        .then(d => { setCombinedSwc(d); setCalibLoading(false) })
-        .catch(err => { if (err.name !== 'AbortError') { console.error(err); setCalibError(err.message); setCalibLoading(false) } })
-      const drParams = new URLSearchParams({
-        plant: plantFilter,
-        offset_ms: Number(offsetMin) * 60 * 1000,
-        width_ms: Number(widthMin) * 60 * 1000,
-        combined: 'true',
-        start_utc: new Date(endMs - rangeHours * 3600 * 1000).toISOString(),
-        end_utc: new Date(endMs).toISOString(),
-      })
-      if (priorMin !== '') drParams.set('prior_min', priorMin)
-      if (priorMax !== '') drParams.set('prior_max', priorMax)
-      if (prior !== 'calibrated') drParams.set('prior', prior)
-      if (priorWeight !== '') drParams.set('prior_weight', priorWeight)
-      if (nBurn !== '') drParams.set('n_burn', nBurn)
-      if (nSteps !== '') drParams.set('n_steps', nSteps)
-      if (xminMu !== '') drParams.set('xmin_mu', xminMu)
-      if (xminSigma !== '') drParams.set('xmin_sigma', xminSigma)
-      if (xminHigh !== '') drParams.set('xmin_high', xminHigh)
-      if (emaTauMin !== '') drParams.set('ema_tau_min', emaTauMin)
-      apiJson(`/drying_rate?${drParams}`, { signal: drController.signal }).then(dr => setDryingRate(dr)).catch(() => setDryingRate(null))
-      return () => controller.abort()
-    }
-
-    setCombinedSwc(null)
-    const { offsetMin, widthMin, prior, priorMin, priorMax, estimator, priorWeight, nBurn, nSteps, xminMu, xminSigma, xminHigh, emaTauMin } = calibParams
-    const params = new URLSearchParams({
-      plant: plantFilter,
-      offset_ms: Number(offsetMin) * 60 * 1000,
-      width_ms: Number(widthMin) * 60 * 1000,
-    })
-    if (sensorFilter) {
-      const sep = sensorFilter.lastIndexOf(':')
-      params.set('sensor', sensorFilter.slice(sep + 1))
-      params.set('device_address', sensorFilter.slice(0, sep))
-    }
-    if (estimator !== 'exp_mcmc') params.set('estimator', estimator)
-    if (estimator === 'exponential' && priorWeight !== '') params.set('prior_weight', priorWeight)
-    if (estimator === 'exp_mcmc') {
-      if (priorWeight !== '') params.set('prior_weight', priorWeight)
-      if (nBurn !== '') params.set('n_burn', nBurn)
-      if (nSteps !== '') params.set('n_steps', nSteps)
-      if (xminMu !== '') params.set('xmin_mu', xminMu)
-      if (xminSigma !== '') params.set('xmin_sigma', xminSigma)
-      if (xminHigh !== '') params.set('xmin_high', xminHigh)
-    }
-    if (prior !== 'calibrated') params.set('prior', prior)
-    if (prior === 'linear') {
-      if (priorMin !== '') params.set('prior_min', priorMin)
-      if (priorMax !== '') params.set('prior_max', priorMax)
-    }
-    if (estimator === 'exponential' || estimator === 'exp_mcmc') {
-      if (priorMin !== '' && !params.has('prior_min')) params.set('prior_min', priorMin)
-      if (priorMax !== '' && !params.has('prior_max')) params.set('prior_max', priorMax)
-    }
-    apiJson(`/water_calibration?${params}`, { signal: controller.signal })
-      .then(d => {
-        setCalibration(d)
-        if (!autoStdSet.current && d.chords_x?.length > 0) {
-          const endpoints = d.chords_x.map((x, i) => x + (d.chords_dx?.[i] ?? 0))
-          const newMin = String(Math.round(Math.min(...d.chords_x, ...endpoints)))
-          if (newMin !== calibParams.priorMin) {
-            skipNextRefetch.current = true
-            setCalibParam('priorMin', newMin)
-          }
-          autoStdSet.current = true
-        }
-        const drEndMs = Date.now()
-        const drParams = new URLSearchParams({ plant: plantFilter, offset_ms: Number(offsetMin) * 60 * 1000, width_ms: Number(widthMin) * 60 * 1000, start_utc: new Date(drEndMs - rangeHours * 3600 * 1000).toISOString(), end_utc: new Date(drEndMs).toISOString() })
-        if (sensorFilter) { const sep = sensorFilter.lastIndexOf(':'); drParams.set('sensor', sensorFilter.slice(sep + 1)); drParams.set('device_address', sensorFilter.slice(0, sep)) }
-        if (priorMin !== '') drParams.set('prior_min', priorMin)
-        if (priorMax !== '') drParams.set('prior_max', priorMax)
-        if (prior !== 'calibrated') drParams.set('prior', prior)
-        if (estimator !== 'exp_mcmc') drParams.set('estimator', estimator)
-        if (priorWeight !== '') drParams.set('prior_weight', priorWeight)
-        if (estimator === 'exp_mcmc') { if (nBurn !== '') drParams.set('n_burn', nBurn); if (nSteps !== '') drParams.set('n_steps', nSteps); if (xminMu !== '') drParams.set('xmin_mu', xminMu); if (xminSigma !== '') drParams.set('xmin_sigma', xminSigma); if (xminHigh !== '') drParams.set('xmin_high', xminHigh) }
-        if (emaTauMin !== '') drParams.set('ema_tau_min', emaTauMin)
-        apiJson(`/drying_rate?${drParams}`, { signal: drController.signal }).then(dr => setDryingRate(dr)).catch(() => setDryingRate(null))
-      })
-      .catch(err => { if (err.name !== 'AbortError') { console.error(err); setCalibration(null); setCalibError(err.message) } })
-      .finally(() => setCalibLoading(false))
-    return () => controller.abort()
-  }, [plantFilter, sensorFilter, calibParams, rangeHours])
 
   return (
     <div className="app">
