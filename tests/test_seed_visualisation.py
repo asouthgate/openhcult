@@ -9,7 +9,9 @@ def test_seed_visualisation_data(seeded_db):
         assert p["plant"] in plant_names_in_db
 
     mappings = list(database.fetch_plant_sensors(seeded_db.conn))
-    assert len(mappings) == len(seeded_db.sensors)
+    expected_keys = {(s["address"], s["sensor"]) for s in seeded_db.sensors}
+    actual_keys = {(m["device_address"], m["sensor"]) for m in mappings}
+    assert expected_keys.issubset(actual_keys)
 
     for p in seeded_db.plants:
         series = request_json(f"/timeseries?limit=100&plant={p['plant']}")

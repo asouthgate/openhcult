@@ -74,7 +74,6 @@ def test_plants_smoke_flow():
         "/species", method="POST", payload={"name": species_name}
     )
     assert created_species["name"] == species_name
-    print(species_name)
     request_json(
         "/plants",
         method="POST",

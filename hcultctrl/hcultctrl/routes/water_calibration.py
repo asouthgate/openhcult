@@ -4,7 +4,7 @@ import csv
 import logging
 import math
 import os
-import re
+import time
 
 import numpy as np
 from fastapi import Depends, HTTPException, APIRouter
@@ -12,7 +12,6 @@ from pydantic import BaseModel
 
 from hcultctrl.utils import get_db_conn
 from hcultdb import queries as database
-from hcultinf.exp import ExponentialCordCalibrator
 from hcultinf.exp_mcmc import ExponentialCordCalibratorMCMC
 from hcultinf.drying import drying_rate as compute_drying_rate
 
@@ -78,39 +77,66 @@ def _load_calibration(csv_path: str) -> tuple[np.ndarray, np.ndarray]:
     return np.array(sensor_vals)[order], np.array(swc_vals)[order]
 
 
-def _fetch_cord_data(conn, p: CordDataParams):
+def _resolve_sensors(conn, p: CalibrationParams):
     if p.sensor and not p.device_address:
         raise HTTPException(
             status_code=400,
             detail="device_address is required when sensor is specified",
         )
+    if p.sensor and p.device_address:
+        return [{"device_address": p.device_address, "sensor": p.sensor}]
+    sensors = list(database.fetch_plant_sensors(conn, limit=1000))
+    plant_sensors = [s for s in sensors if s["plant_name"] == p.plant]
+    if not plant_sensors:
+        raise HTTPException(status_code=400, detail="No sensors found for this plant")
+    return plant_sensors
+
+
+def _fetch_cord_data(conn, plant_name, sensor_specs, p):
     if p.prior not in ("calibrated", "linear"):
         raise HTTPException(
             status_code=400, detail="prior must be 'calibrated' or 'linear'"
         )
 
-    chords, chord_times = database.fetch_chords(
-        conn,
-        offset_ms=p.offset_ms,
-        width_ms=p.width_ms,
-        plant_name=p.plant,
-        sensor=p.sensor,
-        device_address=p.device_address,
-    )
+    all_x, all_dx, all_dy = [], [], []
+    all_chord_times = []
+    sensor_labels = []
+    active_sensors = []
 
-    if not chords:
+    for ps in sensor_specs:
+        chords, chord_times = database.fetch_chords(
+            conn,
+            offset_ms=p.offset_ms,
+            width_ms=p.width_ms,
+            plant_name=plant_name,
+            sensor=ps["sensor"],
+            device_address=ps["device_address"],
+        )
+        if not chords:
+            logger.warning(
+                "No chords for %s/%s, skipping",
+                ps["device_address"],
+                ps["sensor"],
+            )
+            continue
+        sensor_idx = len(active_sensors)
+        active_sensors.append(ps)
+        for (x, dx, dy), t in zip(chords, chord_times):
+            all_x.append(x)
+            all_dx.append(dx)
+            all_dy.append(dy)
+            all_chord_times.append(t)
+            sensor_labels.append(sensor_idx)
+
+    if not all_x:
         raise HTTPException(
             status_code=400,
             detail=f"No sensor data found in windows around waterings (offset={p.offset_ms//60000}min, width={p.width_ms//60000}min)",
         )
 
-    x_arr = np.array([c[0] for c in chords])
-    dx_arr = np.array([c[1] for c in chords])
-    dy_arr = np.array([c[2] for c in chords])
-
     if p.prior == "linear":
         prior_x = np.linspace(p.prior_min, p.prior_max, 500)
-        t = (prior_x - p.prior_min) / (p.prior_max - p.prior_min)
+        t = (prior_x - p.prior_min) / (prior_x.max() - prior_x.min())
         prior_y = 1.0 - t
         x_anchor = np.array([p.prior_max])
     else:
@@ -127,16 +153,18 @@ def _fetch_cord_data(conn, p: CordDataParams):
     swc_anchor = np.array([0.0])
 
     return dict(
-        x_arr=x_arr,
-        dx_arr=dx_arr,
-        dy_arr=dy_arr,
-        chord_times=chord_times,
+        x_arr=np.array(all_x),
+        dx_arr=np.array(all_dx),
+        dy_arr=np.array(all_dy),
+        chord_times=all_chord_times,
         prior_x=prior_x,
         prior_y=prior_y,
         x_anchor=x_anchor,
         swc_anchor=swc_anchor,
         offset_ms=p.offset_ms,
         width_ms=p.width_ms,
+        sensor_chord_labels=np.array(sensor_labels),
+        active_sensors=active_sensors,
     )
 
 
@@ -159,36 +187,27 @@ def _validate_linear_prior(prior, prior_min, prior_max):
         )
 
 
-def _calibrate(conn, p: CalibrationParams):
-    d = _fetch_cord_data(conn, p)
-    exp_xmax = p.prior_max if p.prior_max is not None else float(d["prior_x"].max())
+def _calibrate(conn, d, p: CalibrationParams):
+    active_sensors = d["active_sensors"]
+    n_sensors = len(active_sensors)
+    exp_xmax = max(
+        p.prior_max if p.prior_max is not None else float(d["prior_x"].max()),
+        float(d["x_arr"].max()),
+    )
     if p.xmin_high <= 0:
         raise HTTPException(status_code=400, detail="xmin_high must be positive")
     if p.xmin_sigma <= 0:
         raise HTTPException(status_code=400, detail="xmin_sigma must be positive")
-    logger.log(
-        logging.INFO,
-        "Calibrating with ExponentialCordCalibratorMCMC: xmin_mu=%.1f, xmin_sigma=%.1f, xmin_high=%.1f, xmax=%.1f, prior_weight=%.1f, n_burn=%d, n_steps=%d",
+    logger.info(
+        "Calibrating n_sensors=%d xmin_mu=%.1f xmin_sigma=%.1f xmin_high=%.1f xmax=%.1f",
+        n_sensors,
         p.xmin_mu,
         p.xmin_sigma,
         p.xmin_high,
         exp_xmax,
-        p.prior_weight,
-        p.n_burn,
-        p.n_steps,
-    )
-    logger.log(
-        logging.INFO,
-        "Data features: x_anchor_min=%.1f, x_anchor_max=%.1f, x_arr_len=%d, prior_x_min=%.1f, prior_x_max=%.1f x_end_min=%.1f x_end_max=%.1f",
-        d["x_anchor"].min(),
-        d["x_anchor"].max(),
-        len(d["x_arr"]),
-        d["prior_x"].min(),
-        d["prior_x"].max(),
-        (d["x_arr"] + d["dx_arr"]).min(),
-        (d["x_arr"] + d["dx_arr"]).max(),
     )
     cal = ExponentialCordCalibratorMCMC(
+        n_sensors=n_sensors,
         xmin_mu=p.xmin_mu,
         xmin_sigma=p.xmin_sigma,
         xmin_high=p.xmin_high,
@@ -204,41 +223,9 @@ def _calibrate(conn, p: CalibrationParams):
         d["dy_arr"],
         d["prior_x"],
         d["prior_y"],
+        sensor_chord_labels=d["sensor_chord_labels"],
     )
-    return d, cal
-
-
-def _calibrate_all_sensors(conn, plant_name, params_base):
-    sensors = list(database.fetch_plant_sensors(conn, limit=1000))
-    plant_sensors = [s for s in sensors if s["plant_name"] == plant_name]
-    if not plant_sensors:
-        raise HTTPException(status_code=400, detail="No sensors found for this plant")
-
-    calibrators = []
-    sensor_keys = []
-    for ps in plant_sensors:
-        try:
-            p_cal = CalibrationParams(
-                **params_base, sensor=ps["sensor"], device_address=ps["device_address"]
-            )
-            _, cal = _calibrate(conn, p_cal)
-        except HTTPException as e:
-            logger.warning(
-                "calibration failed for %s/%s: %s",
-                ps["device_address"],
-                ps["sensor"],
-                e.detail,
-            )
-            continue
-        calibrators.append(cal)
-        sensor_keys.append((ps["device_address"], ps["sensor"]))
-
-    if not calibrators:
-        raise HTTPException(
-            status_code=400, detail="No sensors produced calibration data"
-        )
-
-    return calibrators, sensor_keys
+    return cal
 
 
 def _align_readings_by_sensor(all_readings, sensor_keys):
@@ -299,13 +286,38 @@ def _compute_drying_result(times_ms_arr, swc_values, scale, ema_tau_min=60.0):
     }
 
 
+def _predict_swc_timeseries(conn, cal, sensor_keys, plant, start_time, end_time):
+    all_readings = list(
+        database.fetch_timeseries(
+            conn,
+            plant=plant,
+            start_ms=start_time,
+            end_ms=end_time,
+            limit=50000,
+        )
+    )
+    all_times, voltages_per_sensor = _align_readings_by_sensor(
+        all_readings, sensor_keys
+    )
+    if len(all_times) < 2:
+        raise HTTPException(
+            status_code=400,
+            detail="Not enough sensor readings in the specified time range",
+        )
+    X = np.column_stack(voltages_per_sensor)
+    mean_swc, ci_low, ci_high = cal.predict(X)
+    times_ms = np.array(all_times)
+    return times_ms, mean_swc, ci_low, ci_high
+
+
 @router.get("/water_cord_data")
 def water_cord_data(
     p: CordDataParams = Depends(),
     prior_alpha: float = 0.5,
     conn=Depends(get_db_conn),
 ):
-    d = _fetch_cord_data(conn, p)
+    sensor_specs = _resolve_sensors(conn, p)
+    d = _fetch_cord_data(conn, p.plant, sensor_specs, p)
     return {
         "chords_x": d["x_arr"].tolist(),
         "chords_dx": d["dx_arr"].tolist(),
@@ -333,7 +345,9 @@ def water_calibration(p: CalibrationParams = Depends(), conn=Depends(get_db_conn
         p.estimator,
     )
 
-    d, cal = _calibrate(conn, p)
+    sensor_specs = _resolve_sensors(conn, p)
+    d = _fetch_cord_data(conn, p.plant, sensor_specs, p)
+    cal = _calibrate(conn, d, p)
     plot_x = np.linspace(d["prior_x"].min(), d["prior_x"].max(), 500)
     plot_prior_y = np.interp(plot_x, d["prior_x"], d["prior_y"])
     mean, ci_low, ci_high = cal.predict(plot_x)
@@ -374,43 +388,17 @@ def swc_timeseries(
     _validate_estimator(p.estimator)
     _validate_linear_prior(p.prior, p.prior_min, p.prior_max)
 
-    if not p.sensor or not p.device_address:
-        raise HTTPException(
-            status_code=400, detail="sensor and device_address are required"
-        )
-
-    d, cal = _calibrate(conn, p)
-
-    end_time = end_ms if end_ms is not None else int(__import__("time").time() * 1000)
+    end_time = end_ms if end_ms is not None else int(time.time() * 1000)
     start_time = start_ms if start_ms is not None else (end_time - 48 * 3600 * 1000)
 
-    readings = list(
-        database.fetch_timeseries(
-            conn,
-            plant=p.plant,
-            sensor=p.sensor,
-            device=p.device_address,
-            start_ms=start_time,
-            end_ms=end_time,
-            limit=50000,
-        )
+    sensor_specs = _resolve_sensors(conn, p)
+    d = _fetch_cord_data(conn, p.plant, sensor_specs, p)
+    cal = _calibrate(conn, d, p)
+
+    sensor_keys = [(ps["device_address"], ps["sensor"]) for ps in d["active_sensors"]]
+    times_ms, mean_swc, ci_low, ci_high = _predict_swc_timeseries(
+        conn, cal, sensor_keys, p.plant, start_time, end_time
     )
-    if len(readings) < 2:
-        raise HTTPException(
-            status_code=400,
-            detail="Not enough sensor readings in the specified time range",
-        )
-
-    times_ms = np.array([r["adjusted_time_ms"] for r in readings])
-    voltages_mv = np.array([r["voltage_mv"] for r in readings])
-    order = np.argsort(times_ms)
-    times_ms = times_ms[order]
-    voltages_mv = voltages_mv[order]
-
-    mean_swc = cal(voltages_mv)
-    std_swc = cal.std(voltages_mv)
-    ci_low = mean_swc - 1.96 * std_swc
-    ci_high = mean_swc + 1.96 * std_swc
 
     return {
         "times_ms": [int(v) for v in times_ms],
@@ -432,7 +420,7 @@ def drying_rate(
     ema_tau_min: float = 60.0,
     conn=Depends(get_db_conn),
 ):
-    from datetime import datetime, timezone
+    from datetime import datetime, timezone, timedelta
 
     _validate_estimator(p.estimator)
 
@@ -442,40 +430,25 @@ def drying_rate(
         else datetime.fromisoformat(end_utc.replace("Z", "+00:00"))
     )
     start_dt = (
-        end_dt - __import__("datetime").timedelta(hours=48)
+        end_dt - timedelta(hours=48)
         if start_utc is None
         else datetime.fromisoformat(start_utc.replace("Z", "+00:00"))
     )
     start_ms_time = int(start_dt.timestamp() * 1000)
     end_ms_time = int(end_dt.timestamp() * 1000)
 
-    d, cal = _calibrate(conn, p)
-    readings = list(
-        database.fetch_timeseries(
-            conn,
-            plant=p.plant,
-            sensor=p.sensor,
-            device=p.device_address,
-            start_ms=start_ms_time,
-            end_ms=end_ms_time,
-            limit=50000,
-        )
-    )
-    if len(readings) < 20:
-        raise HTTPException(
-            status_code=400,
-            detail="Not enough sensor readings for drying rate estimation",
-        )
+    sensor_specs = _resolve_sensors(conn, p)
+    d = _fetch_cord_data(conn, p.plant, sensor_specs, p)
+    cal = _calibrate(conn, d, p)
 
-    times_ms = np.array([r["adjusted_time_ms"] for r in readings])
-    voltages_mv = np.array([r["voltage_mv"] for r in readings])
-    order = np.argsort(times_ms)
-    times_ms = times_ms[order]
-    voltages_mv = voltages_mv[order]
+    sensor_keys = [(ps["device_address"], ps["sensor"]) for ps in d["active_sensors"]]
+    times_ms, mean_swc, _, _ = _predict_swc_timeseries(
+        conn, cal, sensor_keys, p.plant, start_ms_time, end_ms_time
+    )
 
     return _compute_drying_result(
         times_ms,
-        np.asarray(cal(voltages_mv)),
+        np.asarray(mean_swc),
         float(cal.scale),
         ema_tau_min=ema_tau_min,
     )
