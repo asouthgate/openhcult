@@ -210,7 +210,7 @@ export default function SensorsPane({
     }
   } else if (loading) {
     chartContent = <div className="loading">Loading…</div>
-  } else if (calibError) {
+  } else if (calibError && (measureMode === 'water' || measureMode === 'water_pct')) {
     chartContent = <div className="full error">{calibError}</div>
   } else if (needsPlant) {
     chartContent = <div className="empty">Select a plant to show water estimates</div>
