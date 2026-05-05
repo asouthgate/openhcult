@@ -138,6 +138,7 @@ def _setup_species_tables(cursor):
 
 def ensure_admin(db_url: str, username: str, password: str) -> None:
     """Create an admin user or reset their password if they already exist."""
+    setup_db(db_url)
     conn = connect(db_url)
     try:
         user = get_user_by_username(conn, username=username)
