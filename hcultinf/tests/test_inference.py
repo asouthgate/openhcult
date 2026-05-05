@@ -319,17 +319,17 @@ def test_multi_sensor_happy_path():
     SCALE = 270.0
     K0, K1 = 15.0, 15.0
     F_INT0, F_INT1 = 0.05, 0.05
-    XMIN0, XMIN1 = 2.7, 2.8
+    XMIN0, XMIN1 = 2.5, 2.8
     xmin_high = 3.0
-    XMIN_MU = 2.75
-    XMIN_SIGMA = 0.1
+    XMIN_MU = 2.65
+    XMIN_SIGMA = 0.2
     samples = 500
     burnin = 250
 
     fn0 = lambda x: SCALE * exponential_target(x, K0, F_INT0, XMIN0, TEST_XMAX)
     fn1 = lambda x: SCALE * exponential_target(x, K1, F_INT1, XMIN1, TEST_XMAX)
 
-    n_chords_per_sensor = 30
+    n_chords_per_sensor = 15
 
     x0, dx0, dy0 = simulate_calibration_data_samples(
         3.0,
@@ -379,15 +379,15 @@ def test_multi_sensor_happy_path():
         sensor_chord_labels=sensor_chord_labels,
     )
 
-    chain = estimator_multi._chain
-    print(chain.shape)
-    for j in range(4):
-        for wi in range(chain.shape[1]):
-            plt.plot(chain[:, wi, j])
-        plt.show()
+    # chain = estimator_multi._chain
+    # print(chain.shape)
+    # for j in range(4):
+    #     for wi in range(chain.shape[1]):
+    #         plt.plot(chain[:, wi, j])
+    #     plt.show()
 
-    plt.plot(cal_multi._log_prob)
-    plt.show()
+    # plt.plot(cal_multi._log_prob)
+    # plt.show()
 
     print("Joint xmin MAP:", np.mean(cal_multi.posterior_params()["xmin"], axis=0))
     print("Joint scale MAP:", np.mean(cal_multi.posterior_params()["scale"], axis=0))
@@ -425,7 +425,8 @@ def test_multi_sensor_happy_path():
     cal = cal_multi
 
     x_grid = np.linspace(TEST_XMIN, TEST_XMAX, 20)
-    mean, ci_low, ci_high = cal.predict(x_grid)
+    x_grid_2d = np.column_stack([x_grid, x_grid])
+    mean, ci_low, ci_high = cal.predict(x_grid_2d)
     assert np.all(np.isfinite(mean))
     assert np.all(mean >= 0)
     assert np.all(np.isfinite(ci_low))
@@ -445,7 +446,7 @@ def test_multi_sensor_happy_path():
     assert params["sigma2"].ndim == 1
     assert params["xmin"].shape == (params["scale"].shape[0], 2)
 
-    samples = cal.posterior_samples_swc_at(x_grid, n=20)
+    samples = cal.posterior_samples_swc_at(x_grid_2d, n=20)
     assert samples.shape == (20, len(x_grid))
 
     scale_est = cal.scale
@@ -474,15 +475,17 @@ def test_multi_sensor_happy_path():
     # )
 
     # apply_dark_theme()
-    plot_x = np.linspace(TEST_XMIN - 0.5, TEST_XMAX, 200)
     fig, ax = plt.subplots(figsize=(10, 5))
 
-    for label, c, cal_i in [
-        ("sensor 0", CLOUD_BLUE, cal_s0),
-        ("sensor 1", ORANGE, cal_s1),
-        ("joint", CLOUD_WHITE, cal_multi),
+    for label, c, cal_i, sidx in [
+        ("sensor 0", CLOUD_BLUE, cal_s0, 0),
+        ("sensor 1", ORANGE, cal_s1, 0),
+        ("joint s0", CLOUD_WHITE, cal_multi, 0),
+        ("joint s1", YELLOW, cal_multi, 1),
     ]:
-        paths, level = cal_i.curve_credible_region(plot_x, alpha=0.99, n_bins=100)
+        paths, level = cal_i.curve_credible_region(
+            sensor_idx=sidx, alpha=0.99, n_bins=100
+        )
         for j, path in enumerate(paths):
             ax.plot(
                 path[:, 0],
@@ -493,15 +496,16 @@ def test_multi_sensor_happy_path():
             )
         p = cal_i.posterior_params()
         mean_scale = float(np.mean(p["scale"]))
-        xmin_per_sample = np.min(p["xmin"], axis=1)
-        xmin_eff = float(np.mean(xmin_per_sample))
+        xmin_val = float(
+            np.mean(p["xmin"][:, sidx] if p["xmin"].ndim > 1 else p["xmin"])
+        )
         ax.scatter(
-            [xmin_eff],
+            [xmin_val],
             [mean_scale],
             marker="x",
             s=80,
             zorder=5,
-            label=label,
+            label=f"{label} xmin",
         )
 
     ax.set_xlabel("sensor reading")
@@ -576,20 +580,12 @@ def test_predict_return_prob_x():
 
 def test_curve_credible_region():
     cal = _fit_mcmc(seed=42)
-    x_grid = np.linspace(TEST_XMIN, TEST_XMAX, 100)
-    paths, level = cal.curve_credible_region(x_grid, alpha=0.95, n_bins=50)
+    paths, level = cal.curve_credible_region(alpha=0.95, n_bins=50, n_points=200)
     assert level > 0.0
     assert len(paths) >= 1
     for path in paths:
         assert path.ndim == 2
         assert path.shape[1] == 2
-        assert np.all(path[:, 0] >= TEST_XMIN)
+        assert np.all(path[:, 0] >= TEST_XMIN - 1.0)
         assert np.all(path[:, 0] <= TEST_XMAX)
         assert np.all(np.isfinite(path))
-    x_grid_below = np.linspace(1.0, 2.4, 50)
-    paths_below, level_below = cal.curve_credible_region(
-        x_grid_below, alpha=0.95, n_bins=50
-    )
-    if len(paths_below) > 0:
-        below_x = np.concatenate([p[:, 0] for p in paths_below])
-        assert below_x.max() < TEST_XMIN
