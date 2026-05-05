@@ -206,25 +206,28 @@ def _calibrate(conn, d, p: CalibrationParams):
         p.xmin_high,
         exp_xmax,
     )
-    cal = ExponentialCordCalibratorMCMC(
-        n_sensors=n_sensors,
-        xmin_mu=p.xmin_mu,
-        xmin_sigma=p.xmin_sigma,
-        xmin_high=p.xmin_high,
-        xmax=exp_xmax,
-        prior_weight=p.prior_weight,
-        n_burn=p.n_burn,
-        n_steps=p.n_steps,
-    ).fit(
-        d["x_anchor"],
-        d["swc_anchor"],
-        d["x_arr"],
-        d["dx_arr"],
-        d["dy_arr"],
-        d["prior_x"],
-        d["prior_y"],
-        sensor_chord_labels=d["sensor_chord_labels"],
-    )
+    try:
+        cal = ExponentialCordCalibratorMCMC(
+            n_sensors=n_sensors,
+            xmin_mu=p.xmin_mu,
+            xmin_sigma=p.xmin_sigma,
+            xmin_high=p.xmin_high,
+            xmax=exp_xmax,
+            prior_weight=p.prior_weight,
+            n_burn=p.n_burn,
+            n_steps=p.n_steps,
+        ).fit(
+            d["x_anchor"],
+            d["swc_anchor"],
+            d["x_arr"],
+            d["dx_arr"],
+            d["dy_arr"],
+            d["prior_x"],
+            d["prior_y"],
+            sensor_chord_labels=d["sensor_chord_labels"],
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return cal
 
 

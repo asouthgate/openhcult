@@ -7,6 +7,9 @@
     - name: openhcult_database_password
       prompt: "OpenHCult database password"
       private: true
+    - name: openhcult_admin_password
+      prompt: "OpenHCult admin password"
+      private: true
   roles:
     - role: common
     - role: postgres

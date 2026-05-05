@@ -127,11 +127,6 @@ def get_ctrl_port() -> int:
     return DEFAULT_CTRL_PORT
 
 
-def get_credentials_path() -> Path:
-    config_path = _CONFIG_PATH_OVERRIDE or _default_config_path()
-    return config_path.parent / "credentials.json"
-
-
 def get_auth_token_expiry_hours() -> int:
     parser, _, _ = _load_config()
     if "auth" in parser and "token_expiry_hours" in parser["auth"]:

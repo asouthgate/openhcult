@@ -1,8 +1,23 @@
 """Database setup helpers."""
 
+import secrets
 from pathlib import Path
 
+import bcrypt
+
 from .connection import connect, is_postgres, placeholder as placeholder_for
+from .queries import count_users, create_user, get_user_by_username
+
+
+def _setup_users_table(cursor):
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            jwt_secret TEXT NOT NULL
+        )
+    """)
 
 
 def _setup_inference_tables(cursor):
@@ -121,10 +136,40 @@ def _setup_species_tables(cursor):
     )
 
 
+def ensure_admin(db_url: str, username: str, password: str) -> None:
+    """Create an admin user or reset their password if they already exist."""
+    conn = connect(db_url)
+    try:
+        user = get_user_by_username(conn, username=username)
+        if user is None:
+            create_user(
+                conn,
+                username=username,
+                password_hash=bcrypt.hashpw(
+                    password.encode(), bcrypt.gensalt()
+                ).decode(),
+                jwt_secret=secrets.token_hex(32),
+            )
+        else:
+            from .queries import reset_user_password
+
+            reset_user_password(
+                conn,
+                username=username,
+                password_hash=bcrypt.hashpw(
+                    password.encode(), bcrypt.gensalt()
+                ).decode(),
+                jwt_secret=secrets.token_hex(32),
+            )
+    finally:
+        conn.close()
+
+
 def setup_db(db_url: str):
     conn = connect(db_url)
     cursor = conn.cursor()
 
+    _setup_users_table(cursor)
     _setup_devices_tables(cursor)
     _setup_readings_tables(cursor)
     _setup_species_tables(cursor)

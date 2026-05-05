@@ -16,6 +16,46 @@ from .connection import (
 logger = logging.getLogger(__name__)
 
 
+def create_user(conn, *, username: str, password_hash: str, jwt_secret: str) -> None:
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO users (username, password_hash, jwt_secret) VALUES (%s, %s, %s)",
+        (username, password_hash, jwt_secret),
+    )
+    conn.commit()
+
+
+def reset_user_password(
+    conn, *, username: str, password_hash: str, jwt_secret: str
+) -> None:
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE users SET password_hash = %s, jwt_secret = %s WHERE username = %s",
+        (password_hash, jwt_secret, username),
+    )
+    conn.commit()
+
+
+def get_user_by_username(conn, *, username: str) -> dict | None:
+    placeholder = placeholder_for(conn)
+    cursor = conn.cursor()
+    cursor.execute(
+        f"SELECT id, username, password_hash, jwt_secret FROM users WHERE username = {placeholder}",
+        (username,),
+    )
+    row = cursor.fetchone()
+    if row is None:
+        return None
+    cols = [desc[0] for desc in cursor.description]
+    return dict(zip(cols, row))
+
+
+def count_users(conn) -> int:
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM users")
+    return cursor.fetchone()[0]
+
+
 def register_device(conn, name, address):
     """Insert or update a device row and return its device_id."""
     logger.debug("Registering or updating device %s at %s", name, address)

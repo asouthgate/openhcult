@@ -17,7 +17,7 @@ export default function Sensors() {
   const [dryingRate, setDryingRate] = useState(null)
   const [combinedSwc, setCombinedSwc] = useState(null)
   const [calibParams, setCalibParams] = useState({
-    offsetMin: '5', widthMin: '50', prior: 'calibrated', priorMin: '867', priorMax: '2009', estimator: 'exp_mcmc', priorWeight: '1.0', nBurn: '10', nSteps: '30', xminLow: '800', xminHigh: '1100', emaTauMin: '60',
+    offsetMin: '5', widthMin: '50', prior: 'calibrated', priorMin: '867', priorMax: '2009', estimator: 'exp_mcmc', priorWeight: '1.0', nBurn: '10', nSteps: '30', xminMu: '850', xminSigma: '75', xminHigh: '1100', emaTauMin: '60',
   })
   const [rangeHours, setRangeHours] = useState(48)
 
@@ -64,7 +64,7 @@ export default function Sensors() {
     setCalibError(null)
 
     if (isCombined) {
-      const { offsetMin, widthMin, prior, priorMin, priorMax, priorWeight, nBurn, nSteps, xminLow, xminHigh, emaTauMin } = calibParams
+      const { offsetMin, widthMin, prior, priorMin, priorMax, priorWeight, nBurn, nSteps, xminMu, xminSigma, xminHigh, emaTauMin } = calibParams
       const endMs = Date.now()
       const params = new URLSearchParams({
         plant: plantFilter,
@@ -79,7 +79,8 @@ export default function Sensors() {
       if (priorWeight !== '') params.set('prior_weight', priorWeight)
       if (nBurn !== '') params.set('n_burn', nBurn)
       if (nSteps !== '') params.set('n_steps', nSteps)
-      if (xminLow !== '') params.set('xmin_low', xminLow)
+      if (xminMu !== '') params.set('xmin_mu', xminMu)
+      if (xminSigma !== '') params.set('xmin_sigma', xminSigma)
       if (xminHigh !== '') params.set('xmin_high', xminHigh)
       setCalibration(null)
       apiJson(`/swc_timeseries?${params}`, { signal: controller.signal })
@@ -99,7 +100,8 @@ export default function Sensors() {
       if (priorWeight !== '') drParams.set('prior_weight', priorWeight)
       if (nBurn !== '') drParams.set('n_burn', nBurn)
       if (nSteps !== '') drParams.set('n_steps', nSteps)
-      if (xminLow !== '') drParams.set('xmin_low', xminLow)
+      if (xminMu !== '') drParams.set('xmin_mu', xminMu)
+      if (xminSigma !== '') drParams.set('xmin_sigma', xminSigma)
       if (xminHigh !== '') drParams.set('xmin_high', xminHigh)
       if (emaTauMin !== '') drParams.set('ema_tau_min', emaTauMin)
       apiJson(`/drying_rate?${drParams}`, { signal: drController.signal }).then(dr => setDryingRate(dr)).catch(() => setDryingRate(null))
@@ -107,7 +109,7 @@ export default function Sensors() {
     }
 
     setCombinedSwc(null)
-    const { offsetMin, widthMin, prior, priorMin, priorMax, estimator, priorWeight, nBurn, nSteps, xminLow, xminHigh, emaTauMin } = calibParams
+    const { offsetMin, widthMin, prior, priorMin, priorMax, estimator, priorWeight, nBurn, nSteps, xminMu, xminSigma, xminHigh, emaTauMin } = calibParams
     const params = new URLSearchParams({
       plant: plantFilter,
       offset_ms: Number(offsetMin) * 60 * 1000,
@@ -124,7 +126,8 @@ export default function Sensors() {
       if (priorWeight !== '') params.set('prior_weight', priorWeight)
       if (nBurn !== '') params.set('n_burn', nBurn)
       if (nSteps !== '') params.set('n_steps', nSteps)
-      if (xminLow !== '') params.set('xmin_low', xminLow)
+      if (xminMu !== '') params.set('xmin_mu', xminMu)
+      if (xminSigma !== '') params.set('xmin_sigma', xminSigma)
       if (xminHigh !== '') params.set('xmin_high', xminHigh)
     }
     if (prior !== 'calibrated') params.set('prior', prior)
@@ -156,7 +159,7 @@ export default function Sensors() {
         if (prior !== 'calibrated') drParams.set('prior', prior)
         if (estimator !== 'exp_mcmc') drParams.set('estimator', estimator)
         if (priorWeight !== '') drParams.set('prior_weight', priorWeight)
-        if (estimator === 'exp_mcmc') { if (nBurn !== '') drParams.set('n_burn', nBurn); if (nSteps !== '') drParams.set('n_steps', nSteps); if (xminLow !== '') drParams.set('xmin_low', xminLow); if (xminHigh !== '') drParams.set('xmin_high', xminHigh) }
+        if (estimator === 'exp_mcmc') { if (nBurn !== '') drParams.set('n_burn', nBurn); if (nSteps !== '') drParams.set('n_steps', nSteps); if (xminMu !== '') drParams.set('xmin_mu', xminMu); if (xminSigma !== '') drParams.set('xmin_sigma', xminSigma); if (xminHigh !== '') drParams.set('xmin_high', xminHigh) }
         if (emaTauMin !== '') drParams.set('ema_tau_min', emaTauMin)
         apiJson(`/drying_rate?${drParams}`, { signal: drController.signal }).then(dr => setDryingRate(dr)).catch(() => setDryingRate(null))
       })

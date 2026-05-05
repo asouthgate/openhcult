@@ -1,5 +1,5 @@
 export default function CalibrationParams({ calibParams, setCalibParam }) {
-  const { offsetMin, widthMin, prior, priorMin, priorMax, estimator, priorWeight, nBurn, nSteps, xminLow, xminHigh, emaTauMin } = calibParams
+  const { offsetMin, widthMin, prior, priorMin, priorMax, estimator, priorWeight, nBurn, nSteps, xminMu, xminSigma, xminHigh, emaTauMin } = calibParams
   return (
     <table className="param-table">
       <tbody>
@@ -46,8 +46,13 @@ export default function CalibrationParams({ calibParams, setCalibParam }) {
             <td>steps</td>
           </tr>
           <tr>
-            <td>xmin low</td>
-            <td><input type="number" step="1" className="param-input" value={xminLow} onChange={e => setCalibParam('xminLow', e.target.value)} /></td>
+            <td>xmin mu</td>
+            <td><input type="number" step="1" className="param-input" value={xminMu} onChange={e => setCalibParam('xminMu', e.target.value)} /></td>
+            <td>mV</td>
+          </tr>
+          <tr>
+            <td>xmin sigma</td>
+            <td><input type="number" step="1" className="param-input" value={xminSigma} onChange={e => setCalibParam('xminSigma', e.target.value)} /></td>
             <td>mV</td>
           </tr>
           <tr>

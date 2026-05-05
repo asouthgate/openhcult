@@ -123,41 +123,19 @@ def _setup_auth(ctx, password):
         with urlopen(f"{ctx.ctrl_url}/auth/status", timeout=5) as resp:
             status = json.loads(resp.read().decode())
         if status.get("configured"):
-            try:
-                login_data = json.dumps(
-                    {"username": DEFAULT_AUTH_USER, "password": password}
-                ).encode()
-                login_req = Request(
-                    f"{ctx.ctrl_url}/auth/login",
-                    data=login_data,
-                    method="POST",
-                    headers={"Content-Type": "application/json"},
-                )
-                with urlopen(login_req, timeout=5):
-                    pass
-                print(green(f"Auth: {DEFAULT_AUTH_USER} / {password}"))
-                return
-            except URLError:
-                pass
-            creds_path = (
-                Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-                / "openhcult"
-                / "credentials.json"
+            login_data = json.dumps(
+                {"username": DEFAULT_AUTH_USER, "password": password}
+            ).encode()
+            login_req = Request(
+                f"{ctx.ctrl_url}/auth/login",
+                data=login_data,
+                method="POST",
+                headers={"Content-Type": "application/json"},
             )
-            if not creds_path.exists():
-                from hcultctrl import config
-
-                creds_path = config.get_credentials_path()
-            if creds_path.exists():
-                creds_path.unlink()
-            for _ in range(10):
-                try:
-                    with urlopen(f"{ctx.ctrl_url}/auth/status", timeout=3) as resp:
-                        data = json.loads(resp.read().decode())
-                    if not data.get("configured"):
-                        break
-                except (URLError, ConnectionResetError):
-                    time.sleep(1)
+            with urlopen(login_req, timeout=5):
+                pass
+            print(green(f"Auth: {DEFAULT_AUTH_USER} / {password}"))
+            return
     except URLError:
         pass
     data = json.dumps({"username": DEFAULT_AUTH_USER, "password": password}).encode()
