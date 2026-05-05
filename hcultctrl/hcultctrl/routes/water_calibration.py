@@ -14,7 +14,6 @@ from hcultctrl.utils import get_db_conn
 from hcultdb import queries as database
 from hcultinf.exp import ExponentialCordCalibrator
 from hcultinf.exp_mcmc import ExponentialCordCalibratorMCMC
-from hcultinf.combiner import fuse_swc
 from hcultinf.drying import drying_rate as compute_drying_rate
 
 logger = logging.getLogger(__name__)
@@ -37,7 +36,7 @@ class TuningParams(BaseModel):
     prior_weight: float = 1.0
     n_burn: int = 10
     n_steps: int = 30
-    xmin_mu: float = 950.0
+    xmin_mu: float = 850.0
     xmin_sigma: float = 75.0
     xmin_high: float = 1100.0
 
@@ -163,43 +162,49 @@ def _validate_linear_prior(prior, prior_min, prior_max):
 def _calibrate(conn, p: CalibrationParams):
     d = _fetch_cord_data(conn, p)
     exp_xmax = p.prior_max if p.prior_max is not None else float(d["prior_x"].max())
-    if p.estimator == "exponential":
-        exp_xmin = p.prior_min if p.prior_min is not None else float(d["prior_x"].min())
-        cal = ExponentialCordCalibrator(
-            xmin=exp_xmin,
-            xmax=exp_xmax,
-            prior_weight=p.prior_weight,
-        ).fit(
-            d["x_anchor"],
-            d["swc_anchor"],
-            d["x_arr"],
-            d["dx_arr"],
-            d["dy_arr"],
-            d["prior_x"],
-            d["prior_y"],
-        )
-    else:
-        if p.xmin_high <= 0:
-            raise HTTPException(status_code=400, detail="xmin_high must be positive")
-        if p.xmin_sigma <= 0:
-            raise HTTPException(status_code=400, detail="xmin_sigma must be positive")
-        cal = ExponentialCordCalibratorMCMC(
-            xmin_mu=p.xmin_mu,
-            xmin_sigma=p.xmin_sigma,
-            xmin_high=p.xmin_high,
-            xmax=exp_xmax,
-            prior_weight=p.prior_weight,
-            n_burn=p.n_burn,
-            n_steps=p.n_steps,
-        ).fit(
-            d["x_anchor"],
-            d["swc_anchor"],
-            d["x_arr"],
-            d["dx_arr"],
-            d["dy_arr"],
-            d["prior_x"],
-            d["prior_y"],
-        )
+    if p.xmin_high <= 0:
+        raise HTTPException(status_code=400, detail="xmin_high must be positive")
+    if p.xmin_sigma <= 0:
+        raise HTTPException(status_code=400, detail="xmin_sigma must be positive")
+    logger.log(
+        logging.INFO,
+        "Calibrating with ExponentialCordCalibratorMCMC: xmin_mu=%.1f, xmin_sigma=%.1f, xmin_high=%.1f, xmax=%.1f, prior_weight=%.1f, n_burn=%d, n_steps=%d",
+        p.xmin_mu,
+        p.xmin_sigma,
+        p.xmin_high,
+        exp_xmax,
+        p.prior_weight,
+        p.n_burn,
+        p.n_steps,
+    )
+    logger.log(
+        logging.INFO,
+        "Data features: x_anchor_min=%.1f, x_anchor_max=%.1f, x_arr_len=%d, prior_x_min=%.1f, prior_x_max=%.1f x_end_min=%.1f x_end_max=%.1f",
+        d["x_anchor"].min(),
+        d["x_anchor"].max(),
+        len(d["x_arr"]),
+        d["prior_x"].min(),
+        d["prior_x"].max(),
+        (d["x_arr"] + d["dx_arr"]).min(),
+        (d["x_arr"] + d["dx_arr"]).max(),
+    )
+    cal = ExponentialCordCalibratorMCMC(
+        xmin_mu=p.xmin_mu,
+        xmin_sigma=p.xmin_sigma,
+        xmin_high=p.xmin_high,
+        xmax=exp_xmax,
+        prior_weight=p.prior_weight,
+        n_burn=p.n_burn,
+        n_steps=p.n_steps,
+    ).fit(
+        d["x_anchor"],
+        d["swc_anchor"],
+        d["x_arr"],
+        d["dx_arr"],
+        d["dy_arr"],
+        d["prior_x"],
+        d["prior_y"],
+    )
     return d, cal
 
 

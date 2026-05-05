@@ -2,6 +2,7 @@
 
 import os
 from configparser import ConfigParser
+import logging
 from pathlib import Path
 from typing import Optional
 
@@ -11,6 +12,27 @@ DEFAULT_LOG_STDOUT = True
 DEFAULT_CTRL_HOST = "127.0.0.1"
 DEFAULT_CTRL_PORT = 8000
 _CONFIG_PATH_OVERRIDE: Optional[Path] = None
+
+
+def setup_logging():
+    handlers = []
+    if get_log_stdout():
+        handlers.append(logging.StreamHandler())
+    log_path = get_log_path("hcultctrl")
+    if log_path is not None:
+        try:
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            handlers.append(logging.FileHandler(log_path))
+        except PermissionError:
+            handlers.append(logging.StreamHandler())
+    if not handlers:
+        handlers.append(logging.StreamHandler())
+    logging.basicConfig(
+        format="%(asctime)s %(message)s",
+        level=logging.INFO,
+        datefmt="%Y-%m-%d %H:%M:%S",
+        handlers=handlers,
+    )
 
 
 def _default_config_path() -> Path:

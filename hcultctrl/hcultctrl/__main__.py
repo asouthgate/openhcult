@@ -10,27 +10,6 @@ import uvicorn
 from . import config
 
 
-def _setup_logging():
-    handlers = []
-    if config.get_log_stdout():
-        handlers.append(logging.StreamHandler())
-    log_path = config.get_log_path("hcultctrl")
-    if log_path is not None:
-        try:
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            handlers.append(logging.FileHandler(log_path))
-        except PermissionError:
-            handlers.append(logging.StreamHandler())
-    if not handlers:
-        handlers.append(logging.StreamHandler())
-    logging.basicConfig(
-        format="%(asctime)s %(message)s",
-        level=logging.INFO,
-        datefmt="%Y-%m-%d %H:%M:%S",
-        handlers=handlers,
-    )
-
-
 def main():
     parser = argparse.ArgumentParser(description="Run the hcultctrl API.")
     parser.add_argument(
@@ -59,7 +38,7 @@ def main():
         os.environ["HCULT_CONFIG_PATH"] = args.config
     host = args.host or config.get_ctrl_host()
     port = args.port or config.get_ctrl_port()
-    _setup_logging()
+    config.setup_logging()
     uvicorn.run(
         "hcultctrl.api:app",
         host=host,

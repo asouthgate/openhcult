@@ -347,12 +347,21 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             mask = sensor_chord_labels == sj
             xs_j = x_starts[mask]
             xe_j = x_ends[mask]
-            data_min_x_j = min(min(xs_j), min(xe_j), min(x_anchors))
+            data_min_x_j = min(
+                min(xs_j),
+                min(xe_j),
+                min(x_anchors),
+                min(prior_x) if len(prior_x) > 0 else float("inf"),
+            )
             if xmin_high_arr[sj] >= data_min_x_j:
                 xmin_high_arr[sj] = data_min_x_j
                 _logger.warning(
                     f"xmin_high {self._xmin_high} is greater than or equal to "
                     f"data minimum x {data_min_x_j} for sensor {sj}, adjusting xmin_high to {xmin_high_arr[sj]}"
+                )
+            if xmin_mu_arr[sj] >= data_min_x_j:
+                raise ValueError(
+                    f"xmin_mu {self._xmin_mu} must be less than data minimum x {data_min_x_j} for sensor {sj}"
                 )
 
             assert xmin_high_arr[sj] <= min(
