@@ -85,7 +85,7 @@ export default function Sensors() {
       setCalibration(null)
       apiJson(`/swc_timeseries?${params}`, { signal: controller.signal })
         .then(d => { setCombinedSwc(d); setCalibLoading(false) })
-        .catch(err => { if (err.name !== 'AbortError') { console.error(err); setCalibError('Computation failed'); setCalibLoading(false) } })
+        .catch(err => { if (err.name !== 'AbortError') { console.error(err); setCalibError(err.message); setCalibLoading(false) } })
       const drParams = new URLSearchParams({
         plant: plantFilter,
         offset_ms: Number(offsetMin) * 60 * 1000,
@@ -163,7 +163,7 @@ export default function Sensors() {
         if (emaTauMin !== '') drParams.set('ema_tau_min', emaTauMin)
         apiJson(`/drying_rate?${drParams}`, { signal: drController.signal }).then(dr => setDryingRate(dr)).catch(() => setDryingRate(null))
       })
-      .catch(err => { if (err.name !== 'AbortError') { console.error(err); setCalibration(null); setCalibError('Computation failed') } })
+      .catch(err => { if (err.name !== 'AbortError') { console.error(err); setCalibration(null); setCalibError(err.message) } })
       .finally(() => setCalibLoading(false))
     return () => controller.abort()
   }, [plantFilter, sensorFilter, calibParams, rangeHours])
