@@ -178,7 +178,7 @@ def _add_plants_command(subparsers):
     plants_sub.add_parser("ls")
     plants_sub.add_parser("sensors")
     plants_update = plants_sub.add_parser("update")
-    plants_update.add_argument("id", type=str)
+    plants_update.add_argument("plant_name", type=str)
     plants_update.add_argument("--species-id", type=int, default=None)
     plants_update.add_argument("--tag", default=None)
     _add_metadata_arg(plants_update)
@@ -186,7 +186,7 @@ def _add_plants_command(subparsers):
     plants_rm.add_argument("plant_name", type=str)
 
     plants_set = plants_sub.add_parser("set")
-    plants_set.add_argument("id", type=str)
+    plants_set.add_argument("plant_name", type=str)
     plants_set.add_argument(
         "fields", nargs="*", help="key=value pairs to update (e.g. soil_volume=2000)"
     )
