@@ -185,6 +185,12 @@ def _add_plants_command(subparsers):
     plants_rm = plants_sub.add_parser("rm")
     plants_rm.add_argument("plant_name", type=str)
 
+    plants_set = plants_sub.add_parser("set")
+    plants_set.add_argument("id", type=str)
+    plants_set.add_argument(
+        "fields", nargs="*", help="key=value pairs to update (e.g. soil_volume=2000)"
+    )
+
     plants_assign = plants_sub.add_parser("assign")
     plants_assign.add_argument("plant_name", type=str)
     plants_assign.add_argument("device", type=str)

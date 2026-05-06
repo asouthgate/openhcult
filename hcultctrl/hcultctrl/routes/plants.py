@@ -22,6 +22,7 @@ class PlantIn(BaseModel):
     species_name: Optional[str] = None
     tag: Optional[str] = None
     metadata: Optional[dict] = None
+    soil_volume: Optional[float] = None
 
 
 class PlantUpdate(BaseModel):
@@ -29,6 +30,7 @@ class PlantUpdate(BaseModel):
     species_name: Optional[str] = None
     tag: Optional[str] = None
     metadata: Optional[dict] = None
+    soil_volume: Optional[float] = None
 
 
 class PlantSensorAssign(BaseModel):
@@ -68,6 +70,7 @@ def list_plants(
             "species_name": row["species_name"],
             "tag": row["tag"],
             "metadata": normalize_metadata(row["metadata"]),
+            "soil_volume": row.get("soil_volume"),
         }
         # Only add the key if it was requested
         if include_sensors:
@@ -102,6 +105,7 @@ def create_plant(payload: PlantIn, conn=Depends(get_db_conn)):
             species_id=species_id,
             tag=payload.tag,
             metadata=metadata,
+            soil_volume=payload.soil_volume,
         )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -110,6 +114,7 @@ def create_plant(payload: PlantIn, conn=Depends(get_db_conn)):
         "species_id": species_id,
         "tag": payload.tag,
         "metadata": payload.metadata,
+        "soil_volume": payload.soil_volume,
     }
 
 
@@ -171,6 +176,7 @@ def update_plant(plant_id: int, payload: PlantUpdate, conn=Depends(get_db_conn))
             species_id=species_id,
             tag=payload.tag,
             metadata=metadata,
+            soil_volume=payload.soil_volume,
         )
     except ValueError:
         raise HTTPException(status_code=404, detail="Plant not found")
@@ -179,6 +185,7 @@ def update_plant(plant_id: int, payload: PlantUpdate, conn=Depends(get_db_conn))
         "species_id": species_id,
         "tag": payload.tag,
         "metadata": payload.metadata,
+        "soil_volume": payload.soil_volume,
     }
 
 

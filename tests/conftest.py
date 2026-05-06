@@ -24,6 +24,7 @@ PLANTS = [
         "species": "Monstera deliciosa",
         "plant": "monstera-living-room",
         "max_swc_ml": 250.0,
+        "soil_volume": 2000.0,
         "dose_frac_range": (0.6, 0.9),
         "target_wc_range": (0.05, 0.15),
         "drain_per_day": 0.12,
@@ -32,6 +33,7 @@ PLANTS = [
         "species": "Ficus lyrata",
         "plant": "fiddle-leaf-bedroom",
         "max_swc_ml": 120.0,
+        "soil_volume": 1000.0,
         "dose_frac_range": (0.2, 0.4),
         "target_wc_range": (0.2, 0.5),
         "drain_per_day": 0.05,
@@ -108,7 +110,11 @@ def seeded_db(db_conn):
         request_json(
             "/plants",
             method="POST",
-            payload={"plant_name": p["plant"], "species_name": p["species"]},
+            payload={
+                "plant_name": p["plant"],
+                "species_name": p["species"],
+                "soil_volume": p["soil_volume"],
+            },
         )
 
     for s in SENSORS:

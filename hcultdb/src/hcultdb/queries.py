@@ -573,7 +573,7 @@ def fetch_plants(
     if include_sensors:
         query = f"""
             SELECT 
-                p.id, p.plant_name, p.species_id, s.name AS species_name, p.tag, p.metadata,
+                p.id, p.plant_name, p.species_id, s.name AS species_name, p.tag, p.metadata, p.soil_volume,
                 COALESCE(json_agg(json_build_object(
                     'id', ps.id,
                     'device_address', d.address,
@@ -589,7 +589,7 @@ def fetch_plants(
         """
     else:
         query = f"""
-            SELECT p.id, p.plant_name, p.species_id, s.name AS species_name, p.tag, p.metadata
+            SELECT p.id, p.plant_name, p.species_id, s.name AS species_name, p.tag, p.metadata, p.soil_volume
             FROM plants p
             LEFT JOIN species s ON s.id = p.species_id
             ORDER BY p.id ASC
@@ -605,7 +605,7 @@ def fetch_plant_by_name(conn, *, plant_name: str) -> dict | None:
     """Return a plant row for a given plant_name."""
     placeholder = placeholder_for(conn)
     query = f"""
-        SELECT p.id, p.plant_name, p.species_id, s.name AS species_name, p.tag, p.metadata
+        SELECT p.id, p.plant_name, p.species_id, s.name AS species_name, p.tag, p.metadata, p.soil_volume
         FROM plants p
         LEFT JOIN species s ON s.id = p.species_id
         WHERE p.plant_name = {placeholder}
@@ -657,12 +657,13 @@ def insert_plant(
     species_id: int | None,
     tag: str | None,
     metadata: str | None,
+    soil_volume: float | None = None,
 ) -> int:
     """Insert a plant and return its id."""
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT INTO plants (plant_name, species_id, tag, metadata) VALUES (%s, %s, %s, %s) RETURNING id",
-        (plant_name, species_id, tag, metadata),
+        "INSERT INTO plants (plant_name, species_id, tag, metadata, soil_volume) VALUES (%s, %s, %s, %s, %s) RETURNING id",
+        (plant_name, species_id, tag, metadata, soil_volume),
     )
     plant_id = cursor.fetchone()[0]
     conn.commit()
@@ -676,6 +677,7 @@ def update_plant(
     species_id: int | None,
     tag: str | None,
     metadata: str | None,
+    soil_volume: float | None = None,
 ) -> None:
     """Update a plant row."""
     placeholder = placeholder_for(conn)
@@ -690,6 +692,9 @@ def update_plant(
     if metadata is not None:
         fields.append(f"metadata = {placeholder}")
         params.append(metadata)
+    if soil_volume is not None:
+        fields.append(f"soil_volume = {placeholder}")
+        params.append(soil_volume)
     if not fields:
         return
     params.append(plant_id)

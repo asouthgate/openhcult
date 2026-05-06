@@ -80,8 +80,12 @@ def _setup_plant_tables(cursor):
             plant_name TEXT NOT NULL,
             species_id INTEGER REFERENCES species(id),
             tag TEXT,
-            metadata JSONB
+            metadata JSONB,
+            soil_volume REAL DEFAULT NULL
         )
+        """)
+    cursor.execute("""
+        ALTER TABLE plants ADD COLUMN IF NOT EXISTS soil_volume REAL DEFAULT NULL
         """)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS status_types (

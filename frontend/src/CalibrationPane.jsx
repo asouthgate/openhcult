@@ -21,7 +21,7 @@ export default function CalibrationPane({
   if (sensorFilter === '__combined__') return <div className="empty">Combined view is available on the Sensors tab.</div>
 
   const { chords_dx, chords_dy, chord_times, scale, nlml, fractional: isFractional } = calibration ?? {}
-  const swcStats = computeSwcStats(calibration, showFractional && hasSystemCapacity)
+  const swcStats = hasSystemCapacity ? computeSwcStats(calibration, showFractional) : null
   const unitLabel = isFractional ? '' : ' ml'
 
   const sensorLabel = sensorFilter === '__combined__' ? 'Combined' : (sensorFilter ? ` / ${sensorPart(sensorFilter)}` : '')
@@ -42,9 +42,12 @@ export default function CalibrationPane({
       </div>
       {calibLoading && <div className="full loading"><span className="spinner" />Computing…</div>}
       {calibError && !calibration && <div className="full error">{calibError}</div>}
-      {calibration && <>
+      {!hasSystemCapacity && calibration && (
+        <div className="empty">Enter system capacity params and recalculate to view water calibration</div>
+      )}
+      {hasSystemCapacity && calibration && <>
         <div className="full">
-          <CalibrationCurve calibration={calibration} showFractional={showFractional && hasSystemCapacity} />
+          <CalibrationCurve calibration={calibration} showFractional={showFractional} />
         </div>
 {chord_times?.length > 0 && (() => {
           const dy = chords_dy

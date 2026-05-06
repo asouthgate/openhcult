@@ -46,6 +46,16 @@ export default function Sensors() {
   function handlePlantChange(plant) {
     setPlantFilter(plant)
     setSensorFilter('')
+    if (plant) {
+      const p = plants.find(p => p.plant_name === plant)
+      if (p?.soil_volume != null) {
+        setCalibParams(cp => ({ ...cp, systemCapacityMean: String(Math.round(p.soil_volume)) }))
+      } else {
+        setCalibParams(cp => ({ ...cp, systemCapacityMean: '' }))
+      }
+    } else {
+      setCalibParams(cp => ({ ...cp, systemCapacityMean: '' }))
+    }
   }
 
   const handleSensorChange = sensor => {

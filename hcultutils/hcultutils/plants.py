@@ -115,6 +115,32 @@ def _update_plant(base_url: str, species_id, tag, metadata, plant_id) -> int:
     return 0
 
 
+def _set_plant(base_url: str, plant_id, fields) -> int:
+    if not fields:
+        print("No fields to update. Usage: hcultutils plants set ID key=value ...")
+        return 1
+    payload = {}
+    for field in fields:
+        if "=" not in field:
+            print(f"Invalid field format: {field}. Use key=value")
+            return 1
+        key, value = field.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if not key:
+            print(f"Empty key in field: {field}")
+            return 1
+        try:
+            payload[key] = json.loads(value)
+        except json.JSONDecodeError:
+            payload[key] = value
+    updated = request_ctrl("PATCH", f"{base_url}/plants/{plant_id}", payload)
+    print(
+        f"Updated plant {updated.get('id')}: {', '.join(f'{k}={v}' for k, v in payload.items())}"
+    )
+    return 0
+
+
 def _delete_plant(base_url: str, plant_name) -> int:
     deleted = request_ctrl("DELETE", f"{base_url}/plants/{plant_name}")
     print(f"Deleted plant {deleted.get('plant_name')}")
@@ -189,4 +215,6 @@ def plants_via_ctrl(ctrl_url: str, action: str, args) -> int:
         return _assign_plant(base, args.plant_name, args.device, args.sensor)
     if action == "set-status":
         return _set_status(base, args.plant_name, args.status_code, args.note)
+    if action == "set":
+        return _set_plant(base, args.id, args.fields)
     return 0

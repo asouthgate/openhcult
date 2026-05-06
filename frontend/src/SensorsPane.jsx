@@ -68,6 +68,7 @@ export default function SensorsPane({
   const [loading, setLoading] = useState(false)
 
   const isCombined = sensorFilter === '__combined__'
+  const hasSystemCapacity = calibParams.systemCapacityMean !== '' && calibParams.systemCapacityStd !== ''
   const calibration = showFractional ? calibrationFrac : calibrationMl
   const combinedSwc = showFractional ? combinedSwcFrac : combinedSwcMl
   const calibLoading = showFractional ? calibLoadingFrac : calibLoadingMl
@@ -117,7 +118,9 @@ export default function SensorsPane({
   )
 
   const isRateMode = measureMode === 'rate'
-  const needsPlant = (measureMode === 'water' || measureMode === 'fractional' || measureMode === 'rate') && !calibration && !combinedSwc && !dryingRate
+  const isWaterMode = measureMode === 'water' || measureMode === 'fractional'
+  const needsPlant = (isWaterMode || isRateMode) && plantFilter === ''
+  const needsSystemCapacity = isWaterMode && plantFilter && !hasSystemCapacity
 
   const rateSeries = useMemo(() => transformRateSeries(dryingRate), [dryingRate])
 
@@ -186,12 +189,14 @@ export default function SensorsPane({
     }
   } else if (loading) {
     chartContent = <div className="loading">Loading…</div>
-  } else if (isCombined && (measureMode === 'water' || measureMode === 'fractional')) {
+  } else if (needsPlant) {
+    chartContent = <div className="empty">Select a plant to show water estimates</div>
+  } else if (needsSystemCapacity) {
+    chartContent = <div className="empty">Enter system capacity params and recalculate to show water estimates</div>
+  } else if (isCombined && isWaterMode) {
     if (calibLoading) chartContent = <div className="loading"><span className="spinner" />Computing combined SWC…</div>
     else if (!combinedReady) chartContent = <div className="empty">No combined SWC data available.</div>
     else chartContent = <TimeseriesChart {...chartProps} />
-  } else if (needsPlant) {
-    chartContent = <div className="empty">Select a plant to show water estimates</div>
   } else if (series.length === 0) {
     chartContent = <div className="empty">No data in range.</div>
   } else {
