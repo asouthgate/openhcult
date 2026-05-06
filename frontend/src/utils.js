@@ -23,5 +23,3 @@ export function interp(x, xs, ys) {
   const t = (x - xs[lo]) / (xs[hi] - xs[lo])
   return ys[lo] + t * (ys[hi] - ys[lo])
 }
-
-export const toWater = (v, scale, asPct) => asPct ? (v / scale) * 100 : v

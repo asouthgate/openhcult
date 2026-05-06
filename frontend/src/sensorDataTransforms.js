@@ -1,4 +1,4 @@
-import { interp, toWater } from './utils'
+import { interp } from './utils'
 
 export function transformRateSeries(dryingRate) {
   if (!dryingRate?.times_ms?.length) return null
@@ -11,15 +11,15 @@ export function transformRateSeries(dryingRate) {
 }
 
 export function transformSeriesToWaterMode(series, calibration, measureMode) {
-  const isWater = (measureMode === 'water' || measureMode === 'water_pct') && calibration
-  const scale = calibration?.scale ?? 1
-  const toV = ml => toWater(ml, scale, measureMode === 'water_pct')
+  const isWater = (measureMode === 'water' || measureMode === 'fractional') && calibration
 
   const ms = series.map(s => ({
     ...s,
     points: s.points.map(p => {
       let v = (measureMode === 'voltage' && p.mv != null) ? p.mv : p.raw
-      if (isWater) v = toV(interp(p.raw, calibration.prior_x, calibration.mean))
+      if (isWater) {
+        v = interp(p.raw, calibration.prior_x, calibration.mean)
+      }
       return { t: p.t, v, raw: p.raw }
     }),
   }))
@@ -32,8 +32,8 @@ export function transformSeriesToWaterMode(series, calibration, measureMode) {
     color: s.color,
     points: s.points.map(p => ({
       t: p.t,
-      lo: toV(interp(p.raw, calibration.prior_x, loArr)),
-      hi: toV(interp(p.raw, calibration.prior_x, hiArr)),
+      lo: interp(p.raw, calibration.prior_x, loArr),
+      hi: interp(p.raw, calibration.prior_x, hiArr),
     })),
   }))
   return { mappedSeries: ms, bands: bs }
@@ -41,21 +41,20 @@ export function transformSeriesToWaterMode(series, calibration, measureMode) {
 
 export function transformCombinedSwc(combinedSwc, measureMode) {
   if (!combinedSwc || !combinedSwc.times_ms?.length) return { mappedSeries: [], bands: [], combinedReady: false }
-  const scale = combinedSwc.scale ?? 1
-  const toV = ml => toWater(ml, scale, measureMode === 'water_pct')
+  const isFractional = measureMode === 'fractional'
   const points = combinedSwc.times_ms.map((t, i) => {
     const v = combinedSwc.mean_swc[i]
-    return { t, v: v != null ? toV(v) : null, raw: 0 }
+    return { t, v: v != null ? v : null, raw: 0 }
   })
   const validPoints = points.filter(p => p.v != null)
   if (!validPoints.length) return { mappedSeries: [], bands: [], combinedReady: false }
-  const swcSeries = { label: 'Combined SWC', points: validPoints, color: '#d0fffc' }
+  const swcSeries = { label: isFractional ? 'Combined fractional' : 'Combined SWC', points: validPoints, color: '#d0fffc' }
   const swcBands = [{
     color: '#d0fffc',
     points: combinedSwc.times_ms.map((t, i) => ({
       t,
-      lo: combinedSwc.ci_low[i] != null ? toV(combinedSwc.ci_low[i]) : null,
-      hi: combinedSwc.ci_high[i] != null ? toV(combinedSwc.ci_high[i]) : null,
+      lo: combinedSwc.ci_low[i] != null ? combinedSwc.ci_low[i] : null,
+      hi: combinedSwc.ci_high[i] != null ? combinedSwc.ci_high[i] : null,
     })).filter(p => p.lo != null && p.hi != null),
   }]
   return { mappedSeries: [swcSeries], bands: swcBands, combinedReady: true }

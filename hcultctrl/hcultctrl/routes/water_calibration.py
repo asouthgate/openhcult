@@ -37,6 +37,7 @@ class TuningParams(BaseModel):
     n_steps: int = 30
     system_capacity_mean: float | None = None
     system_capacity_std: float | None = None
+    return_fractional: bool = False
 
 
 class CordDataParams(WindowParams):
@@ -280,7 +281,9 @@ def _compute_drying_result(times_ms_arr, swc_values, scale, ema_tau_min=60.0):
     }
 
 
-def _predict_swc_timeseries(conn, cal, sensor_keys, plant, start_time, end_time):
+def _predict_swc_timeseries(
+    conn, cal, sensor_keys, plant, start_time, end_time, fractional=False
+):
     all_readings = list(
         database.fetch_timeseries(
             conn,
@@ -299,7 +302,10 @@ def _predict_swc_timeseries(conn, cal, sensor_keys, plant, start_time, end_time)
             detail="Not enough sensor readings in the specified time range",
         )
     X = np.column_stack(voltages_per_sensor)
-    mean_swc, ci_low, ci_high = cal.predict(X)
+    if fractional:
+        mean_swc, ci_low, ci_high = cal.fractional_water_content(X)
+    else:
+        mean_swc, ci_low, ci_high = cal.predict(X)
     times_ms = np.array(all_times)
     return times_ms, mean_swc, ci_low, ci_high
 
@@ -344,7 +350,18 @@ def water_calibration(p: CalibrationParams = Depends(), conn=Depends(get_db_conn
     cal = _calibrate(conn, d, p)
     plot_x = np.linspace(d["prior_x"].min(), d["prior_x"].max(), 500)
     plot_prior_y = np.interp(plot_x, d["prior_x"], d["prior_y"])
-    mean, ci_low, ci_high = cal.predict(plot_x)
+
+    if (
+        p.return_fractional
+        and p.system_capacity_mean is not None
+        and p.system_capacity_std is not None
+    ):
+        mean, ci_low, ci_high = cal.fractional_water_content(plot_x)
+        fractional = True
+    else:
+        mean, ci_low, ci_high = cal.predict(plot_x)
+        fractional = False
+
     mean_at_chord_starts = cal(d["x_arr"])
 
     swc_after = mean_at_chord_starts + d["dy_arr"]
@@ -359,6 +376,7 @@ def water_calibration(p: CalibrationParams = Depends(), conn=Depends(get_db_conn
         "ci_high": _to_json_safe(ci_high),
         "scale": float(cal.scale),
         "nlml": float(cal.nlml),
+        "fractional": fractional,
         "anchors_x": d["x_anchor"].tolist(),
         "anchors_y": d["swc_anchor"].tolist(),
         "chords_x": d["x_arr"].tolist(),
@@ -391,7 +409,15 @@ def swc_timeseries(
 
     sensor_keys = [(ps["device_address"], ps["sensor"]) for ps in d["active_sensors"]]
     times_ms, mean_swc, ci_low, ci_high = _predict_swc_timeseries(
-        conn, cal, sensor_keys, p.plant, start_time, end_time
+        conn,
+        cal,
+        sensor_keys,
+        p.plant,
+        start_time,
+        end_time,
+        fractional=p.return_fractional
+        and p.system_capacity_mean is not None
+        and p.system_capacity_std is not None,
     )
 
     return {
@@ -400,6 +426,9 @@ def swc_timeseries(
         "ci_low": _to_json_safe(ci_low),
         "ci_high": _to_json_safe(ci_high),
         "scale": float(cal.scale),
+        "fractional": p.return_fractional
+        and p.system_capacity_mean is not None
+        and p.system_capacity_std is not None,
     }
 
 

@@ -1,4 +1,4 @@
-export function buildSwcTimeseriesParams(plantFilter, calibParams, rangeHours) {
+export function buildSwcTimeseriesParams(plantFilter, calibParams, rangeHours, returnFractional = false) {
   const { offsetMin, widthMin, prior, priorMin, priorMax, priorWeight, nBurn, nSteps, systemCapacityMean, systemCapacityStd } = calibParams
   const endMs = Date.now()
   const params = new URLSearchParams({
@@ -16,10 +16,11 @@ export function buildSwcTimeseriesParams(plantFilter, calibParams, rangeHours) {
   if (nSteps !== '') params.set('n_steps', nSteps)
   if (systemCapacityMean !== '') params.set('system_capacity_mean', systemCapacityMean)
   if (systemCapacityStd !== '') params.set('system_capacity_std', systemCapacityStd)
+  if (returnFractional) params.set('return_fractional', 'true')
   return params
 }
 
-export function buildDryingRateParams(plantFilter, sensorFilter, calibParams, rangeHours, combined = false) {
+export function buildDryingRateParams(plantFilter, sensorFilter, calibParams, rangeHours, combined = false, returnFractional = false) {
   const { offsetMin, widthMin, prior, priorMin, priorMax, estimator, priorWeight, nBurn, nSteps, emaTauMin, systemCapacityMean, systemCapacityStd } = calibParams
   const endMs = Date.now()
   const params = new URLSearchParams({
@@ -45,12 +46,13 @@ export function buildDryingRateParams(plantFilter, sensorFilter, calibParams, ra
     if (nSteps !== '') params.set('n_steps', nSteps)
     if (systemCapacityMean !== '') params.set('system_capacity_mean', systemCapacityMean)
     if (systemCapacityStd !== '') params.set('system_capacity_std', systemCapacityStd)
+    if (returnFractional) params.set('return_fractional', 'true')
   }
   if (emaTauMin !== '') params.set('ema_tau_min', emaTauMin)
   return params
 }
 
-export function buildWaterCalibrationParams(plantFilter, sensorFilter, calibParams) {
+export function buildWaterCalibrationParams(plantFilter, sensorFilter, calibParams, returnFractional = false) {
   const { offsetMin, widthMin, prior, priorMin, priorMax, estimator, priorWeight, nBurn, nSteps, systemCapacityMean, systemCapacityStd } = calibParams
   const params = new URLSearchParams({
     plant: plantFilter,
@@ -70,6 +72,7 @@ export function buildWaterCalibrationParams(plantFilter, sensorFilter, calibPara
     if (nSteps !== '') params.set('n_steps', nSteps)
     if (systemCapacityMean !== '') params.set('system_capacity_mean', systemCapacityMean)
     if (systemCapacityStd !== '') params.set('system_capacity_std', systemCapacityStd)
+    if (returnFractional) params.set('return_fractional', 'true')
   }
   if (prior !== 'calibrated') params.set('prior', prior)
   if (prior === 'linear') {

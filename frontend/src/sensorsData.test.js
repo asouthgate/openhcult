@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { interp, toWater } from './utils'
+import { interp } from './utils'
 import {
   transformRateSeries,
   transformSeriesToWaterMode,

@@ -22,12 +22,11 @@ export default function Sensors() {
 
   const setCalibParam = (key, val) => setCalibParams(p => ({ ...p, [key]: val }))
 
-  const { calibration, calibError, calibLoading, dryingRate, combinedSwc, recalculate } = useCalibrationData({
-    plantFilter,
-    sensorFilter,
-    calibParams,
-    rangeHours,
-    setCalibParam,
+  const mlData = useCalibrationData({
+    plantFilter, sensorFilter, calibParams, rangeHours, setCalibParam, returnFractional: false,
+  })
+  const fracData = useCalibrationData({
+    plantFilter, sensorFilter, calibParams, rangeHours, setCalibParam, returnFractional: true,
   })
 
   useEffect(() => {
@@ -79,19 +78,24 @@ export default function Sensors() {
 
       {view === 'sensors'
         ? <SensorsPane
-            plantFilter={plantFilter} sensorFilter={sensorFilter} calibration={calibration}
+            plantFilter={plantFilter} sensorFilter={sensorFilter}
+            calibrationMl={mlData.calibration} calibrationFrac={fracData.calibration}
             sensorAssignedAt={sensorsForPlant.find(s => s.key === sensorFilter)?.assignedAt ?? null}
             calibParams={calibParams} setCalibParam={setCalibParam} plantSensors={plantSensors}
-            combinedSwc={combinedSwc} calibLoading={calibLoading} calibError={calibError}
-            dryingRate={dryingRate}
+            combinedSwcMl={mlData.combinedSwc} combinedSwcFrac={fracData.combinedSwc}
+            calibLoadingMl={mlData.calibLoading} calibLoadingFrac={fracData.calibLoading}
+            calibErrorMl={mlData.calibError} calibErrorFrac={fracData.calibError}
+            dryingRate={mlData.dryingRate}
             rangeHours={rangeHours} setRangeHours={setRangeHours}
-            recalculate={recalculate}
+            recalculateMl={mlData.recalculate} recalculateFrac={fracData.recalculate}
           />
         : <CalibrationPane
             plantFilter={plantFilter} sensorFilter={sensorFilter}
-            calibration={calibration} calibError={calibError} calibLoading={calibLoading}
+            calibrationMl={mlData.calibration} calibrationFrac={fracData.calibration}
+            calibErrorMl={mlData.calibError} calibErrorFrac={fracData.calibError}
+            calibLoadingMl={mlData.calibLoading} calibLoadingFrac={fracData.calibLoading}
             calibParams={calibParams} setCalibParam={setCalibParam}
-            recalculate={recalculate}
+            recalculateMl={mlData.recalculate} recalculateFrac={fracData.recalculate}
           />
       }
     </div>

@@ -18,7 +18,7 @@ const TIME_RANGES = [
   { label: '30d', hours: 24 * 30 },
 ]
 
-const Y_LABELS = { raw: 'Raw', voltage: 'Voltage (mV)', water: 'Water (ml)', water_pct: 'Water (%SC)', rate: 'Rate (ml/day)' }
+const Y_LABELS = { raw: 'Raw', voltage: 'Voltage (mV)', water: 'Water (ml)', fractional: 'Fractional content', rate: 'Rate (ml/day)' }
 
 function ObservationsTable({ observations, sensorAssignedAt, calibration, onDelete }) {
   const visible = filterObservationsBySensorAssignment(observations, sensorAssignedAt)
@@ -56,9 +56,10 @@ function ObservationsTable({ observations, sensorAssignedAt, calibration, onDele
 }
 
 export default function SensorsPane({
-  plantFilter, sensorFilter, sensorAssignedAt, calibration, calibParams, setCalibParam, plantSensors, combinedSwc, calibLoading, calibError, dryingRate, rangeHours, setRangeHours, recalculate,
+  plantFilter, sensorFilter, sensorAssignedAt, calibrationMl, calibrationFrac, calibParams, setCalibParam, plantSensors, combinedSwcMl, combinedSwcFrac, calibLoadingMl, calibLoadingFrac, calibErrorMl, calibErrorFrac, dryingRate, rangeHours, setRangeHours, recalculateMl, recalculateFrac,
 }) {
   const [measureMode, setMeasureMode] = useState('voltage')
+  const [showFractional, setShowFractional] = useState(false)
   const [series, setSeries] = useState([])
   const [observations, setObservations] = useState([])
   const [pendingTime, setPendingTime] = useState(null)
@@ -67,6 +68,11 @@ export default function SensorsPane({
   const [loading, setLoading] = useState(false)
 
   const isCombined = sensorFilter === '__combined__'
+  const calibration = showFractional ? calibrationFrac : calibrationMl
+  const combinedSwc = showFractional ? combinedSwcFrac : combinedSwcMl
+  const calibLoading = showFractional ? calibLoadingFrac : calibLoadingMl
+  const calibError = showFractional ? calibErrorFrac : calibErrorMl
+  const recalculate = showFractional ? recalculateFrac : recalculateMl
 
   useEffect(() => {
     const end = new Date()
@@ -111,12 +117,12 @@ export default function SensorsPane({
   )
 
   const isRateMode = measureMode === 'rate'
-  const needsPlant = (measureMode === 'water' || measureMode === 'water_pct' || measureMode === 'rate') && !calibration && !combinedSwc && !dryingRate
+  const needsPlant = (measureMode === 'water' || measureMode === 'fractional' || measureMode === 'rate') && !calibration && !combinedSwc && !dryingRate
 
   const rateSeries = useMemo(() => transformRateSeries(dryingRate), [dryingRate])
 
   const { mappedSeries, bands, combinedReady } = useMemo(() => {
-    const isWaterMode = measureMode === 'water' || measureMode === 'water_pct'
+    const isWaterMode = measureMode === 'water' || measureMode === 'fractional'
     const isCombinedWater = isCombined && isWaterMode
 
     if (isWaterMode && !isCombined && !calibration) {
@@ -180,7 +186,7 @@ export default function SensorsPane({
     }
   } else if (loading) {
     chartContent = <div className="loading">Loading…</div>
-  } else if (isCombined && (measureMode === 'water' || measureMode === 'water_pct')) {
+  } else if (isCombined && (measureMode === 'water' || measureMode === 'fractional')) {
     if (calibLoading) chartContent = <div className="loading"><span className="spinner" />Computing combined SWC…</div>
     else if (!combinedReady) chartContent = <div className="empty">No combined SWC data available.</div>
     else chartContent = <TimeseriesChart {...chartProps} />
@@ -201,8 +207,11 @@ export default function SensorsPane({
           ))}
         </div>
         <div className="range-btns">
-          {[['raw', 'Raw'], ['voltage', 'mV'], ['water', 'Water (ml)'], ['water_pct', 'Water (%SC)'], ['rate', 'Rate']].map(([m, label]) => (
-            <button key={m} className={measureMode === m ? 'active' : ''} onClick={() => setMeasureMode(m)}>{label}</button>
+          {[['raw', 'Raw'], ['voltage', 'mV'], ['water', 'Water (ml)'], ['fractional', 'Fractional'], ['rate', 'Rate']].map(([m, label]) => (
+            <button key={m} className={measureMode === m ? 'active' : ''} onClick={() => {
+              setMeasureMode(m)
+              setShowFractional(m === 'fractional')
+            }}>{label}</button>
           ))}
         </div>
       </div>

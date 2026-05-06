@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { apiJson } from './api'
 import { buildSwcTimeseriesParams, buildDryingRateParams, buildWaterCalibrationParams } from './paramsBuilder'
 
-export function useCalibrationData({ plantFilter, sensorFilter, calibParams, rangeHours, setCalibParam }) {
+export function useCalibrationData({ plantFilter, sensorFilter, calibParams, rangeHours, setCalibParam, returnFractional = false }) {
   const [calibration, setCalibration] = useState(null)
   const [calibError, setCalibError] = useState(null)
   const [calibLoading, setCalibLoading] = useState(false)
@@ -41,7 +41,7 @@ export function useCalibrationData({ plantFilter, sensorFilter, calibParams, ran
     const hours = rangeHours
 
     if (isCombined) {
-      const swcParams = buildSwcTimeseriesParams(plantFilter, params, hours)
+      const swcParams = buildSwcTimeseriesParams(plantFilter, params, hours, returnFractional)
       setCalibration(null)
       setCombinedSwc(null)
       apiJson(`/swc_timeseries?${swcParams}`, { signal: controller.signal })
@@ -55,7 +55,7 @@ export function useCalibrationData({ plantFilter, sensorFilter, calibParams, ran
           }
         })
 
-      const drParams = buildDryingRateParams(plantFilter, '', params, hours, true)
+      const drParams = buildDryingRateParams(plantFilter, '', params, hours, true, returnFractional)
       apiJson(`/drying_rate?${drParams}`, { signal: drController.signal })
         .then(dr => setDryingRate(dr))
         .catch(() => setDryingRate(null))
@@ -67,7 +67,7 @@ export function useCalibrationData({ plantFilter, sensorFilter, calibParams, ran
     }
 
     setCombinedSwc(null)
-    const waterParams = buildWaterCalibrationParams(plantFilter, sensorFilter, params)
+    const waterParams = buildWaterCalibrationParams(plantFilter, sensorFilter, params, returnFractional)
 
     apiJson(`/water_calibration?${waterParams}`, { signal: controller.signal })
       .then(d => {
@@ -82,7 +82,7 @@ export function useCalibrationData({ plantFilter, sensorFilter, calibParams, ran
           autoStdSet.current = true
         }
 
-        const drParams = buildDryingRateParams(plantFilter, sensorFilter, calibParamsRef.current, hours)
+        const drParams = buildDryingRateParams(plantFilter, sensorFilter, calibParamsRef.current, hours, false, returnFractional)
         apiJson(`/drying_rate?${drParams}`, { signal: drController.signal })
           .then(dr => setDryingRate(dr))
           .catch(() => setDryingRate(null))
@@ -100,7 +100,7 @@ export function useCalibrationData({ plantFilter, sensorFilter, calibParams, ran
       controller.abort()
       drController.abort()
     }
-  }, [plantFilter, sensorFilter, rangeHours, isCombined])
+  }, [plantFilter, sensorFilter, rangeHours, isCombined, returnFractional])
 
   useEffect(() => {
     autoStdSet.current = false

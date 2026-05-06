@@ -63,6 +63,16 @@ describe('buildWaterCalibrationParams', () => {
     expect(params.has('system_capacity_std')).toBe(false)
   })
 
+  it('includes return_fractional when true', () => {
+    const params = buildWaterCalibrationParams('plant1', '', { ...defaultCalibParams }, true)
+    expect(params.get('return_fractional')).toBe('true')
+  })
+
+  it('excludes return_fractional when false', () => {
+    const params = buildWaterCalibrationParams('plant1', '', { ...defaultCalibParams }, false)
+    expect(params.has('return_fractional')).toBe(false)
+  })
+
   it('includes prior_min/max for linear prior', () => {
     const params = buildWaterCalibrationParams('plant1', '', { ...defaultCalibParams, prior: 'linear' })
     expect(params.get('prior')).toBe('linear')
