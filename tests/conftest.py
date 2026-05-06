@@ -66,29 +66,29 @@ SENSORS = [
 ]
 
 
-def _simulate_plant_fc(p, n_days=30):
+def _simulate_plant_content(p, n_days=30):
     result = simulate_plant_moisture(
         p["max_swc_ml"],
         base=1,
         wet=0,
         dose_frac_range=p["dose_frac_range"],
-        target_fc_range=p["target_wc_range"],
+        target_content_range=p["target_wc_range"],
         drain_per_day=p["drain_per_day"],
         noise=0,
-        response_fn=lambda fc: fc,
+        response_fn=lambda content: content,
         rng=random.Random(42),
         n_days=n_days,
     )
-    readings, watering_times, ml_amounts, before_fcs, after_fcs = result
-    fc_times = [(t, fc_val) for t, fc_val, _ in readings]
-    return fc_times, watering_times, ml_amounts, before_fcs, after_fcs
+    readings, watering_times, ml_amounts, before_contents, after_contents = result
+    content_times = [(t, content_val) for t, content_val, _ in readings]
+    return content_times, watering_times, ml_amounts, before_contents, after_contents
 
 
-def _sensor_readings_from_fc(fc_times, sensor_cfg, rng):
+def _sensor_readings_from_content(content_times, sensor_cfg, rng):
     base, wet, noise = sensor_cfg["base"], sensor_cfg["wet"], sensor_cfg["noise"]
     readings = []
-    for t, fc in fc_times:
-        mv = linear_response(fc, base, wet) + rng.randint(-noise, noise)
+    for t, content in content_times:
+        mv = linear_response(content, base, wet) + rng.randint(-noise, noise)
         mv = max(wet, min(base, mv))
         readings.append((t, mv, mv))
     return readings
@@ -122,17 +122,17 @@ def seeded_db(db_conn):
             assigned_at=0,
         )
 
-    plant_fc_data = {}
+    plant_content_data = {}
     for p in PLANTS:
-        fc_times, watering_times, ml_amounts, before_fcs, after_fcs = (
-            _simulate_plant_fc(p)
+        content_times, watering_times, ml_amounts, before_contents, after_contents = (
+            _simulate_plant_content(p)
         )
-        plant_fc_data[p["plant"]] = (
-            fc_times,
+        plant_content_data[p["plant"]] = (
+            content_times,
             watering_times,
             ml_amounts,
-            before_fcs,
-            after_fcs,
+            before_contents,
+            after_contents,
         )
 
     device_cache = {}
@@ -143,14 +143,18 @@ def seeded_db(db_conn):
             device_cache[addr] = dev["id"]
         device_id = device_cache[addr]
 
-        fc_times, watering_times, ml_amounts, before_fcs, after_fcs = plant_fc_data[
-            s["plant"]
-        ]
+        content_times, watering_times, ml_amounts, before_contents, after_contents = (
+            plant_content_data[s["plant"]]
+        )
         rng = random.Random(42)
-        readings = _sensor_readings_from_fc(fc_times, s, rng)
+        readings = _sensor_readings_from_content(content_times, s, rng)
 
-        before_vals = [linear_response(fc, s["base"], s["wet"]) for fc in before_fcs]
-        after_vals = [linear_response(fc, s["base"], s["wet"]) for fc in after_fcs]
+        before_vals = [
+            linear_response(content, s["base"], s["wet"]) for content in before_contents
+        ]
+        after_vals = [
+            linear_response(content, s["base"], s["wet"]) for content in after_contents
+        ]
         window_readings = [
             (t - _5MIN_MS, bv) for t, bv in zip(watering_times, before_vals)
         ] + [(t + _5MIN_MS, av) for t, av in zip(watering_times, after_vals)]
@@ -167,7 +171,7 @@ def seeded_db(db_conn):
         if s["plant"] in inserted_plants:
             continue
         inserted_plants.add(s["plant"])
-        _, watering_times, ml_amounts, _, _ = plant_fc_data[s["plant"]]
+        _, watering_times, ml_amounts, _, _ = plant_content_data[s["plant"]]
         for t, ml in zip(watering_times, ml_amounts):
             database.insert_observation(
                 db_conn,

@@ -6,7 +6,7 @@ import CalibrationParams from './CalibrationParams'
 import { computeSwcStats } from './computeSwcStats'
 
 export default function CalibrationPane({
-  plantFilter, sensorFilter, calibration, calibError, calibLoading, calibParams, setCalibParam,
+  plantFilter, sensorFilter, calibration, calibError, calibLoading, calibParams, setCalibParam, recalculate,
 }) {
   const [showPct, setShowPct] = useState(false)
 
@@ -110,6 +110,9 @@ export default function CalibrationPane({
       )}
       <div>
         <CalibrationParams calibParams={calibParams} setCalibParam={setCalibParam} />
+        <button className="recalc-btn" onClick={recalculate} disabled={calibLoading || !plantFilter}>
+          {calibLoading ? 'Computing…' : 'Recalculate'}
+        </button>
       </div>
     </section>
   )

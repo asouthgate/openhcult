@@ -20,7 +20,7 @@ export function useCalibrationData({ plantFilter, sensorFilter, calibParams, ran
 
   const isCombined = sensorFilter === '__combined__'
 
-  const fetchCalibration = useCallback(() => {
+  const doFetch = useCallback(() => {
     if (!plantFilter) {
       setCalibration(null)
       setCalibError(null)
@@ -30,6 +30,7 @@ export function useCalibrationData({ plantFilter, sensorFilter, calibParams, ran
       return
     }
 
+    drControllerRef.current?.abort()
     const controller = new AbortController()
     const drController = new AbortController()
     drControllerRef.current = drController
@@ -103,9 +104,15 @@ export function useCalibrationData({ plantFilter, sensorFilter, calibParams, ran
 
   useEffect(() => {
     autoStdSet.current = false
-    const cleanup = fetchCalibration()
+    const cleanup = doFetch()
     return cleanup
-  }, [fetchCalibration])
+  }, [doFetch])
+
+  const recalculate = useCallback(() => {
+    autoStdSet.current = false
+    const cleanup = doFetch()
+    return cleanup
+  }, [doFetch])
 
   return {
     calibration,
@@ -113,5 +120,6 @@ export function useCalibrationData({ plantFilter, sensorFilter, calibParams, ran
     calibLoading,
     dryingRate,
     combinedSwc,
+    recalculate,
   }
 }

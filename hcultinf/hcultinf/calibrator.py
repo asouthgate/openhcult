@@ -143,8 +143,6 @@ def plot_response_curve(
     true_y=None,
     xlabel="sensor reading",
     ylabel="SWC",
-    pct_fc=False,
-    scale=1.0,
     show_chords_pane=True,
 ):
     import matplotlib.pyplot as plt
@@ -160,15 +158,6 @@ def plot_response_curve(
     dx = np.asarray(dx)
     dy = np.asarray(dy)
     mean_at_x = np.asarray(mean_at_x)
-
-    if pct_fc:
-        mean = mean / scale * 100
-        ci_low = ci_low / scale * 100
-        ci_high = ci_high / scale * 100
-        dy = dy / scale * 100
-        mean_at_x = mean_at_x / scale * 100
-        if true_y is not None:
-            true_y = np.asarray(true_y) / scale * 100
 
     if show_chords_pane:
         fig, (ax, ax2) = plt.subplots(1, 2, figsize=(14, 6))

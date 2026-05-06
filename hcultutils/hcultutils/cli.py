@@ -251,12 +251,6 @@ def _add_response_curve_command(subparsers):
         "--out", default=None, help="Write PNG here instead of showing a window"
     )
     parser.add_argument(
-        "--pct-fc",
-        action="store_true",
-        default=False,
-        help="Show Y axis as percent field capacity",
-    )
-    parser.add_argument(
         "--gp-std-ml",
         type=float,
         default=5.0,
@@ -278,7 +272,7 @@ def _add_response_curve_command(subparsers):
         "--scale-prior-mean",
         type=float,
         default=None,
-        help="Mean of Gaussian prior on scale (field capacity in ml). Prevents unbounded scale.",
+        help="Mean of Gaussian prior on scale (ml). Prevents unbounded scale.",
     )
     parser.add_argument(
         "--scale-prior-std",

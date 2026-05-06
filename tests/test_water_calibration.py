@@ -71,7 +71,7 @@ def test_water_calibration_with_waterings(db_conn):
             base=SENSOR_DRY_MV,
             wet=SENSOR_WET_MV,
             dose_frac_range=(0.4, 0.8),
-            target_fc_range=(0.05, 0.2),
+            target_content_range=(0.05, 0.2),
             drain_per_day=0.1,
             noise=0,
         )

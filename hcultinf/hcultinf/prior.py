@@ -48,6 +48,28 @@ def _truncated_normal_ppf(u, mu, sigma, hi=np.inf):
     return float(mu + sigma * ndtri(u * Phi_b))
 
 
+def _lognormal_log_prior(mean, std):
+    """Return a log-prior on log(x) for a log-normal distribution
+    parameterised by its original-space mean and std.
+
+    The returned callable takes log_x and returns log p(log_x).
+    """
+    assert mean > 0, "mean must be positive"
+    assert std > 0, "std must be positive"
+    var = std**2
+    mu_log = np.log(mean**2 / np.sqrt(var + mean**2))
+    sigma_log = np.sqrt(np.log(1.0 + var / mean**2))
+
+    def log_prior(log_x):
+        return float(
+            -0.5 * ((log_x - mu_log) / sigma_log) ** 2
+            - np.log(sigma_log)
+            - 0.5 * np.log(2 * np.pi)
+        )
+
+    return log_prior
+
+
 class MCMCPriors:
     """Configurable log-prior functions for MCMC parameters.
 
@@ -68,11 +90,8 @@ class MCMCPriors:
     log_sigma_log_prior : callable, optional
         Log-prior on each sensor's log(sigma) (log-noise) parameter.
         Default: uniform on [log(1e-3), log(10)].
-    xmin_log_prior : callable, optional
-        Log-prior on each sensor's xmin parameter. Called as
-        ``xmin_log_prior(x, xmin_hi)`` where xmin_hi is the hard
-        upper bound (data minimum). Default: None (not used in this class;
-        xmin prior is handled directly in mcmc_log_joint).
+    system_capacity_log_prior : callable, optional
+        Log-prior on log(system_capacity). Default: None (not estimated).
     """
 
     def __init__(
@@ -81,7 +100,7 @@ class MCMCPriors:
         k_log_prior=None,
         f_int_log_prior=None,
         log_sigma_log_prior=None,
-        xmin_log_prior=None,
+        system_capacity_log_prior=None,
     ):
         self.scale_log_prior = (
             scale_log_prior if scale_log_prior is not None else _flat_log_prior
@@ -99,4 +118,4 @@ class MCMCPriors:
             if log_sigma_log_prior is not None
             else _bounded_log_prior(np.log(1e-3), np.log(10.0))
         )
-        self.xmin_log_prior = xmin_log_prior
+        self.system_capacity_log_prior = system_capacity_log_prior

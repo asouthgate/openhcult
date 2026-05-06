@@ -1,5 +1,5 @@
 export default function CalibrationParams({ calibParams, setCalibParam }) {
-  const { offsetMin, widthMin, prior, priorMin, priorMax, estimator, priorWeight, nBurn, nSteps, xminMu, xminSigma, xminHigh, emaTauMin } = calibParams
+  const { offsetMin, widthMin, prior, priorMin, priorMax, estimator, priorWeight, nBurn, nSteps, emaTauMin, systemCapacityMean, systemCapacityStd } = calibParams
   return (
     <table className="param-table">
       <tbody>
@@ -46,19 +46,14 @@ export default function CalibrationParams({ calibParams, setCalibParam }) {
             <td>steps</td>
           </tr>
           <tr>
-            <td>xmin mu</td>
-            <td><input type="number" step="1" className="param-input" value={xminMu} onChange={e => setCalibParam('xminMu', e.target.value)} /></td>
-            <td>mV</td>
+            <td>sys capacity mean</td>
+            <td><input type="number" step="1" className="param-input" value={systemCapacityMean} onChange={e => setCalibParam('systemCapacityMean', e.target.value)} /></td>
+            <td>ml</td>
           </tr>
           <tr>
-            <td>xmin sigma</td>
-            <td><input type="number" step="1" className="param-input" value={xminSigma} onChange={e => setCalibParam('xminSigma', e.target.value)} /></td>
-            <td>mV</td>
-          </tr>
-          <tr>
-            <td>xmin high</td>
-            <td><input type="number" step="1" className="param-input" value={xminHigh} onChange={e => setCalibParam('xminHigh', e.target.value)} /></td>
-            <td>mV</td>
+            <td>sys capacity std</td>
+            <td><input type="number" step="1" className="param-input" value={systemCapacityStd} onChange={e => setCalibParam('systemCapacityStd', e.target.value)} /></td>
+            <td>ml</td>
           </tr>
         </>}
         <tr>

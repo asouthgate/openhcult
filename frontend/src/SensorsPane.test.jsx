@@ -10,7 +10,7 @@ const defaultProps = {
   calibParams: {
     offsetMin: '5', widthMin: '50', prior: 'calibrated', priorMin: '867', priorMax: '2009',
     estimator: 'exp_mcmc', priorWeight: '1.0', nBurn: '10', nSteps: '30',
-    xminMu: '850', xminSigma: '75', xminHigh: '1100', emaTauMin: '60',
+    systemCapacityMean: '', systemCapacityStd: '', emaTauMin: '60',
   },
   setCalibParam: vi.fn(),
   plantSensors: [],
@@ -35,8 +35,8 @@ describe('SensorsPane error handling', () => {
   beforeEach(() => vi.clearAllMocks())
 
   it('shows calibError regardless of measure mode', () => {
-    renderWithProps({ calibError: 'Invalid xmin_mu value' })
-    expect(screen.getByText('Invalid xmin_mu value')).toBeTruthy()
+    renderWithProps({ calibError: 'Invalid system_capacity_mean value' })
+    expect(screen.getByText('Invalid system_capacity_mean value')).toBeTruthy()
   })
 
   it('shows error even when stale calibration data exists', () => {

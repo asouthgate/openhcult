@@ -5,7 +5,7 @@ import { useCalibrationData } from './useCalibrationData'
 const defaultCalibParams = {
   offsetMin: '5', widthMin: '50', prior: 'calibrated', priorMin: '867', priorMax: '2009',
   estimator: 'exp_mcmc', priorWeight: '1.0', nBurn: '10', nSteps: '30',
-  xminMu: '850', xminSigma: '75', xminHigh: '1100', emaTauMin: '60',
+  systemCapacityMean: '', systemCapacityStd: '', emaTauMin: '60',
 }
 
 const mockApiJson = vi.fn()
@@ -30,7 +30,7 @@ describe('useCalibrationData error handling', () => {
   it('sets calibError on water_calibration failure', async () => {
     mockApiJson.mockImplementation((url) =>
       url.includes('water_calibration')
-        ? Promise.reject(new Error('Invalid xmin_mu value'))
+        ? Promise.reject(new Error('Invalid system_capacity_mean value'))
         : Promise.resolve({})
     )
 
@@ -40,7 +40,7 @@ describe('useCalibrationData error handling', () => {
     }))
 
     await waitFor(() => expect(result.current.calibLoading).toBe(false))
-    expect(result.current.calibError).toBe('Invalid xmin_mu value')
+    expect(result.current.calibError).toBe('Invalid system_capacity_mean value')
     expect(result.current.calibration).toBeNull()
   })
 
@@ -118,5 +118,28 @@ describe('useCalibrationData error handling', () => {
     await waitFor(() => expect(result.current.calibLoading).toBe(false))
     expect(result.current.dryingRate).toBeNull()
     expect(result.current.calibration).toEqual({ chords_x: [], mean: [] })
+  })
+
+  it('recalculates with updated params when recalculate is called', async () => {
+    mockApiJson.mockResolvedValue({ chords_x: [], mean: [] })
+
+    const { result } = renderHook(() => useCalibrationData({
+      plantFilter: 'plant1', sensorFilter: '',
+      calibParams: defaultCalibParams, rangeHours: 48, setCalibParam: vi.fn(),
+    }))
+
+    await waitFor(() => expect(result.current.calibLoading).toBe(false))
+    expect(result.current.calibError).toBeNull()
+
+    mockApiJson.mockImplementation((url) => {
+      if (url.includes('water_calibration')) return Promise.reject(new Error('Bad system_capacity_mean'))
+      if (url.includes('swc_timeseries')) return Promise.resolve({ times_ms: [], mean_swc: [] })
+      if (url.includes('drying_rate')) return Promise.resolve({ times_ms: [], rate_ml_per_day: [], valid: [], scale: 1 })
+      return Promise.resolve({})
+    })
+
+    result.current.recalculate()
+
+    await waitFor(() => expect(result.current.calibError).toBe('Bad system_capacity_mean'))
   })
 })

@@ -477,6 +477,27 @@ section.pane-grid h3 {
   border-color: #6b2020;
 }
 
+.recalc-btn {
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 12px;
+  margin-top: 8px;
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.recalc-btn:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.recalc-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 details {
   margin-top: 8px;
 }

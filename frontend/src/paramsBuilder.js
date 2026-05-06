@@ -1,5 +1,5 @@
 export function buildSwcTimeseriesParams(plantFilter, calibParams, rangeHours) {
-  const { offsetMin, widthMin, prior, priorMin, priorMax, priorWeight, nBurn, nSteps, xminMu, xminSigma, xminHigh } = calibParams
+  const { offsetMin, widthMin, prior, priorMin, priorMax, priorWeight, nBurn, nSteps, systemCapacityMean, systemCapacityStd } = calibParams
   const endMs = Date.now()
   const params = new URLSearchParams({
     plant: plantFilter,
@@ -14,14 +14,13 @@ export function buildSwcTimeseriesParams(plantFilter, calibParams, rangeHours) {
   if (priorWeight !== '') params.set('prior_weight', priorWeight)
   if (nBurn !== '') params.set('n_burn', nBurn)
   if (nSteps !== '') params.set('n_steps', nSteps)
-  if (xminMu !== '') params.set('xmin_mu', xminMu)
-  if (xminSigma !== '') params.set('xmin_sigma', xminSigma)
-  if (xminHigh !== '') params.set('xmin_high', xminHigh)
+  if (systemCapacityMean !== '') params.set('system_capacity_mean', systemCapacityMean)
+  if (systemCapacityStd !== '') params.set('system_capacity_std', systemCapacityStd)
   return params
 }
 
 export function buildDryingRateParams(plantFilter, sensorFilter, calibParams, rangeHours, combined = false) {
-  const { offsetMin, widthMin, prior, priorMin, priorMax, estimator, priorWeight, nBurn, nSteps, xminMu, xminSigma, xminHigh, emaTauMin } = calibParams
+  const { offsetMin, widthMin, prior, priorMin, priorMax, estimator, priorWeight, nBurn, nSteps, emaTauMin, systemCapacityMean, systemCapacityStd } = calibParams
   const endMs = Date.now()
   const params = new URLSearchParams({
     plant: plantFilter,
@@ -44,16 +43,15 @@ export function buildDryingRateParams(plantFilter, sensorFilter, calibParams, ra
   if (estimator === 'exp_mcmc') {
     if (nBurn !== '') params.set('n_burn', nBurn)
     if (nSteps !== '') params.set('n_steps', nSteps)
-    if (xminMu !== '') params.set('xmin_mu', xminMu)
-    if (xminSigma !== '') params.set('xmin_sigma', xminSigma)
-    if (xminHigh !== '') params.set('xmin_high', xminHigh)
+    if (systemCapacityMean !== '') params.set('system_capacity_mean', systemCapacityMean)
+    if (systemCapacityStd !== '') params.set('system_capacity_std', systemCapacityStd)
   }
   if (emaTauMin !== '') params.set('ema_tau_min', emaTauMin)
   return params
 }
 
 export function buildWaterCalibrationParams(plantFilter, sensorFilter, calibParams) {
-  const { offsetMin, widthMin, prior, priorMin, priorMax, estimator, priorWeight, nBurn, nSteps, xminMu, xminSigma, xminHigh } = calibParams
+  const { offsetMin, widthMin, prior, priorMin, priorMax, estimator, priorWeight, nBurn, nSteps, systemCapacityMean, systemCapacityStd } = calibParams
   const params = new URLSearchParams({
     plant: plantFilter,
     offset_ms: Number(offsetMin) * 60 * 1000,
@@ -70,9 +68,8 @@ export function buildWaterCalibrationParams(plantFilter, sensorFilter, calibPara
     if (priorWeight !== '') params.set('prior_weight', priorWeight)
     if (nBurn !== '') params.set('n_burn', nBurn)
     if (nSteps !== '') params.set('n_steps', nSteps)
-    if (xminMu !== '') params.set('xmin_mu', xminMu)
-    if (xminSigma !== '') params.set('xmin_sigma', xminSigma)
-    if (xminHigh !== '') params.set('xmin_high', xminHigh)
+    if (systemCapacityMean !== '') params.set('system_capacity_mean', systemCapacityMean)
+    if (systemCapacityStd !== '') params.set('system_capacity_std', systemCapacityStd)
   }
   if (prior !== 'calibrated') params.set('prior', prior)
   if (prior === 'linear') {

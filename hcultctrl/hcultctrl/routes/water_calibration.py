@@ -35,9 +35,8 @@ class TuningParams(BaseModel):
     prior_weight: float = 1.0
     n_burn: int = 10
     n_steps: int = 30
-    xmin_mu: float = 850.0
-    xmin_sigma: float = 75.0
-    xmin_high: float = 1100.0
+    system_capacity_mean: float | None = None
+    system_capacity_std: float | None = None
 
 
 class CordDataParams(WindowParams):
@@ -194,28 +193,20 @@ def _calibrate(conn, d, p: CalibrationParams):
         p.prior_max if p.prior_max is not None else float(d["prior_x"].max()),
         float(d["x_arr"].max()),
     )
-    if p.xmin_high <= 0:
-        raise HTTPException(status_code=400, detail="xmin_high must be positive")
-    if p.xmin_sigma <= 0:
-        raise HTTPException(status_code=400, detail="xmin_sigma must be positive")
     logger.info(
-        "Calibrating n_sensors=%d xmin_mu=%.1f xmin_sigma=%.1f xmin_high=%.1f xmax=%.1f",
+        "Calibrating n_sensors=%d xmax=%.1f",
         n_sensors,
-        p.xmin_mu,
-        p.xmin_sigma,
-        p.xmin_high,
         exp_xmax,
     )
     try:
         cal = ExponentialCordCalibratorMCMC(
             n_sensors=n_sensors,
-            xmin_mu=p.xmin_mu,
-            xmin_sigma=p.xmin_sigma,
-            xmin_high=p.xmin_high,
             xmax=exp_xmax,
             prior_weight=p.prior_weight,
             n_burn=p.n_burn,
             n_steps=p.n_steps,
+            system_capacity_mean=p.system_capacity_mean,
+            system_capacity_std=p.system_capacity_std,
         ).fit(
             d["x_anchor"],
             d["swc_anchor"],

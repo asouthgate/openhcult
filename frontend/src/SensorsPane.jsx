@@ -56,7 +56,7 @@ function ObservationsTable({ observations, sensorAssignedAt, calibration, onDele
 }
 
 export default function SensorsPane({
-  plantFilter, sensorFilter, sensorAssignedAt, calibration, calibParams, setCalibParam, plantSensors, combinedSwc, calibLoading, calibError, dryingRate, rangeHours, setRangeHours,
+  plantFilter, sensorFilter, sensorAssignedAt, calibration, calibParams, setCalibParam, plantSensors, combinedSwc, calibLoading, calibError, dryingRate, rangeHours, setRangeHours, recalculate,
 }) {
   const [measureMode, setMeasureMode] = useState('voltage')
   const [series, setSeries] = useState([])
@@ -213,6 +213,9 @@ export default function SensorsPane({
 
       <div>
         <CalibrationParams calibParams={calibParams} setCalibParam={setCalibParam} />
+        <button className="recalc-btn" onClick={recalculate} disabled={calibLoading || !plantFilter}>
+          {calibLoading ? 'Computing…' : 'Recalculate'}
+        </button>
       </div>
 
       <div className="full">

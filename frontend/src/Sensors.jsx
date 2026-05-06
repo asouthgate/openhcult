@@ -7,8 +7,8 @@ import { useCalibrationData } from './useCalibrationData'
 
 const DEFAULT_CALIB_PARAMS = {
   offsetMin: '5', widthMin: '50', prior: 'calibrated', priorMin: '867', priorMax: '2009',
-  estimator: 'exp_mcmc', priorWeight: '1.0', nBurn: '10', nSteps: '30',
-  xminMu: '850', xminSigma: '75', xminHigh: '1100', emaTauMin: '60',
+  estimator: 'exp_mcmc', priorWeight: '1.0', nBurn: '10', nSteps: '30', emaTauMin: '60',
+  systemCapacityMean: '', systemCapacityStd: '',
 }
 
 export default function Sensors() {
@@ -22,7 +22,7 @@ export default function Sensors() {
 
   const setCalibParam = (key, val) => setCalibParams(p => ({ ...p, [key]: val }))
 
-  const { calibration, calibError, calibLoading, dryingRate, combinedSwc } = useCalibrationData({
+  const { calibration, calibError, calibLoading, dryingRate, combinedSwc, recalculate } = useCalibrationData({
     plantFilter,
     sensorFilter,
     calibParams,
@@ -85,11 +85,13 @@ export default function Sensors() {
             combinedSwc={combinedSwc} calibLoading={calibLoading} calibError={calibError}
             dryingRate={dryingRate}
             rangeHours={rangeHours} setRangeHours={setRangeHours}
+            recalculate={recalculate}
           />
         : <CalibrationPane
             plantFilter={plantFilter} sensorFilter={sensorFilter}
             calibration={calibration} calibError={calibError} calibLoading={calibLoading}
             calibParams={calibParams} setCalibParam={setCalibParam}
+            recalculate={recalculate}
           />
       }
     </div>

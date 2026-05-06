@@ -4,7 +4,7 @@ import { buildSwcTimeseriesParams, buildDryingRateParams, buildWaterCalibrationP
 const defaultCalibParams = {
   offsetMin: '5', widthMin: '50', prior: 'calibrated', priorMin: '867', priorMax: '2009',
   estimator: 'exp_mcmc', priorWeight: '1.0', nBurn: '10', nSteps: '30',
-  xminMu: '850', xminSigma: '75', xminHigh: '1100', emaTauMin: '60',
+  systemCapacityMean: '', systemCapacityStd: '', emaTauMin: '60',
 }
 
 describe('buildSwcTimeseriesParams', () => {
@@ -49,7 +49,18 @@ describe('buildWaterCalibrationParams', () => {
   it('includes mcmc params for exp_mcmc estimator', () => {
     const params = buildWaterCalibrationParams('plant1', '', defaultCalibParams)
     expect(params.get('n_burn')).toBe('10')
-    expect(params.get('xmin_mu')).toBe('850')
+  })
+
+  it('includes system_capacity params when provided', () => {
+    const params = buildWaterCalibrationParams('plant1', '', { ...defaultCalibParams, systemCapacityMean: '1000', systemCapacityStd: '200' })
+    expect(params.get('system_capacity_mean')).toBe('1000')
+    expect(params.get('system_capacity_std')).toBe('200')
+  })
+
+  it('excludes system_capacity params when empty', () => {
+    const params = buildWaterCalibrationParams('plant1', '', { ...defaultCalibParams, systemCapacityMean: '', systemCapacityStd: '' })
+    expect(params.has('system_capacity_mean')).toBe(false)
+    expect(params.has('system_capacity_std')).toBe(false)
   })
 
   it('includes prior_min/max for linear prior', () => {
