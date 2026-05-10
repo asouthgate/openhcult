@@ -24,6 +24,8 @@ from hcultinf.simulation import (
     power_function,
 )
 
+_NO_PLOTS = os.environ.get("HCULT_NO_PLOT", "0") == "1"
+
 TEST_XMAX = 8.5
 TEST_DXMIN = 0.2
 TEST_DXMAX = 0.5
@@ -106,21 +108,22 @@ def test_convergence_in_n_bad_prior(estimator_func_pair):
         curve_error = np.mean(errs)
         preverrs.append(curve_error)
 
-    plot_x = np.linspace(TEST_XMIN * 0.75, TEST_XMAX, 500)
-    plot_y = np.interp(plot_x, priorx_pts, priory_pts)
-    last_pwl.plot(
-        plot_x,
-        plot_y,
-        anchorx,
-        anchory,
-        last_x,
-        last_dx,
-        last_dy,
-        true_y=test_function(plot_x),
-        out=f"artifacts/convergence_n_bad_prior_{estimator.__class__.__name__}.png",
-        title=f"Test convergence in n with bad prior ({estimator.__class__.__name__})",
-        show_chords_pane=False,
-    )
+    if not _NO_PLOTS:
+        plot_x = np.linspace(TEST_XMIN * 0.75, TEST_XMAX, 500)
+        plot_y = np.interp(plot_x, priorx_pts, priory_pts)
+        last_pwl.plot(
+            plot_x,
+            plot_y,
+            anchorx,
+            anchory,
+            last_x,
+            last_dx,
+            last_dy,
+            true_y=test_function(plot_x),
+            out=f"artifacts/convergence_n_bad_prior_{estimator.__class__.__name__}.png",
+            title=f"Test convergence in n with bad prior ({estimator.__class__.__name__})",
+            show_chords_pane=False,
+        )
 
     assert all(
         np.diff(preverrs) < 0
@@ -150,18 +153,19 @@ def test_realistic():
     )
     cal = estimator.fit(anchor_x, anchor_swc, x, dx, dy, prior_x, prior_y)
 
-    cal.plot(
-        prior_x,
-        prior_y,
-        anchor_x,
-        anchor_swc,
-        x,
-        dx,
-        dy,
-        out="artifacts/realistic_mcmc.png",
-        title="Realistic MCMC calibration",
-        show_chords_pane=False,
-    )
+    if not _NO_PLOTS:
+        cal.plot(
+            prior_x,
+            prior_y,
+            anchor_x,
+            anchor_swc,
+            x,
+            dx,
+            dy,
+            out="artifacts/realistic_mcmc.png",
+            title="Realistic MCMC calibration",
+            show_chords_pane=False,
+        )
 
     mean, ci_low, ci_high = cal.predict(prior_x)
     EST_SWC = 800.0
@@ -174,9 +178,10 @@ def test_realistic():
     assert np.all(ci_low <= mean)
     assert np.all(mean <= ci_high)
 
-    plot_corner(
-        cal, out="artifacts/realistic_corner.png", title="Realistic MCMC posterior"
-    )
+    if not _NO_PLOTS:
+        plot_corner(
+            cal, out="artifacts/realistic_corner.png", title="Realistic MCMC posterior"
+        )
 
 
 @pytest.mark.parametrize(
@@ -221,29 +226,30 @@ def test_unbiasedness(estimator):
 
     # apply_dark_theme()
 
-    x_pad = (TEST_XMAX - TEST_XMIN) * 0.15
-    fig, ax = plt.subplots(figsize=(10, 5))
-    ax.plot(eval_x, true_y, label="true", color=CLOUD_WHITE)
-    ax.plot(
-        eval_x, mean_pred, label="mean prediction", linestyle="--", color=CLOUD_BLUE
-    )
-    ax.fill_between(
-        eval_x,
-        mean_pred - 1.96 * std_of_means,
-        mean_pred + 1.96 * std_of_means,
-        alpha=0.3,
-        color=CLOUD_BLUE,
-        label="95% CI on mean",
-    )
-    ax.set_xlabel("x")
-    ax.set_ylabel("y")
-    ax.set_xlim(TEST_XMIN - x_pad, TEST_XMAX + x_pad)
-    ax.legend()
-    fig.tight_layout()
-    fig.savefig("artifacts/unbiasedness.png")
-    if os.environ.get("HCULT_TEST_DEBUG_PLOT", "0") == "1":
-        plt.show()
-    plt.close(fig)
+    if not _NO_PLOTS:
+        x_pad = (TEST_XMAX - TEST_XMIN) * 0.15
+        fig, ax = plt.subplots(figsize=(10, 5))
+        ax.plot(eval_x, true_y, label="true", color=CLOUD_WHITE)
+        ax.plot(
+            eval_x, mean_pred, label="mean prediction", linestyle="--", color=CLOUD_BLUE
+        )
+        ax.fill_between(
+            eval_x,
+            mean_pred - 1.96 * std_of_means,
+            mean_pred + 1.96 * std_of_means,
+            alpha=0.3,
+            color=CLOUD_BLUE,
+            label="95% CI on mean",
+        )
+        ax.set_xlabel("x")
+        ax.set_ylabel("y")
+        ax.set_xlim(TEST_XMIN - x_pad, TEST_XMAX + x_pad)
+        ax.legend()
+        fig.tight_layout()
+        fig.savefig("artifacts/unbiasedness.png")
+        if os.environ.get("HCULT_TEST_DEBUG_PLOT", "0") == "1":
+            plt.show()
+        plt.close(fig)
 
     bias = np.abs(mean_pred - true_y).mean()
     assert (
@@ -417,15 +423,16 @@ def test_multi_sensor_happy_path():
     scale_est = cal.scale
     # assert 1.0 < scale_est < 2 * SCALE, f"Scale estimate {scale_est} out of range"
 
-    cal.plot(
-        np.array([TEST_XMIN, TEST_XMAX]),
-        np.array([1.0, 0.0]),
-        np.array([TEST_XMAX]),
-        np.array([0.0]),
-        x_starts,
-        delta_x,
-        delta_swc,
-        out="artifacts/multi_sensor_mcmc.png",
-        title="Multi-sensor MCMC calibration",
-        show_chords_pane=False,
-    )
+    if not _NO_PLOTS:
+        cal.plot(
+            np.array([TEST_XMIN, TEST_XMAX]),
+            np.array([1.0, 0.0]),
+            np.array([TEST_XMAX]),
+            np.array([0.0]),
+            x_starts,
+            delta_x,
+            delta_swc,
+            out="artifacts/multi_sensor_mcmc.png",
+            title="Multi-sensor MCMC calibration",
+            show_chords_pane=False,
+        )

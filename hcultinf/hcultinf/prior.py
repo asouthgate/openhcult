@@ -6,14 +6,13 @@ from scipy.special import betaln, log_ndtr, ndtr, ndtri
 
 def _flat_log_prior(x):
     x = np.atleast_1d(np.asarray(x, dtype=float))
-    return 0.0 if x.size == 1 else np.zeros(x.size)
+    return np.zeros_like(x)
 
 
 def _bounded_log_prior(lo, hi):
     def log_prior(x):
         x = np.atleast_1d(np.asarray(x, dtype=float))
-        result = np.where((x >= lo) & (x <= hi), 0.0, -np.inf)
-        return float(result[0]) if result.size == 1 else result.sum()
+        return np.where((x >= lo) & (x <= hi), 0.0, -np.inf)
 
     return log_prior
 
@@ -24,12 +23,11 @@ def _beta_log_prior(a, b):
     def log_prior(x):
         x = np.atleast_1d(np.asarray(x, dtype=float))
         out_of_bounds = (x <= 0.0) | (x >= 1.0)
-        result = np.where(
+        return np.where(
             out_of_bounds,
             -np.inf,
             (a - 1.0) * np.log(x) + (b - 1.0) * np.log(1.0 - x) + log_norm,
         )
-        return float(result[0]) if result.size == 1 else result.sum()
 
     return log_prior
 

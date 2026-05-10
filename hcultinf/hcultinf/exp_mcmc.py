@@ -64,39 +64,15 @@ def _compute_g(k, f_int, u):
     return one_minus_f * np.exp(k * (u - 1.0)) + f_int
 
 
-def mcmc_log_anchor_prior_likelihood(
-    scale,
-    k_all,
-    f_int_all,
-    u_anchors,
-    swc_anchors,
-    u_prior,
-    prior_y,
-    sigma_anchor,
-    sigma_prior,
-    log_const_anchor,
-    log_const_prior,
-):
-    g_a = np.mean(_compute_g(k_all[:, None], f_int_all[:, None], u_anchors), axis=0)
-    pred_a = scale * g_a
-    ll = -0.5 * np.sum(((swc_anchors - pred_a) / sigma_anchor) ** 2 + log_const_anchor)
-
-    if u_prior is None:
-        return ll
-
-    g_p = np.mean(_compute_g(k_all[:, None], f_int_all[:, None], u_prior), axis=0)
-    return ll + -0.5 * np.sum(((prior_y - g_p) / sigma_prior) ** 2 + log_const_prior)
-
-
 def mcmc_log_joint(
     theta,
-    u_anchors,
+    u_anchors_m1,
     swc_anchors,
-    u_starts_all,
-    u_ends_all,
+    u_starts_m1,
+    u_ends_m1,
     log_delta_swc_all,
     sensor_idx_per_chord,
-    u_prior,
+    u_prior_m1,
     prior_y,
     sigma_anchor,
     sigma_prior,
@@ -105,52 +81,69 @@ def mcmc_log_joint(
     log_const_anchor,
     log_const_prior,
 ):
+    squeeze = False
+    if theta.ndim == 1:
+        theta = theta[None, :]
+        squeeze = True
+
     layout = _ParamLayout(n_sensors)
-    log_scale = theta[layout.log_scale_idx]
+    log_scale = theta[:, layout.log_scale_idx]
     scale = np.exp(log_scale)
-    k_all = theta[layout.k_slice]
-    f_int_all = theta[layout.f_int_slice]
-    log_sigma = theta[layout.log_sigma_idx]
+    k_all = theta[:, layout.k_slice]
+    f_int_all = theta[:, layout.f_int_slice]
+    log_sigma = theta[:, layout.log_sigma_idx]
 
     lp = (
         priors.scale_log_prior(log_scale)
-        + priors.k_log_prior(k_all)
-        + priors.f_int_log_prior(f_int_all)
+        + priors.k_log_prior(k_all).sum(axis=1)
+        + priors.f_int_log_prior(f_int_all).sum(axis=1)
         + priors.log_sigma_log_prior(log_sigma)
     )
 
-    ll = mcmc_log_anchor_prior_likelihood(
-        scale,
-        k_all,
-        f_int_all,
-        u_anchors,
-        swc_anchors,
-        u_prior,
-        prior_y,
-        sigma_anchor,
-        sigma_prior,
-        log_const_anchor,
-        log_const_prior,
+    g_a = np.mean(
+        (1.0 - f_int_all[:, None, :])
+        * np.exp(k_all[:, None, :] * u_anchors_m1[None, :, :])
+        + f_int_all[:, None, :],
+        axis=1,
+    )
+    pred_a = scale[:, None] * g_a
+    ll = -0.5 * np.sum(
+        ((swc_anchors - pred_a) / sigma_anchor) ** 2 + log_const_anchor, axis=1
     )
 
-    k_exp = k_all[sensor_idx_per_chord]
-    f_exp = f_int_all[sensor_idx_per_chord]
+    if u_prior_m1 is not None:
+        g_p = np.mean(
+            (1.0 - f_int_all[:, None, :])
+            * np.exp(k_all[:, None, :] * u_prior_m1[None, :, :])
+            + f_int_all[:, None, :],
+            axis=1,
+        )
+        ll += -0.5 * np.sum(
+            ((prior_y - g_p) / sigma_prior) ** 2 + log_const_prior, axis=1
+        )
+
+    k_exp = k_all[:, sensor_idx_per_chord]
+    f_exp = f_int_all[:, sensor_idx_per_chord]
     mu_c = (
-        scale
+        scale[:, None]
         * (1.0 - f_exp)
-        * (np.exp(k_exp * (u_ends_all - 1.0)) - np.exp(k_exp * (u_starts_all - 1.0)))
+        * (np.exp(k_exp * u_ends_m1) - np.exp(k_exp * u_starts_m1))
     )
     sigma = np.exp(log_sigma)
     with np.errstate(divide="ignore"):
-        log_mu_c = np.log(np.maximum(mu_c, 0.0)) - sigma**2 / 2
+        log_mu_c = np.log(np.maximum(mu_c, 0.0)) - sigma[:, None] ** 2 / 2
     ll += np.sum(
-        -0.5 * ((log_delta_swc_all - log_mu_c) / sigma) ** 2
-        - log_sigma
+        -0.5 * ((log_delta_swc_all - log_mu_c) / sigma[:, None]) ** 2
+        - log_sigma[:, None]
         - log_delta_swc_all
-        - 0.5 * _LOG_2PI
+        - 0.5 * _LOG_2PI,
+        axis=1,
     )
 
-    return lp + ll
+    result = lp + ll
+    if squeeze:
+        return float(result[0])
+    return result
 
 
 def samples_swc_at(x, scale_s, k_s, f_int_s, data_xmin, xmax):
@@ -335,11 +328,13 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
 
         inv_denom = xmax - data_xmin_arr
         u_anchors = (xmax - x_anchors) / inv_denom[:, None]
+        u_anchors_m1 = u_anchors - 1.0
         u_prior = None if len(prior_x) == 0 else (xmax - prior_x) / inv_denom[:, None]
+        u_prior_m1 = None if u_prior is None else u_prior - 1.0
 
         inv_denom_per_chord = inv_denom[sensor_idx_per_chord]
-        u_starts_all = (xmax - x_starts) / inv_denom_per_chord
-        u_ends_all = (xmax - x_ends) / inv_denom_per_chord
+        u_starts_m1 = (xmax - x_starts) / inv_denom_per_chord - 1.0
+        u_ends_m1 = (xmax - x_ends) / inv_denom_per_chord - 1.0
         log_delta_swc_all = np.log(delta_swc)
 
         sigma_anchor = self._sigma_anchor
@@ -371,10 +366,10 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             xmax=xmax,
             sigma_anchor=sigma_anchor,
             sigma_prior=sigma_prior,
-            u_anchors=u_anchors,
-            u_prior=u_prior,
-            u_starts_all=u_starts_all,
-            u_ends_all=u_ends_all,
+            u_anchors_m1=u_anchors_m1,
+            u_prior_m1=u_prior_m1,
+            u_starts_m1=u_starts_m1,
+            u_ends_m1=u_ends_m1,
             log_delta_swc_all=log_delta_swc_all,
             sensor_idx_per_chord=sensor_idx_per_chord,
             log_const_anchor=log_const_anchor,
@@ -428,6 +423,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             _ParamLayout(self.n_sensors).dim,
             mcmc_log_joint,
             kwargs=posterior_kwargs,
+            vectorize=True,
         )
         sampler.run_mcmc(pos, self._n_burn + self._n_steps, progress=False)
         self._chain = sampler.get_chain()
@@ -509,13 +505,13 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         )
         walker_pos = self._init_walker_pos(initial_estimate)
         posterior_kwargs = dict(
-            u_anchors=initial_estimate["u_anchors"],
+            u_anchors_m1=initial_estimate["u_anchors_m1"],
             swc_anchors=swc_anchors,
-            u_starts_all=initial_estimate["u_starts_all"],
-            u_ends_all=initial_estimate["u_ends_all"],
+            u_starts_m1=initial_estimate["u_starts_m1"],
+            u_ends_m1=initial_estimate["u_ends_m1"],
             log_delta_swc_all=initial_estimate["log_delta_swc_all"],
             sensor_idx_per_chord=initial_estimate["sensor_idx_per_chord"],
-            u_prior=initial_estimate["u_prior"],
+            u_prior_m1=initial_estimate["u_prior_m1"],
             prior_y=prior_y,
             sigma_anchor=initial_estimate["sigma_anchor"],
             sigma_prior=initial_estimate["sigma_prior"],
@@ -647,31 +643,31 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         )
 
     def _diagnostic_dump(self, data, pos, exc):
-        u_starts_all = data["u_starts_all"]
-        u_ends_all = data["u_ends_all"]
+        u_starts_m1 = data["u_starts_m1"]
+        u_ends_m1 = data["u_ends_m1"]
         log_delta_swc_all = data["log_delta_swc_all"]
-        u_anc = data["u_anchors"]
-        u_prior = data["u_prior"]
+        u_anc_m1 = data["u_anchors_m1"]
+        u_prior_m1 = data["u_prior_m1"]
         prior_minmax = (
-            (float(u_prior.min()), float(u_prior.max()))
-            if u_prior is not None
+            (float(u_prior_m1.min()), float(u_prior_m1.max()))
+            if u_prior_m1 is not None
             else (float("nan"), float("nan"))
         )
-        n_chords = len(u_starts_all)
+        n_chords = len(u_starts_m1)
         return (
             f"MCMC diagnostic: {exc}\n"
             f"  Input params: xmax={self._xmax} n_walkers={self._n_walkers}"
             f" n_burn={self._n_burn} n_steps={self._n_steps}"
             f" prior_weight={self._prior_weight}\n"
             f"  Data summary: N_chords={n_chords} data_min_x={float(data['data_xmin'].min()):.1f}\n"
-            f"    u_starts:  min={u_starts_all.min():.4f}"
-            f" max={u_starts_all.max():.4f}\n"
-            f"    u_ends:    min={u_ends_all.min():.4f}"
-            f" max={u_ends_all.max():.4f}\n"
+            f"    u_starts_m1:  min={u_starts_m1.min():.4f}"
+            f" max={u_starts_m1.max():.4f}\n"
+            f"    u_ends_m1:    min={u_ends_m1.min():.4f}"
+            f" max={u_ends_m1.max():.4f}\n"
             f"    log_delta_swc: min={log_delta_swc_all.min():.4f}"
             f" max={log_delta_swc_all.max():.4f}\n"
-            f"    u_anchors: min={u_anc.min():.4f} max={u_anc.max():.4f}\n"
-            f"    u_prior:   min={prior_minmax[0]} max={prior_minmax[1]}\n"
+            f"    u_anchors_m1: min={u_anc_m1.min():.4f} max={u_anc_m1.max():.4f}\n"
+            f"    u_prior_m1:   min={prior_minmax[0]} max={prior_minmax[1]}\n"
             f"  Walker init: cond={np.linalg.cond(pos):.2e}\n"
             f"    per-col min: {pos.min(axis=0).tolist()}\n"
             f"    per-col max: {pos.max(axis=0).tolist()}\n"
