@@ -364,16 +364,6 @@ def test_multi_sensor_happy_path():
         sensor_chord_labels=sensor_chord_labels,
     )
 
-    # chain = estimator_multi._chain
-    # print(chain.shape)
-    # for j in range(4):
-    #     for wi in range(chain.shape[1]):
-    #         plt.plot(chain[:, wi, j])
-    #     plt.show()
-
-    # plt.plot(cal_multi._log_prob)
-    # plt.show()
-
     print("Joint scale MAP:", np.mean(cal_multi.posterior_params()["scale"], axis=0))
     est_kw = dict(
         xmax=TEST_XMAX, prior_weight=1.0, n_burn=burnin, n_steps=samples, n_sensors=1
@@ -439,68 +429,3 @@ def test_multi_sensor_happy_path():
         title="Multi-sensor MCMC calibration",
         show_chords_pane=False,
     )
-
-    # import matplotlib.pyplot as plt
-    # from hcultinf.plot_style import (
-    #     apply_dark_theme,
-    #     CLOUD_BLUE,
-    #     CLOUD_WHITE,
-    #     ORANGE,
-    #     YELLOW,
-    # )
-
-    # apply_dark_theme()
-    fig, ax = plt.subplots(figsize=(10, 5))
-
-    for label, c, cal_i, sidx in [
-        ("sensor 0", CLOUD_BLUE, cal_s0, 0),
-        ("sensor 1", ORANGE, cal_s1, 0),
-        ("joint s0", CLOUD_WHITE, cal_multi, 0),
-        ("joint s1", YELLOW, cal_multi, 1),
-    ]:
-        paths, level = cal_i.curve_credible_region(
-            sensor_idx=sidx, alpha=0.99, n_bins=100
-        )
-        for j, path in enumerate(paths):
-            ax.plot(
-                path[:, 0],
-                path[:, 1],
-                color=c,
-                linewidth=1.5,
-                label=label if j == 0 else None,
-            )
-
-    ax.set_xlabel("sensor reading")
-    ax.set_ylabel("SWC")
-    ax.legend(fontsize=7)
-    fig.tight_layout()
-    fig.savefig("artifacts/multi_sensor_comparison.png")
-    if os.environ.get("HCULT_TEST_DEBUG_PLOT", "0") == "1":
-        plt.show()
-    plt.close(fig)
-
-    plot_corner(
-        cal,
-        out="artifacts/multi_sensor_corner.png",
-        title="Multi-sensor MCMC posterior",
-        sensor_idx=0,
-    )
-    plot_corner(
-        cal,
-        out="artifacts/multi_sensor_corner_s1.png",
-        title="Multi-sensor MCMC posterior (sensor 1)",
-        sensor_idx=1,
-    )
-
-
-def test_curve_credible_region():
-    cal = _fit_mcmc(seed=42)
-    paths, level = cal.curve_credible_region(alpha=0.95, n_bins=50, n_points=200)
-    assert level > 0.0
-    assert len(paths) >= 1
-    for path in paths:
-        assert path.ndim == 2
-        assert path.shape[1] == 2
-        assert np.all(path[:, 0] >= TEST_XMIN - 0.5)
-        assert np.all(path[:, 0] <= TEST_XMAX)
-        assert np.all(np.isfinite(path))

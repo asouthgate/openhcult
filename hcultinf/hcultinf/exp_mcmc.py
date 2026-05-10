@@ -8,7 +8,7 @@ import emcee
 from scipy.special import ndtr, ndtri
 
 from .calibrator import CordCalibrator
-from .exp import ExponentialCordCalibrator, exponential_target
+from .exp import ExponentialCordCalibrator, exponential_target, exponential_target_u
 from .plot_style import apply_dark_theme, CLOUD_BLUE, ORANGE
 from .prior import (
     MCMCPriors,
@@ -36,9 +36,10 @@ def mcmc_log_anchor_prior_likelihood(
     f_int_all = np.atleast_1d(f_int_all)
     data_xmin = np.atleast_1d(data_xmin)
 
+    u_anchors = (xmax - x_anchors) / (xmax - data_xmin[:, None])
     g_anchor_parts = np.stack(
         [
-            exponential_target(x_anchors, k_all[j], f_int_all[j], data_xmin[j], xmax)
+            exponential_target_u(u_anchors[j], k_all[j], f_int_all[j])
             for j in range(n_sensors)
         ]
     )
@@ -52,9 +53,10 @@ def mcmc_log_anchor_prior_likelihood(
     )
 
     if len(prior_x) > 0:
+        u_prior = (xmax - prior_x) / (xmax - data_xmin[:, None])
         g_prior_parts = np.stack(
             [
-                exponential_target(prior_x, k_all[j], f_int_all[j], data_xmin[j], xmax)
+                exponential_target_u(u_prior[j], k_all[j], f_int_all[j])
                 for j in range(n_sensors)
             ]
         )
@@ -81,9 +83,11 @@ def mcmc_log_chord_likelihood(
     xmax,
 ):
     sigma = np.exp(log_sigma)
+    u_starts = (xmax - x_starts) / (xmax - data_xmin)
+    u_ends = (xmax - x_ends) / (xmax - data_xmin)
     mu_c = scale * (
-        exponential_target(x_ends, k, f_int, data_xmin, xmax)
-        - exponential_target(x_starts, k, f_int, data_xmin, xmax)
+        exponential_target_u(u_ends, k, f_int)
+        - exponential_target_u(u_starts, k, f_int)
     )
     if np.any(mu_c <= 0) or not np.all(np.isfinite(mu_c)):
         return -np.inf
@@ -189,13 +193,11 @@ def samples_swc_at(x, scale_s, k_s, f_int_s, data_xmin, xmax):
 
     g_parts = np.empty((n_samples, n_points, n_sensors))
     for j in range(n_sensors):
-        x_j = x[:, j]
-        g_j = exponential_target(
-            x_j[None, :],
+        u_j = (xmax - x[:, j]) / (xmax - data_xmin[j])
+        g_j = exponential_target_u(
+            u_j[None, :],
             k_s[:, j][:, None],
             f_int_s[:, j][:, None],
-            data_xmin[j],
-            xmax,
         )
         g_parts[:, :, j] = g_j
 

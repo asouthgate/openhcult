@@ -6,9 +6,13 @@ from scipy.optimize import least_squares
 from .calibrator import CordCalibrator, _u, _estimate_covariance
 
 
+def exponential_target_u(u, k, f_int):
+    return (1.0 - f_int) * np.exp(k * (u - 1.0)) + f_int
+
+
 def exponential_target(x, k, f_int, xmin, xmax):
     u = _u(x, xmin, xmax)
-    return (1.0 - f_int) * np.exp(k * (u - 1.0)) + f_int
+    return exponential_target_u(u, k, f_int)
 
 
 class ExponentialCordCalibrator(CordCalibrator):

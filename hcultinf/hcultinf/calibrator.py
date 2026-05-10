@@ -15,9 +15,7 @@ from hcultinf.plot_style import (
 
 
 def _u(x, xmin, xmax):
-    result = (xmax - x) / (xmax - xmin)
-    result[np.logical_or(x < xmin, x > xmax)] = np.nan
-    return result
+    return (xmax - x) / (xmax - xmin)
 
 
 def _estimate_covariance(result, n_data_obs):
