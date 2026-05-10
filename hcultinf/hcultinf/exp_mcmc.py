@@ -29,18 +29,21 @@ def mcmc_log_anchor_prior_likelihood(
     log_const_anchor,
     log_const_prior,
 ):
+    one_minus_f = 1.0 - f_int_all[:, None]
+    f_col = f_int_all[:, None]
+
     # Anchor likelihood
     exp_term_a = np.exp(k_all[:, None] * (u_anchors - 1.0))
-    g_a = np.mean((1.0 - f_int_all[:, None]) * exp_term_a + f_int_all[:, None], axis=0)
+    g_a = np.mean(one_minus_f * exp_term_a + f_col, axis=0)
     pred_a = scale * g_a
     ll = -0.5 * np.sum(((swc_anchors - pred_a) / sigma_anchor) ** 2 + log_const_anchor)
 
     if u_prior is None:
         return ll
 
-    # Prior likelihood
+    # Prior likelihood — reuse precomputed f terms
     exp_term_p = np.exp(k_all[:, None] * (u_prior - 1.0))
-    g_p = np.mean((1.0 - f_int_all[:, None]) * exp_term_p + f_int_all[:, None], axis=0)
+    g_p = np.mean(one_minus_f * exp_term_p + f_col, axis=0)
     return ll + -0.5 * np.sum(((prior_y - g_p) / sigma_prior) ** 2 + log_const_prior)
 
 
@@ -68,10 +71,12 @@ def mcmc_log_joint(
     f_int_all = theta[1 + n : 1 + 2 * n]
     log_sigma = theta[1 + 2 * n]
 
-    lp = priors.scale_log_prior(log_scale)
-    for k_j, f_j in zip(k_all, f_int_all):
-        lp += priors.k_log_prior(k_j) + priors.f_int_log_prior(f_j)
-    lp += priors.log_sigma_log_prior(log_sigma)
+    lp = (
+        priors.scale_log_prior(log_scale)
+        + priors.k_log_prior(k_all)
+        + priors.f_int_log_prior(f_int_all)
+        + priors.log_sigma_log_prior(log_sigma)
+    )
 
     ll = mcmc_log_anchor_prior_likelihood(
         scale,
@@ -123,19 +128,19 @@ def samples_swc_at(x, scale_s, k_s, f_int_s, data_xmin, xmax):
     n_samples = len(scale_s)
     scale_s = np.asarray(scale_s).reshape(n_samples)
 
-    g_parts = np.empty((n_samples, n_points, n_sensors))
-    for j in range(n_sensors):
-        u_j = (xmax - x[:, j]) / (xmax - data_xmin[j])
-        g_j = exponential_target_u(
-            u_j[None, :],
-            k_s[:, j][:, None],
-            f_int_s[:, j][:, None],
-        )
-        g_parts[:, :, j] = g_j
+    # Vectorized across sensors: u has shape (n_points, n_sensors)
+    inv_denom = xmax - data_xmin  # (n_sensors,)
+    u = (xmax - x) / inv_denom[None, :]  # (n_points, n_sensors)
 
-    g = np.nanmean(g_parts, axis=2)
-    swc = scale_s[:, None] * g
-    return swc
+    # k_s, f_int_s: (n_samples, n_sensors)
+    # Broadcast to (n_samples, n_points, n_sensors)
+    k_exp = k_s[:, None, :]  # (n_samples, 1, n_sensors)
+    f_exp = f_int_s[:, None, :]  # (n_samples, 1, n_sensors)
+    u_b = u[None, :, :]  # (1, n_points, n_sensors)
+
+    g = (1.0 - f_exp) * np.exp(k_exp * (u_b - 1.0)) + f_exp
+    g_mean = np.mean(g, axis=2)  # (n_samples, n_points)
+    return scale_s[:, None] * g_mean
 
 
 def _aggregate_samples(x, scale_s, k_s, f_int_s, data_xmin, xmax, func):
