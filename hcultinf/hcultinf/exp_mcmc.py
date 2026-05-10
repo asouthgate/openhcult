@@ -71,11 +71,7 @@ def mcmc_log_joint(
     lp = priors.scale_log_prior(log_scale)
     for k_j, f_j in zip(k_all, f_int_all):
         lp += priors.k_log_prior(k_j) + priors.f_int_log_prior(f_j)
-        if not np.isfinite(lp):
-            return -np.inf
     lp += priors.log_sigma_log_prior(log_sigma)
-    if not np.isfinite(lp):
-        return -np.inf
 
     ll = mcmc_log_anchor_prior_likelihood(
         scale,
@@ -99,10 +95,9 @@ def mcmc_log_joint(
         * (1.0 - f_exp)
         * (np.exp(k_exp * (u_ends_all - 1.0)) - np.exp(k_exp * (u_starts_all - 1.0)))
     )
-    if np.any(mu_c <= 0):
-        return -np.inf
     sigma = np.exp(log_sigma)
-    log_mu_c = np.log(mu_c) - sigma**2 / 2
+    with np.errstate(divide="ignore"):
+        log_mu_c = np.log(np.maximum(mu_c, 0.0)) - sigma**2 / 2
     ll += np.sum(
         -0.5 * ((log_delta_swc_all - log_mu_c) / sigma) ** 2
         - log_sigma
