@@ -56,7 +56,7 @@ function ObservationsTable({ observations, sensorAssignedAt, calibration, onDele
 }
 
 export default function SensorsPane({
-  plantFilter, sensorFilter, sensorAssignedAt, calibrationMl, calibrationFrac, calibParams, setCalibParam, plantSensors, combinedSwcMl, combinedSwcFrac, calibLoadingMl, calibLoadingFrac, calibErrorMl, calibErrorFrac, dryingRate, rangeHours, setRangeHours, recalculateMl, recalculateFrac,
+  plantFilter, sensorFilter, sensorAssignedAt, calibrationMl, calibrationFrac, calibParams, setCalibParam, plantSensors, combinedSwcMl, combinedSwcFrac, calibLoadingMl, calibLoadingFrac, calibErrorMl, calibErrorFrac, dryingRate, dryingRateLoading, rangeHours, setRangeHours, recalculateMl, recalculateFrac,
 }) {
   const [measureMode, setMeasureMode] = useState('voltage')
   const [showFractional, setShowFractional] = useState(false)
@@ -66,6 +66,7 @@ export default function SensorsPane({
   const [pendingPlant, setPendingPlant] = useState('')
   const [pendingMl, setPendingMl] = useState('')
   const [loading, setLoading] = useState(false)
+  const [rateLogScale, setRateLogScale] = useState(false)
 
   const isCombined = sensorFilter === '__combined__'
   const hasSystemCapacity = calibParams.systemCapacityMean !== '' && calibParams.systemCapacityStd !== ''
@@ -122,7 +123,24 @@ export default function SensorsPane({
   const needsPlant = (isWaterMode || isRateMode) && plantFilter === ''
   const needsSystemCapacity = isWaterMode && plantFilter && !hasSystemCapacity
 
-  const rateSeries = useMemo(() => transformRateSeries(dryingRate), [dryingRate])
+  const { mappedSeries: rateSeries, bands: rateBands } = useMemo(() => transformRateSeries(dryingRate), [dryingRate])
+
+  const currentRate = useMemo(() => {
+    if (!rateSeries.length) return null
+    const points = rateSeries[0].points
+    if (!points.length) return null
+    const now = Math.max(...points.map(p => p.t))
+    const windowMs = 30 * 60 * 1000
+    const recent = points.filter(p => p.t > now - windowMs)
+    const validRecent = dryingRate?.valid
+      ? recent.filter((p, i) => {
+          const idx = points.indexOf(p)
+          return dryingRate.valid[idx]
+        })
+      : recent
+    const values = validRecent.length > 0 ? validRecent.map(p => p.v) : points.map(p => p.v)
+    return values.sort((a, b) => a - b)[Math.floor(values.length / 2)]
+  }, [rateSeries, dryingRate])
 
   const { mappedSeries, bands, combinedReady } = useMemo(() => {
     const isWaterMode = measureMode === 'water' || measureMode === 'fractional'
@@ -164,27 +182,42 @@ export default function SensorsPane({
   let chartContent
   if (calibError) {
     chartContent = <div className="full error">{calibError}</div>
-  } else if (isRateMode) {
+    } else if (isRateMode) {
     if (!plantFilter) {
       chartContent = <div className="empty">Select a plant to view drying rate</div>
-    } else if (calibLoading) {
+    } else if (dryingRateLoading) {
       chartContent = <div className="loading"><span className="spinner" />Computing drying rate…</div>
-    } else if (!rateSeries) {
+    } else if (!rateSeries.length) {
       chartContent = <div className="empty">No drying rate data available.</div>
     } else {
       const allT = rateSeries.flatMap(s => s.points.map(p => p.t))
       const rangeMs = allT.length > 1 ? Math.max(...allT) - Math.min(...allT) : rangeHours * 3600 * 1000
       chartContent = (
-        <TimeseriesChart
-          series={rateSeries}
-          bands={[]}
-          observations={[]}
-          rangeMs={rangeMs}
-          onTimePick={null}
-          pendingTime={null}
-          yLabel={Y_LABELS[measureMode]}
-          hideObsLegend
-        />
+        <div>
+          {currentRate != null && (
+            <div className="current-rate-display">
+              <span className={`current-rate-value ${currentRate < 0 ? 'drying' : 'watering'}`}>
+                {currentRate.toFixed(2)}
+              </span>
+              <span className="current-rate-unit">ml/day</span>
+              <span className="current-rate-label">{currentRate < 0 ? 'Drying' : 'Watering'}</span>
+            </div>
+          )}
+          <div className="rate-controls">
+            <button className={rateLogScale ? 'active' : ''} onClick={() => setRateLogScale(v => !v)}>Log</button>
+          </div>
+          <TimeseriesChart
+            series={rateSeries}
+            bands={rateBands}
+            observations={[]}
+            rangeMs={rangeMs}
+            onTimePick={null}
+            pendingTime={null}
+            yLabel={Y_LABELS[measureMode]}
+            hideObsLegend
+            logScale={rateLogScale}
+          />
+        </div>
       )
     }
   } else if (loading) {

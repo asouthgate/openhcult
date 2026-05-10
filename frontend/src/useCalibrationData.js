@@ -7,6 +7,7 @@ export function useCalibrationData({ plantFilter, sensorFilter, calibParams, ran
   const [calibError, setCalibError] = useState(null)
   const [calibLoading, setCalibLoading] = useState(false)
   const [dryingRate, setDryingRate] = useState(null)
+  const [dryingRateLoading, setDryingRateLoading] = useState(false)
   const [combinedSwc, setCombinedSwc] = useState(null)
 
   const calibParamsRef = useRef(calibParams)
@@ -25,6 +26,7 @@ export function useCalibrationData({ plantFilter, sensorFilter, calibParams, ran
       setCalibration(null)
       setCalibError(null)
       setDryingRate(null)
+      setDryingRateLoading(false)
       setCombinedSwc(null)
       drControllerRef.current?.abort()
       return
@@ -36,6 +38,7 @@ export function useCalibrationData({ plantFilter, sensorFilter, calibParams, ran
     drControllerRef.current = drController
     setCalibLoading(true)
     setCalibError(null)
+    setDryingRateLoading(true)
 
     const params = calibParamsRef.current
     const hours = rangeHours
@@ -59,6 +62,7 @@ export function useCalibrationData({ plantFilter, sensorFilter, calibParams, ran
       apiJson(`/drying_rate?${drParams}`, { signal: drController.signal })
         .then(dr => setDryingRate(dr))
         .catch(() => setDryingRate(null))
+        .finally(() => setDryingRateLoading(false))
 
       return () => {
         controller.abort()
@@ -86,6 +90,7 @@ export function useCalibrationData({ plantFilter, sensorFilter, calibParams, ran
         apiJson(`/drying_rate?${drParams}`, { signal: drController.signal })
           .then(dr => setDryingRate(dr))
           .catch(() => setDryingRate(null))
+          .finally(() => setDryingRateLoading(false))
       })
       .catch(err => {
         if (err.name !== 'AbortError') {
@@ -119,6 +124,7 @@ export function useCalibrationData({ plantFilter, sensorFilter, calibParams, ran
     calibError,
     calibLoading,
     dryingRate,
+    dryingRateLoading,
     combinedSwc,
     recalculate,
   }

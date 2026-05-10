@@ -35,13 +35,7 @@ def _simulate_drying_data(n_days=60):
 def test_drying_rate_detects_events_and_drying():
     times, values, watering_times = _simulate_drying_data()
 
-    result = drying_rate(
-        times,
-        values,
-        emwa_tau_minutes=30,
-        trigger_thresh=-0.75,
-        release_thresh=-0.70,
-    )
+    result = drying_rate(times, values)
 
     resampled_times = result["times"]
     rate = result["rate"]
@@ -55,19 +49,13 @@ def test_drying_rate_detects_events_and_drying():
 
     valid_rate = rate[valid]
     mean_valid_rate = np.mean(valid_rate)
-    assert mean_valid_rate > 0, f"Expected positive drying rate, got {mean_valid_rate}"
+    assert mean_valid_rate < 0, f"Expected negative drying rate, got {mean_valid_rate}"
 
 
 def test_drying_rate_event_regions_track_waterings():
     times, values, watering_times = _simulate_drying_data()
 
-    result = drying_rate(
-        times,
-        values,
-        emwa_tau_minutes=30,
-        trigger_thresh=-0.75,
-        release_thresh=-0.70,
-    )
+    result = drying_rate(times, values)
 
     resampled_times = result["times"]
     valid = result["valid"]
@@ -85,19 +73,13 @@ def test_drying_rate_event_regions_track_waterings():
 def test_drying_rate_consistent_sign_in_valid_regions():
     times, values, _ = _simulate_drying_data()
 
-    result = drying_rate(
-        times,
-        values,
-        emwa_tau_minutes=30,
-        trigger_thresh=-0.75,
-        release_thresh=-0.70,
-    )
+    result = drying_rate(times, values)
 
     valid_rate = result["rate"][result["valid"]]
-    positive_frac = np.mean(valid_rate > 0)
+    negative_frac = np.mean(valid_rate < 0)
     assert (
-        positive_frac > 0.7
-    ), f"Expected mostly positive rate during drying, got {positive_frac:.2f}"
+        negative_frac > 0.7
+    ), f"Expected mostly negative rate during drying, got {negative_frac:.2f}"
 
 
 def test_drying_rate_too_few_points_raises():
@@ -107,16 +89,23 @@ def test_drying_rate_too_few_points_raises():
         drying_rate(t, v)
 
 
+def test_drying_rate_custom_lambda():
+    times, values, _ = _simulate_drying_data(n_days=10)
+
+    result_small = drying_rate(times, values, lambda_tv=0.1)
+    result_large = drying_rate(times, values, lambda_tv=1000.0)
+
+    small_var = np.var(result_small["rate"])
+    large_var = np.var(result_large["rate"])
+    assert (
+        small_var > large_var
+    ), "Higher lambda should produce smoother (less variable) rates"
+
+
 def test_drying_rate_plot():
     times, values, watering_times = _simulate_drying_data(n_days=30)
 
-    result = drying_rate(
-        times,
-        values,
-        emwa_tau_minutes=30,
-        trigger_thresh=-0.75,
-        release_thresh=-0.70,
-    )
+    result = drying_rate(times, values)
 
     import matplotlib.pyplot as plt
     from hcultinf.plot_style import apply_dark_theme, CLOUD_BLUE, ORANGE, YELLOW, MUTED
@@ -133,7 +122,7 @@ def test_drying_rate_plot():
     ax1.set_ylabel("sensor value")
     ax1.legend()
 
-    ax2.plot(rt, rate, color=ORANGE, label="rate (EWMA velocity)")
+    ax2.plot(rt, rate, color=ORANGE, label="rate (trend filtered)")
     ax2.scatter(rt[valid], rate[valid], s=4, color=CLOUD_BLUE, label="valid (drying)")
     ax2.scatter(rt[~valid], rate[~valid], s=4, color=YELLOW, label="event")
     ax2.axhline(0, color=MUTED, linewidth=0.5)

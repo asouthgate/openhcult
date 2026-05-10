@@ -625,6 +625,29 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             ci_high = np.nanpercentile(frac_samples, 97.5, axis=0)
         return mean, ci_low, ci_high
 
+    def fractional_water_content_samples(self, x, n_samples=None, seed=None):
+        """Return raw (n_samples, n_times) array of fractional SWC samples."""
+        assert (
+            self._system_capacity_mean is not None
+            and self._system_capacity_std is not None
+        ), "system_capacity_mean and system_capacity_std must be specified at construction"
+        var = self._system_capacity_std**2
+        mean_cap = self._system_capacity_mean
+        mu_log = np.log(mean_cap**2 / np.sqrt(var + mean_cap**2))
+        sigma_log = np.sqrt(np.log(1.0 + var / mean_cap**2))
+
+        swc_samples = self.posterior_samples_swc_at(x)
+        n_swc = swc_samples.shape[0]
+        if n_samples is not None:
+            idx = np.random.choice(n_swc, n_samples, replace=False)
+            swc_samples = swc_samples[idx]
+            n_swc = n_samples
+
+        rng = np.random.default_rng(seed)
+        cap_samples = rng.lognormal(mu_log, sigma_log, size=n_swc)
+
+        return swc_samples / cap_samples[:, None]
+
     def curve_credible_region(
         self,
         sensor_idx=0,

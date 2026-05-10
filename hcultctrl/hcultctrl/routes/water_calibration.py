@@ -254,29 +254,33 @@ def _align_readings_by_sensor(all_readings, sensor_keys):
     return all_times, voltages_per_sensor
 
 
-def _compute_drying_result(times_ms_arr, swc_values, scale, ema_tau_min=60.0):
-    import pandas as pd
+def _compute_drying_result(times_ms_arr, swc_samples, scale, lambda_tv=None):
+    n_samples = swc_samples.shape[0]
+    n_times = swc_samples.shape[1]
+    rates_per_sample = np.empty((n_samples, n_times))
+    valid_per_sample = np.empty((n_samples, n_times), dtype=bool)
 
-    times = pd.to_datetime(times_ms_arr, unit="ms").values
-    neg_swc = -swc_values
-    result = compute_drying_rate(
-        times,
-        neg_swc,
-        emwa_tau_minutes=ema_tau_min,
-        trigger_thresh=-0.15,
-        release_thresh=-0.10,
-        max_x_value=0.0,
-        min_x_value=-scale,
-    )
-    rate_ml_per_day = -result["rate"] * 1440.0
-    resampled_ms = (
-        pd.to_datetime(result["times"]).astype("datetime64[ns]").astype(np.int64)
-        // 10**6
-    ).tolist()
+    for i in range(n_samples):
+        result = compute_drying_rate(
+            times_ms_arr,
+            swc_samples[i],
+            lambda_tv=lambda_tv,
+        )
+        rates_per_sample[i] = result["rate"]
+        valid_per_sample[i] = result["valid"]
+
+    rate_ml_per_day = rates_per_sample * 1440.0
+    mean_rate = np.nanmean(rate_ml_per_day, axis=0)
+    ci_low = np.nanpercentile(rate_ml_per_day, 2.5, axis=0)
+    ci_high = np.nanpercentile(rate_ml_per_day, 97.5, axis=0)
+    valid = valid_per_sample.sum(axis=0) > n_samples // 2
+
     return {
-        "times_ms": resampled_ms,
-        "rate_ml_per_day": rate_ml_per_day.tolist(),
-        "valid": result["valid"].tolist(),
+        "times_ms": [int(v) for v in times_ms_arr],
+        "rate_ml_per_day": _to_json_safe(mean_rate),
+        "rate_ml_per_day_ci_low": _to_json_safe(ci_low),
+        "rate_ml_per_day_ci_high": _to_json_safe(ci_high),
+        "valid": valid.tolist(),
         "scale": scale,
     }
 
@@ -440,7 +444,7 @@ def drying_rate(
     combined: bool = False,
     combine_method: str = "bayesian",
     sigma_bias: float = 0.0,
-    ema_tau_min: float = 60.0,
+    lambda_tv: float | None = None,
     conn=Depends(get_db_conn),
 ):
     from datetime import datetime, timezone, timedelta
@@ -465,13 +469,35 @@ def drying_rate(
     cal = _calibrate(conn, d, p)
 
     sensor_keys = [(ps["device_address"], ps["sensor"]) for ps in d["active_sensors"]]
-    times_ms, mean_swc, _, _ = _predict_swc_timeseries(
-        conn, cal, sensor_keys, p.plant, start_ms_time, end_ms_time
+    all_readings = list(
+        database.fetch_timeseries(
+            conn,
+            plant=p.plant,
+            start_ms=start_ms_time,
+            end_ms=end_ms_time,
+            limit=50000,
+        )
     )
+    all_times, voltages_per_sensor = _align_readings_by_sensor(
+        all_readings, sensor_keys
+    )
+    X = np.column_stack(voltages_per_sensor)
+    times_ms = np.array(all_times)
+
+    use_fractional = (
+        p.return_fractional
+        and p.system_capacity_mean is not None
+        and p.system_capacity_std is not None
+    )
+
+    if use_fractional:
+        swc_samples = cal.fractional_water_content_samples(X)
+    else:
+        swc_samples = cal.posterior_samples_swc_at(X)
 
     return _compute_drying_result(
         times_ms,
-        np.asarray(mean_swc),
+        swc_samples,
         float(cal.scale),
-        ema_tau_min=ema_tau_min,
+        lambda_tv=lambda_tv,
     )

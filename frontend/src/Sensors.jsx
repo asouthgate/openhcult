@@ -49,12 +49,13 @@ export default function Sensors() {
     if (plant) {
       const p = plants.find(p => p.plant_name === plant)
       if (p?.soil_volume != null) {
-        setCalibParams(cp => ({ ...cp, systemCapacityMean: String(Math.round(p.soil_volume)) }))
+        const mean = Math.round(p.soil_volume)
+        setCalibParams(cp => ({ ...cp, systemCapacityMean: String(mean), systemCapacityStd: String(Math.round(mean * 0.1)) }))
       } else {
-        setCalibParams(cp => ({ ...cp, systemCapacityMean: '' }))
+        setCalibParams(cp => ({ ...cp, systemCapacityMean: '', systemCapacityStd: '' }))
       }
     } else {
-      setCalibParams(cp => ({ ...cp, systemCapacityMean: '' }))
+      setCalibParams(cp => ({ ...cp, systemCapacityMean: '', systemCapacityStd: '' }))
     }
   }
 
@@ -95,7 +96,7 @@ export default function Sensors() {
             combinedSwcMl={mlData.combinedSwc} combinedSwcFrac={fracData.combinedSwc}
             calibLoadingMl={mlData.calibLoading} calibLoadingFrac={fracData.calibLoading}
             calibErrorMl={mlData.calibError} calibErrorFrac={fracData.calibError}
-            dryingRate={mlData.dryingRate}
+            dryingRate={mlData.dryingRate} dryingRateLoading={mlData.dryingRateLoading}
             rangeHours={rangeHours} setRangeHours={setRangeHours}
             recalculateMl={mlData.recalculate} recalculateFrac={fracData.recalculate}
           />

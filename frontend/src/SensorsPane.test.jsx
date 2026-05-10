@@ -22,6 +22,7 @@ const defaultProps = {
   calibErrorMl: null,
   calibErrorFrac: null,
   dryingRate: null,
+  dryingRateLoading: false,
   rangeHours: 48,
   setRangeHours: vi.fn(),
   recalculateMl: vi.fn(),
