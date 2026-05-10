@@ -23,11 +23,7 @@ def _g_at_u(k_all, f_int_all, u):
 
 def _log_anchor_like(scale, k_all, f_int_all, u, y, sigma, log_const):
     g = _g_at_u(k_all, f_int_all, u)
-    if not np.all(np.isfinite(g)):
-        return -np.inf
     pred = scale * g
-    if not np.all(np.isfinite(pred)):
-        return -np.inf
     return -0.5 * np.sum(((y - pred) / sigma) ** 2 + log_const)
 
 
@@ -70,7 +66,7 @@ def mcmc_log_chord_likelihood(
         - (1.0 - f_int) * np.exp(k * (u_starts - 1.0))
         - f_int
     )
-    if np.any(mu_c <= 0) or not np.all(np.isfinite(mu_c)):
+    if np.any(mu_c <= 0):
         return -np.inf
     log_mu_c = np.log(mu_c) - sigma**2 / 2
     ll = np.sum(
@@ -100,8 +96,6 @@ def mcmc_log_joint(
 ):
     log_scale = theta[0]
     scale = np.exp(log_scale)
-    if not np.isfinite(scale) or scale <= 0:
-        return -np.inf
     n = n_sensors
     k_all = theta[1 : 1 + n]
     f_int_all = theta[1 + n : 1 + 2 * n]
