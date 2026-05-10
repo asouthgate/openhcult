@@ -5,8 +5,6 @@ import os
 
 import numpy as np
 import emcee
-from scipy.special import ndtr, ndtri
-
 from .calibrator import CordCalibrator
 from .exp import ExponentialCordCalibrator, exponential_target_u
 from .plot_style import apply_dark_theme, CLOUD_BLUE, ORANGE
@@ -18,6 +16,21 @@ from .prior import (
 _logger = logging.getLogger(__name__)
 
 
+def _g_at_u(k_all, f_int_all, u):
+    exp_term = np.exp(k_all[:, None] * (u - 1.0))
+    return np.mean((1.0 - f_int_all[:, None]) * exp_term + f_int_all[:, None], axis=0)
+
+
+def _log_anchor_like(scale, k_all, f_int_all, u, y, sigma, log_const):
+    g = _g_at_u(k_all, f_int_all, u)
+    if not np.all(np.isfinite(g)):
+        return -np.inf
+    pred = scale * g
+    if not np.all(np.isfinite(pred)):
+        return -np.inf
+    return -0.5 * np.sum(((y - pred) / sigma) ** 2 + log_const)
+
+
 def mcmc_log_anchor_prior_likelihood(
     scale,
     k_all,
@@ -26,29 +39,19 @@ def mcmc_log_anchor_prior_likelihood(
     swc_anchors,
     u_prior,
     prior_y,
-    n_sensors,
     sigma_anchor,
     sigma_prior,
     log_const_anchor,
     log_const_prior,
 ):
-    exp_term = np.exp(k_all[:, None] * (u_anchors - 1.0))
-    g_anchor_parts = (1.0 - f_int_all[:, None]) * exp_term + f_int_all[:, None]
-    g_anchor = np.mean(g_anchor_parts, axis=0)
-    pred_a = scale * g_anchor
-    if not np.all(np.isfinite(pred_a)):
-        return -np.inf
-    ll = -0.5 * np.sum(((swc_anchors - pred_a) / sigma_anchor) ** 2 + log_const_anchor)
-
-    if u_prior is not None:
-        exp_term_p = np.exp(k_all[:, None] * (u_prior - 1.0))
-        g_prior_parts = (1.0 - f_int_all[:, None]) * exp_term_p + f_int_all[:, None]
-        g_prior = np.mean(g_prior_parts, axis=0)
-        if not np.all(np.isfinite(g_prior)):
-            return -np.inf
-        ll -= 0.5 * np.sum(((prior_y - g_prior) / sigma_prior) ** 2 + log_const_prior)
-
-    return ll
+    ll = _log_anchor_like(
+        scale, k_all, f_int_all, u_anchors, swc_anchors, sigma_anchor, log_const_anchor
+    )
+    if ll == -np.inf or u_prior is None:
+        return ll
+    return ll + _log_anchor_like(
+        1.0, k_all, f_int_all, u_prior, prior_y, sigma_prior, log_const_prior
+    )
 
 
 def mcmc_log_chord_likelihood(
@@ -105,13 +108,8 @@ def mcmc_log_joint(
     log_sigma = theta[1 + 2 * n]
 
     lp = priors.scale_log_prior(log_scale)
-    if not np.isfinite(lp):
-        return -np.inf
-    for j in range(n):
-        lp += priors.k_log_prior(k_all[j])
-        if not np.isfinite(lp):
-            return -np.inf
-        lp += priors.f_int_log_prior(f_int_all[j])
+    for k_j, f_j in zip(k_all, f_int_all):
+        lp += priors.k_log_prior(k_j) + priors.f_int_log_prior(f_j)
         if not np.isfinite(lp):
             return -np.inf
     lp += priors.log_sigma_log_prior(log_sigma)
@@ -126,7 +124,6 @@ def mcmc_log_joint(
         swc_anchors,
         u_prior,
         prior_y,
-        n_sensors,
         sigma_anchor,
         sigma_prior,
         log_const_anchor,
@@ -177,22 +174,38 @@ def samples_swc_at(x, scale_s, k_s, f_int_s, data_xmin, xmax):
     return swc
 
 
-def samples_mean(x, scale_s, k_s, f_int_s, data_xmin, xmax):
+def _aggregate_samples(x, scale_s, k_s, f_int_s, data_xmin, xmax, func):
     vals = samples_swc_at(x, scale_s, k_s, f_int_s, data_xmin, xmax)
     with np.errstate(all="ignore"):
-        return np.nanmean(vals, axis=0)
+        return func(vals, axis=0)
+
+
+def samples_mean(x, scale_s, k_s, f_int_s, data_xmin, xmax):
+    return _aggregate_samples(x, scale_s, k_s, f_int_s, data_xmin, xmax, np.nanmean)
 
 
 def samples_ci_low(x, scale_s, k_s, f_int_s, data_xmin, xmax):
-    vals = samples_swc_at(x, scale_s, k_s, f_int_s, data_xmin, xmax)
-    with np.errstate(all="ignore"):
-        return np.nanpercentile(vals, 2.5, axis=0)
+    return _aggregate_samples(
+        x,
+        scale_s,
+        k_s,
+        f_int_s,
+        data_xmin,
+        xmax,
+        lambda v: np.nanpercentile(v, 2.5, axis=0),
+    )
 
 
 def samples_ci_high(x, scale_s, k_s, f_int_s, data_xmin, xmax):
-    vals = samples_swc_at(x, scale_s, k_s, f_int_s, data_xmin, xmax)
-    with np.errstate(all="ignore"):
-        return np.nanpercentile(vals, 97.5, axis=0)
+    return _aggregate_samples(
+        x,
+        scale_s,
+        k_s,
+        f_int_s,
+        data_xmin,
+        xmax,
+        lambda v: np.nanpercentile(v, 97.5, axis=0),
+    )
 
 
 class ExponentialCordCalibratorMCMC(CordCalibrator):
@@ -233,11 +246,6 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         self._system_capacity_mean = system_capacity_mean
         self._system_capacity_std = system_capacity_std
 
-        self._init_spread_scale = init_spread * 0.3
-        self._init_spread_k = init_spread
-        self._init_spread_f_int = init_spread * 1.0
-        self._init_spread_sigma = init_spread
-
         self.f_int_min = f_int_min
         self.f_int_max = f_int_max
         self.f_int_beta_a = f_int_beta_a
@@ -258,6 +266,19 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         self._k_s = None
         self._f_int_s = None
         self._data_xmin = None
+
+    def _reshape_x(self, x):
+        x = np.atleast_1d(np.asarray(x))
+        if x.ndim == 1:
+            x = (
+                np.column_stack([x] * self.n_sensors)
+                if self.n_sensors > 1
+                else x[:, None]
+            )
+        assert (
+            x.ndim == 2 and x.shape[1] == self.n_sensors
+        ), f"x must have shape (n_points, {self.n_sensors}), got {x.shape}"
+        return x
 
     def _compute_mean(self, x):
         return samples_mean(
@@ -308,51 +329,43 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             data_xmin_arr[sj] = min(candidates)
 
         inv_denom = xmax - data_xmin_arr
-
         u_anchors = (xmax - x_anchors) / inv_denom[:, None]
+        u_prior = None if len(prior_x) == 0 else (xmax - prior_x) / inv_denom[:, None]
 
-        u_prior = None
-        if len(prior_x) > 0:
-            u_prior = (xmax - prior_x) / inv_denom[:, None]
-
-        u_starts_by_sensor = []
-        u_ends_by_sensor = []
-        log_delta_swc_by_sensor = []
-        for sj in range(self.n_sensors):
-            mask = sensor_chord_labels == sj
-            u_starts_by_sensor.append((xmax - x_starts[mask]) / inv_denom[sj])
-            u_ends_by_sensor.append((xmax - x_ends[mask]) / inv_denom[sj])
-            log_delta_swc_by_sensor.append(np.log(delta_swc[mask]))
+        masks = [sensor_chord_labels == sj for sj in range(self.n_sensors)]
+        u_starts_by_sensor = [
+            (xmax - x_starts[m]) / inv_denom[sj] for sj, m in enumerate(masks)
+        ]
+        u_ends_by_sensor = [
+            (xmax - (x_starts + delta_x)[m]) / inv_denom[sj]
+            for sj, m in enumerate(masks)
+        ]
+        log_delta_swc_by_sensor = [np.log(delta_swc[m]) for m in masks]
 
         sigma_anchor = self._sigma_anchor
         sigma_prior = 1.0 / max(np.sqrt(self._prior_weight), self._sigma_prior_floor)
         log_const_anchor = np.log(2 * np.pi * sigma_anchor**2)
         log_const_prior = np.log(2 * np.pi * sigma_prior**2)
 
-        k0s = []
-        f_int0s = []
-        scale0s = []
-        for sj in range(self.n_sensors):
-            mask = sensor_chord_labels == sj
-            quick = ExponentialCordCalibrator(xmax, self._prior_weight)
-            quick.fit(
+        quick_fits = []
+        for sj, m in enumerate(masks):
+            q = ExponentialCordCalibrator(xmax, self._prior_weight)
+            q.fit(
                 x_anchors,
                 swc_anchors,
-                x_starts[mask],
-                delta_x[mask],
-                delta_swc[mask],
+                x_starts[m],
+                delta_x[m],
+                delta_swc[m],
                 prior_x,
                 prior_y,
             )
-            k0s.append(quick.k)
-            f_int0s.append(quick.f_int)
-            scale0s.append(quick.scale)
-        scale0 = float(np.median(scale0s))
+            quick_fits.append(q)
+        scale0 = float(np.median([q.scale for q in quick_fits]))
 
         return dict(
             scale0=scale0,
-            k0=np.array(k0s),
-            f_int0=np.array(f_int0s),
+            k0=np.array([q.k for q in quick_fits]),
+            f_int0=np.array([q.f_int for q in quick_fits]),
             data_xmin=data_xmin_arr,
             xmax=xmax,
             sigma_anchor=sigma_anchor,
@@ -374,40 +387,39 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         log_scale_bounds = np.log([1.0, 1e10])
         walker_log_scale = np.clip(
             np.log(max(scale0, 1.0))
-            + np.random.normal(0.0, self._init_spread_scale, self._n_walkers),
+            + np.random.normal(0.0, self._init_spread * 0.3, self._n_walkers),
             log_scale_bounds[0],
             log_scale_bounds[1],
         )
         cols = [walker_log_scale]
-        for sj in range(self.n_sensors):
-            k0j = k0[sj]
-            walker_k_j = np.clip(
-                k0j
+        cols.extend(
+            np.clip(
+                k0[sj]
                 + np.random.uniform(
-                    -self._init_spread_k, self._init_spread_k, self._n_walkers
+                    -self._init_spread, self._init_spread, self._n_walkers
                 ),
                 0.0001,
                 10000.0,
             )
-            cols.append(walker_k_j)
-        for sj in range(self.n_sensors):
-            f0j = f_int0[sj]
-            walker_f_j = np.clip(
-                f0j + np.random.normal(0, 0.01, self._n_walkers),
+            for sj in range(self.n_sensors)
+        )
+        cols.extend(
+            np.clip(
+                f_int0[sj] + np.random.normal(0, 0.01, self._n_walkers),
                 self.f_int_min,
                 self.f_int_max,
             )
-            cols.append(walker_f_j)
-        walker_sigma = np.clip(
-            np.log(self._sigma_init)
-            + np.random.normal(0.0, self._init_spread_sigma, self._n_walkers),
-            np.log(0.001),
-            np.log(10.0),
+            for sj in range(self.n_sensors)
         )
-        cols.append(walker_sigma)
-
-        init_pos = np.array(cols).T
-        return init_pos
+        cols.append(
+            np.clip(
+                np.log(self._sigma_init)
+                + np.random.normal(0.0, self._init_spread, self._n_walkers),
+                np.log(0.001),
+                np.log(10.0),
+            )
+        )
+        return np.array(cols).T
 
     def _run_sampler(self, pos, posterior_kwargs):
         sampler = emcee.EnsembleSampler(
@@ -524,64 +536,39 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         return self
 
     def predict(self, x):
-        x = np.atleast_1d(x)
-        if x.ndim == 1:
-            if self.n_sensors > 1:
-                x = np.column_stack([x] * self.n_sensors)
-            else:
-                x = x[:, None]
-        assert (
-            x.ndim == 2 and x.shape[1] == self.n_sensors
-        ), f"x must have shape (n_points, {self.n_sensors}), got {x.shape}"
+        x = self._reshape_x(x)
         vals = self.posterior_samples_swc_at(x)
         with np.errstate(all="ignore"):
-            mean = np.nanmean(vals, axis=0)
-            ci_low = np.nanpercentile(vals, 2.5, axis=0)
-            ci_high = np.nanpercentile(vals, 97.5, axis=0)
-        return mean, ci_low, ci_high
+            return (
+                np.nanmean(vals, axis=0),
+                np.nanpercentile(vals, 2.5, axis=0),
+                np.nanpercentile(vals, 97.5, axis=0),
+            )
 
     def __call__(self, x):
-        x = np.atleast_1d(x)
-        if x.ndim == 1:
-            if self.n_sensors > 1:
-                x = np.column_stack([x] * self.n_sensors)
-            else:
-                x = x[:, None]
-        assert (
-            x.ndim == 2 and x.shape[1] == self.n_sensors
-        ), f"x must have shape (n_points, {self.n_sensors}), got {x.shape}"
+        x = self._reshape_x(x)
         vals = self.posterior_samples_swc_at(x)
         with np.errstate(all="ignore"):
             return np.nanmean(vals, axis=0)
 
     def posterior_samples_swc_at(self, x, n=None):
-        x = np.asarray(x)
-        if x.ndim == 1:
-            if self.n_sensors > 1:
-                x = np.column_stack([x] * self.n_sensors)
-            else:
-                x = x[:, None]
+        x = self._reshape_x(x)
+        scale_s, k_s, f_int_s = self._scale_s, self._k_s, self._f_int_s
+        if n is not None and n < len(scale_s):
+            idx = np.random.choice(len(scale_s), n, replace=False)
+            scale_s, k_s, f_int_s = scale_s[idx], k_s[idx], f_int_s[idx]
+        return samples_swc_at(x, scale_s, k_s, f_int_s, self._data_xmin, self._xmax)
+
+    def _capacity_lognorm_params(self):
         assert (
-            x.ndim == 2 and x.shape[1] == self.n_sensors
-        ), f"x must have shape (n_points, {self.n_sensors}), got {x.shape}"
-        if n is not None and n < len(self._scale_s):
-            idx = np.random.choice(len(self._scale_s), n, replace=False)
-            return samples_swc_at(
-                x,
-                self._scale_s[idx],
-                self._k_s[idx],
-                self._f_int_s[idx],
-                self._data_xmin,
-                self._xmax,
-            )
-        return samples_swc_at(
-            x,
-            self._scale_s,
-            self._k_s,
-            self._f_int_s,
-            self._data_xmin,
-            self._xmax,
-        )
+            self._system_capacity_mean is not None
+            and self._system_capacity_std is not None
+        ), "system_capacity_mean and system_capacity_std must be specified at construction"
+        var = self._system_capacity_std**2
+        mean_cap = self._system_capacity_mean
+        mu_log = np.log(mean_cap**2 / np.sqrt(var + mean_cap**2))
+        sigma_log = np.sqrt(np.log(1.0 + var / mean_cap**2))
+        return mu_log, sigma_log
 
     def fractional_water_content(self, x, n_samples=None, seed=None):
         """Return (mean, ci_low, ci_high) of SWC(x)/system_capacity.
@@ -593,15 +580,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         This is statistically identical to including system_capacity in the
         MCMC, since the likelihood does not depend on it (posterior = prior).
         """
-        assert (
-            self._system_capacity_mean is not None
-            and self._system_capacity_std is not None
-        ), "system_capacity_mean and system_capacity_std must be specified at construction"
-        var = self._system_capacity_std**2
-        mean_cap = self._system_capacity_mean
-        mu_log = np.log(mean_cap**2 / np.sqrt(var + mean_cap**2))
-        sigma_log = np.sqrt(np.log(1.0 + var / mean_cap**2))
-
+        mu_log, sigma_log = self._capacity_lognorm_params()
         swc_samples = self.posterior_samples_swc_at(x)
         n_swc = swc_samples.shape[0]
         if n_samples is not None:
@@ -609,38 +588,32 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             swc_samples = swc_samples[idx]
             n_swc = n_samples
 
-        rng = np.random.default_rng(seed)
-        cap_samples = rng.lognormal(mu_log, sigma_log, size=n_swc)
-
+        cap_samples = np.random.default_rng(seed).lognormal(
+            mu_log, sigma_log, size=n_swc
+        )
         frac_samples = swc_samples / cap_samples[:, None]
         with np.errstate(all="ignore"):
-            mean = np.nanmean(frac_samples, axis=0)
-            ci_low = np.nanpercentile(frac_samples, 2.5, axis=0)
-            ci_high = np.nanpercentile(frac_samples, 97.5, axis=0)
-        return mean, ci_low, ci_high
+            return (
+                np.nanmean(frac_samples, axis=0),
+                np.nanpercentile(frac_samples, 2.5, axis=0),
+                np.nanpercentile(frac_samples, 97.5, axis=0),
+            )
 
     def fractional_water_content_samples(self, x, n_samples=None, seed=None):
         """Return raw (n_samples, n_times) array of fractional SWC samples."""
-        assert (
-            self._system_capacity_mean is not None
-            and self._system_capacity_std is not None
-        ), "system_capacity_mean and system_capacity_std must be specified at construction"
-        var = self._system_capacity_std**2
-        mean_cap = self._system_capacity_mean
-        mu_log = np.log(mean_cap**2 / np.sqrt(var + mean_cap**2))
-        sigma_log = np.sqrt(np.log(1.0 + var / mean_cap**2))
-
+        mu_log, sigma_log = self._capacity_lognorm_params()
         swc_samples = self.posterior_samples_swc_at(x)
         n_swc = swc_samples.shape[0]
         if n_samples is not None:
             idx = np.random.choice(n_swc, n_samples, replace=False)
             swc_samples = swc_samples[idx]
             n_swc = n_samples
-
-        rng = np.random.default_rng(seed)
-        cap_samples = rng.lognormal(mu_log, sigma_log, size=n_swc)
-
-        return swc_samples / cap_samples[:, None]
+        return (
+            swc_samples
+            / np.random.default_rng(seed).lognormal(mu_log, sigma_log, size=n_swc)[
+                :, None
+            ]
+        )
 
     def estimate_velocity_samples(self, v_window, t_window):
         """Estimate velocity in a time window"""
@@ -671,17 +644,13 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         """
         s = self._fit_samples
         if n is not None and n < len(s):
-            idx = np.random.choice(len(s), n, replace=False)
-            s = s[idx]
+            s = s[np.random.choice(len(s), n, replace=False)]
         n_s = self.n_sensors
-        k_cols = [1 + j for j in range(n_s)]
-        f_cols = [1 + n_s + j for j in range(n_s)]
-        sigma_col = 1 + 2 * n_s
         return dict(
             scale=np.exp(s[:, 0]),
-            k=s[:, k_cols],
-            f_int=s[:, f_cols],
-            sigma2=np.exp(2 * s[:, sigma_col]),
+            k=s[:, 1 : 1 + n_s],
+            f_int=s[:, 1 + n_s : 1 + 2 * n_s],
+            sigma2=np.exp(2 * s[:, 1 + 2 * n_s]),
         )
 
     def _diagnostic_dump(self, data, pos, exc):
@@ -689,16 +658,11 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         u_ends_list = data["u_ends_by_sensor"]
         log_delta_swc_list = data["log_delta_swc_by_sensor"]
         u_anc = data["u_anchors"]
-        dmin = float(data["data_xmin"].min())
-        prior_min = (
-            float(data["u_prior"].min())
-            if data["u_prior"] is not None
-            else float("nan")
-        )
-        prior_max = (
-            float(data["u_prior"].max())
-            if data["u_prior"] is not None
-            else float("nan")
+        u_prior = data["u_prior"]
+        prior_minmax = (
+            (float(u_prior.min()), float(u_prior.max()))
+            if u_prior is not None
+            else (float("nan"), float("nan"))
         )
         n_chords = sum(len(u) for u in u_starts_list)
         return (
@@ -706,7 +670,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             f"  Input params: xmax={self._xmax} n_walkers={self._n_walkers}"
             f" n_burn={self._n_burn} n_steps={self._n_steps}"
             f" prior_weight={self._prior_weight}\n"
-            f"  Data summary: N_chords={n_chords} data_min_x={dmin}\n"
+            f"  Data summary: N_chords={n_chords} data_min_x={float(data['data_xmin'].min()):.1f}\n"
             f"    u_starts:  min={min(u.min() for u in u_starts_list):.4f}"
             f" max={max(u.max() for u in u_starts_list):.4f}\n"
             f"    u_ends:    min={min(u.min() for u in u_ends_list):.4f}"
@@ -714,7 +678,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             f"    log_delta_swc: min={min(d.min() for d in log_delta_swc_list):.4f}"
             f" max={max(d.max() for d in log_delta_swc_list):.4f}\n"
             f"    u_anchors: min={u_anc.min():.4f} max={u_anc.max():.4f}\n"
-            f"    u_prior:   min={prior_min} max={prior_max}\n"
+            f"    u_prior:   min={prior_minmax[0]} max={prior_minmax[1]}\n"
             f"  Walker init: cond={np.linalg.cond(pos):.2e}\n"
             f"    per-col min: {pos.min(axis=0).tolist()}\n"
             f"    per-col max: {pos.max(axis=0).tolist()}\n"
