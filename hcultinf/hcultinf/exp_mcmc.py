@@ -15,6 +15,54 @@ from .prior import (
 
 _logger = logging.getLogger(__name__)
 
+_LOG_2PI = np.log(2 * np.pi)
+
+
+class _ParamLayout:
+    """Encapsulates parameter indexing for the MCMC theta vector.
+
+    Layout: [log_scale, k_0..k_{n-1}, f_int_0..f_int_{n-1}, log_sigma]
+    """
+
+    __slots__ = ("n", "_k_start", "_f_start", "_log_sigma_idx", "_dim")
+
+    def __init__(self, n_sensors: int):
+        self.n = n_sensors
+        self._k_start = 1
+        self._f_start = 1 + n_sensors
+        self._log_sigma_idx = 1 + 2 * n_sensors
+        self._dim = 2 + 2 * n_sensors
+
+    @property
+    def dim(self) -> int:
+        return self._dim
+
+    @property
+    def log_scale_idx(self) -> int:
+        return 0
+
+    @property
+    def k_slice(self) -> slice:
+        return slice(self._k_start, self._f_start)
+
+    @property
+    def f_int_slice(self) -> slice:
+        return slice(self._f_start, self._log_sigma_idx)
+
+    @property
+    def log_sigma_idx(self) -> int:
+        return self._log_sigma_idx
+
+
+def _compute_g(k, f_int, u):
+    """Compute the exponential response curve g(u) = (1-f)*exp(k*(u-1)) + f.
+
+    Supports broadcasting: k, f_int shape (..., n_sensors), u shape (..., n_sensors).
+    Returns shape matching the broadcast result.
+    """
+    one_minus_f = 1.0 - f_int
+    return one_minus_f * np.exp(k * (u - 1.0)) + f_int
+
 
 def mcmc_log_anchor_prior_likelihood(
     scale,
@@ -29,21 +77,14 @@ def mcmc_log_anchor_prior_likelihood(
     log_const_anchor,
     log_const_prior,
 ):
-    one_minus_f = 1.0 - f_int_all[:, None]
-    f_col = f_int_all[:, None]
-
-    # Anchor likelihood
-    exp_term_a = np.exp(k_all[:, None] * (u_anchors - 1.0))
-    g_a = np.mean(one_minus_f * exp_term_a + f_col, axis=0)
+    g_a = np.mean(_compute_g(k_all[:, None], f_int_all[:, None], u_anchors), axis=0)
     pred_a = scale * g_a
     ll = -0.5 * np.sum(((swc_anchors - pred_a) / sigma_anchor) ** 2 + log_const_anchor)
 
     if u_prior is None:
         return ll
 
-    # Prior likelihood — reuse precomputed f terms
-    exp_term_p = np.exp(k_all[:, None] * (u_prior - 1.0))
-    g_p = np.mean(one_minus_f * exp_term_p + f_col, axis=0)
+    g_p = np.mean(_compute_g(k_all[:, None], f_int_all[:, None], u_prior), axis=0)
     return ll + -0.5 * np.sum(((prior_y - g_p) / sigma_prior) ** 2 + log_const_prior)
 
 
@@ -64,12 +105,12 @@ def mcmc_log_joint(
     log_const_anchor,
     log_const_prior,
 ):
-    log_scale = theta[0]
+    layout = _ParamLayout(n_sensors)
+    log_scale = theta[layout.log_scale_idx]
     scale = np.exp(log_scale)
-    n = n_sensors
-    k_all = theta[1 : 1 + n]
-    f_int_all = theta[1 + n : 1 + 2 * n]
-    log_sigma = theta[1 + 2 * n]
+    k_all = theta[layout.k_slice]
+    f_int_all = theta[layout.f_int_slice]
+    log_sigma = theta[layout.log_sigma_idx]
 
     lp = (
         priors.scale_log_prior(log_scale)
@@ -92,7 +133,6 @@ def mcmc_log_joint(
         log_const_prior,
     )
 
-    # Chord likelihood vectorized across all sensors
     k_exp = k_all[sensor_idx_per_chord]
     f_exp = f_int_all[sensor_idx_per_chord]
     mu_c = (
@@ -107,7 +147,7 @@ def mcmc_log_joint(
         -0.5 * ((log_delta_swc_all - log_mu_c) / sigma) ** 2
         - log_sigma
         - log_delta_swc_all
-        - 0.5 * np.log(2 * np.pi)
+        - 0.5 * _LOG_2PI
     )
 
     return lp + ll
@@ -124,22 +164,17 @@ def samples_swc_at(x, scale_s, k_s, f_int_s, data_xmin, xmax):
         )
         x = x[:, None]
 
-    n_points = x.shape[0]
     n_samples = len(scale_s)
     scale_s = np.asarray(scale_s).reshape(n_samples)
 
-    # Vectorized across sensors: u has shape (n_points, n_sensors)
-    inv_denom = xmax - data_xmin  # (n_sensors,)
-    u = (xmax - x) / inv_denom[None, :]  # (n_points, n_sensors)
+    inv_denom = xmax - data_xmin
+    u = (xmax - x) / inv_denom[None, :]
 
-    # k_s, f_int_s: (n_samples, n_sensors)
-    # Broadcast to (n_samples, n_points, n_sensors)
-    k_exp = k_s[:, None, :]  # (n_samples, 1, n_sensors)
-    f_exp = f_int_s[:, None, :]  # (n_samples, 1, n_sensors)
-    u_b = u[None, :, :]  # (1, n_points, n_sensors)
+    k_exp = k_s[:, None, :]
+    f_exp = f_int_s[:, None, :]
+    u_b = u[None, :, :]
 
-    g = (1.0 - f_exp) * np.exp(k_exp * (u_b - 1.0)) + f_exp
-    g_mean = np.mean(g, axis=2)  # (n_samples, n_points)
+    g_mean = np.mean(_compute_g(k_exp, f_exp, u_b), axis=2)
     return scale_s[:, None] * g_mean
 
 
@@ -287,36 +322,25 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
 
         x_ends = x_starts + delta_x
 
+        sensor_chord_labels = np.asarray(sensor_chord_labels)
+        sensor_idx_per_chord = sensor_chord_labels
+
+        chord_x_min = np.minimum(x_starts, x_ends)
         data_xmin_arr = np.full(self.n_sensors, np.inf, dtype=float)
-        for sj in range(self.n_sensors):
-            mask = sensor_chord_labels == sj
-            xs_j = x_starts[mask]
-            xe_j = x_ends[mask]
-            candidates = [xs_j.min(), xe_j.min(), x_anchors.min()]
-            if len(prior_x) > 0:
-                candidates.append(prior_x.min())
-            data_xmin_arr[sj] = min(candidates)
+        np.minimum.at(data_xmin_arr, sensor_idx_per_chord, chord_x_min)
+        global_anchor_min = x_anchors.min()
+        if len(prior_x) > 0:
+            global_anchor_min = min(global_anchor_min, prior_x.min())
+        data_xmin_arr = np.minimum(data_xmin_arr, global_anchor_min)
 
         inv_denom = xmax - data_xmin_arr
         u_anchors = (xmax - x_anchors) / inv_denom[:, None]
         u_prior = None if len(prior_x) == 0 else (xmax - prior_x) / inv_denom[:, None]
 
-        masks = [sensor_chord_labels == sj for sj in range(self.n_sensors)]
-        u_starts_by_sensor = [
-            (xmax - x_starts[m]) / inv_denom[sj] for sj, m in enumerate(masks)
-        ]
-        u_ends_by_sensor = [
-            (xmax - (x_starts + delta_x)[m]) / inv_denom[sj]
-            for sj, m in enumerate(masks)
-        ]
-        log_delta_swc_by_sensor = [np.log(delta_swc[m]) for m in masks]
-
-        u_starts_all = np.concatenate(u_starts_by_sensor)
-        u_ends_all = np.concatenate(u_ends_by_sensor)
-        log_delta_swc_all = np.concatenate(log_delta_swc_by_sensor)
-        sensor_idx_per_chord = np.repeat(
-            np.arange(self.n_sensors), [len(u) for u in u_starts_by_sensor]
-        )
+        inv_denom_per_chord = inv_denom[sensor_idx_per_chord]
+        u_starts_all = (xmax - x_starts) / inv_denom_per_chord
+        u_ends_all = (xmax - x_ends) / inv_denom_per_chord
+        log_delta_swc_all = np.log(delta_swc)
 
         sigma_anchor = self._sigma_anchor
         sigma_prior = 1.0 / max(np.sqrt(self._prior_weight), self._sigma_prior_floor)
@@ -324,7 +348,8 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         log_const_prior = np.log(2 * np.pi * sigma_prior**2)
 
         quick_fits = []
-        for sj, m in enumerate(masks):
+        for sj in range(self.n_sensors):
+            m = sensor_chord_labels == sj
             q = ExponentialCordCalibrator(xmax, self._prior_weight)
             q.fit(
                 x_anchors,
@@ -360,48 +385,47 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         scale0 = initial_estimate["scale0"]
         k0 = initial_estimate["k0"]
         f_int0 = initial_estimate["f_int0"]
+        n = self.n_sensors
+        w = self._n_walkers
+        s = self._init_spread
 
-        log_scale_bounds = np.log([1.0, 1e10])
         walker_log_scale = np.clip(
-            np.log(max(scale0, 1.0))
-            + np.random.normal(0.0, self._init_spread * 0.3, self._n_walkers),
-            log_scale_bounds[0],
-            log_scale_bounds[1],
+            np.log(max(scale0, 1.0)) + np.random.normal(0.0, s * 0.3, w),
+            np.log(1.0),
+            np.log(1e10),
         )
-        cols = [walker_log_scale]
-        cols.extend(
-            np.clip(
-                k0[sj]
-                + np.random.uniform(
-                    -self._init_spread, self._init_spread, self._n_walkers
-                ),
-                0.0001,
-                10000.0,
-            )
-            for sj in range(self.n_sensors)
+
+        walker_k = np.clip(
+            k0[None, :] + np.random.uniform(-s, s, (w, n)),
+            0.0001,
+            10000.0,
         )
-        cols.extend(
-            np.clip(
-                f_int0[sj] + np.random.normal(0, 0.01, self._n_walkers),
-                self.f_int_min,
-                self.f_int_max,
-            )
-            for sj in range(self.n_sensors)
+
+        walker_f_int = np.clip(
+            f_int0[None, :] + np.random.normal(0, 0.01, (w, n)),
+            self.f_int_min,
+            self.f_int_max,
         )
-        cols.append(
-            np.clip(
-                np.log(self._sigma_init)
-                + np.random.normal(0.0, self._init_spread, self._n_walkers),
-                np.log(0.001),
-                np.log(10.0),
-            )
+
+        walker_log_sigma = np.clip(
+            np.log(self._sigma_init) + np.random.normal(0.0, s, w),
+            np.log(0.001),
+            np.log(10.0),
         )
-        return np.array(cols).T
+
+        return np.column_stack(
+            [
+                walker_log_scale,
+                walker_k,
+                walker_f_int,
+                walker_log_sigma,
+            ]
+        )
 
     def _run_sampler(self, pos, posterior_kwargs):
         sampler = emcee.EnsembleSampler(
             self._n_walkers,
-            2 + 2 * self.n_sensors,
+            _ParamLayout(self.n_sensors).dim,
             mcmc_log_joint,
             kwargs=posterior_kwargs,
         )
@@ -416,24 +440,25 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
 
         self._log_probs = log_probs
 
-        n = self.n_sensors
+        layout = _ParamLayout(self.n_sensors)
         burn = self._n_burn
         post = chain[burn:]
         post_flat = post.reshape(-1, post.shape[-1])
 
         self._fit_samples = post_flat
-        self.scale = float(np.exp(np.median(post_flat[:, 0])))
-        self.noise = float(np.exp(np.median(post_flat[:, 1 + 2 * n])))
+        self.scale = float(np.exp(np.median(post_flat[:, layout.log_scale_idx])))
+        self.noise = float(np.exp(np.median(post_flat[:, layout.log_sigma_idx])))
 
         flat_log_probs = log_probs[burn:].ravel()
         self.nlml = float(-np.max(flat_log_probs))
 
         thin = max(1, len(post_flat) // self._n_thin_target)
         idx = np.arange(0, len(post_flat), thin)
-        self._scale_s = np.exp(post_flat[idx, 0])
-        self._k_s = post_flat[idx][:, [1 + j for j in range(n)]]
-        self._f_int_s = post_flat[idx][:, [1 + n + j for j in range(n)]]
-        self._log_sigma_s = post_flat[idx, 1 + 2 * n]
+        thinned = post_flat[idx]
+        self._scale_s = np.exp(thinned[:, layout.log_scale_idx])
+        self._k_s = thinned[:, layout.k_slice]
+        self._f_int_s = thinned[:, layout.f_int_slice]
+        self._log_sigma_s = thinned[:, layout.log_sigma_idx]
 
         self._data_xmin = data["data_xmin"]
 
@@ -558,18 +583,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         This is statistically identical to including system_capacity in the
         MCMC, since the likelihood does not depend on it (posterior = prior).
         """
-        mu_log, sigma_log = self._capacity_lognorm_params()
-        swc_samples = self.posterior_samples_swc_at(x)
-        n_swc = swc_samples.shape[0]
-        if n_samples is not None:
-            idx = np.random.choice(n_swc, n_samples, replace=False)
-            swc_samples = swc_samples[idx]
-            n_swc = n_samples
-
-        cap_samples = np.random.default_rng(seed).lognormal(
-            mu_log, sigma_log, size=n_swc
-        )
-        frac_samples = swc_samples / cap_samples[:, None]
+        frac_samples = self.fractional_water_content_samples(x, n_samples, seed)
         with np.errstate(all="ignore"):
             return (
                 np.nanmean(frac_samples, axis=0),
@@ -596,22 +610,23 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
     def estimate_velocity_samples(self, v_window, t_window):
         """Estimate velocity in a time window"""
 
-        swc_samples = self.posterior_samples_swc_at(v_window)
+        swc_samples = self.posterior_samples_swc_at(x=v_window)
 
         t_ref = t_window[0]
         t_norm = t_window - t_ref
 
-        slopes = []
-        intercepts = []
+        valid = ~np.any(np.isnan(swc_samples) | np.isinf(swc_samples), axis=1)
+        valid_swc = swc_samples[valid]
 
-        for sample in swc_samples:
-            if np.any(np.isnan(sample)) or np.any(np.isinf(sample)):
-                continue
-            m, c = np.polyfit(t_norm, sample, 1)
-            slopes.append(m)
-            intercepts.append(c - m * t_ref)
+        if len(valid_swc) == 0:
+            return np.array([]), np.array([]), t_window
 
-        return np.array(slopes), np.array(intercepts), t_window
+        A = np.column_stack([t_norm, np.ones(len(t_norm))])
+        coeffs = np.linalg.lstsq(A, valid_swc.T, rcond=None)[0]
+        slopes = coeffs[0]
+        intercepts = coeffs[1] - coeffs[0] * t_ref
+
+        return slopes, intercepts, t_window
 
     def posterior_params(self, n=None):
         """Return dict of posterior parameter samples.
@@ -623,12 +638,12 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         s = self._fit_samples
         if n is not None and n < len(s):
             s = s[np.random.choice(len(s), n, replace=False)]
-        n_s = self.n_sensors
+        layout = _ParamLayout(self.n_sensors)
         return dict(
-            scale=np.exp(s[:, 0]),
-            k=s[:, 1 : 1 + n_s],
-            f_int=s[:, 1 + n_s : 1 + 2 * n_s],
-            sigma2=np.exp(2 * s[:, 1 + 2 * n_s]),
+            scale=np.exp(s[:, layout.log_scale_idx]),
+            k=s[:, layout.k_slice],
+            f_int=s[:, layout.f_int_slice],
+            sigma2=np.exp(2 * s[:, layout.log_sigma_idx]),
         )
 
     def _diagnostic_dump(self, data, pos, exc):
