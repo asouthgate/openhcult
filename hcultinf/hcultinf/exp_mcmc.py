@@ -101,9 +101,9 @@ def mcmc_log_joint(
     )
 
     g_a = np.mean(
-        (1.0 - f_int_all[:, None, :])
-        * np.exp(k_all[:, None, :] * u_anchors_m1[None, :, :])
-        + f_int_all[:, None, :],
+        (1.0 - f_int_all[:, :, None])
+        * np.exp(k_all[:, :, None] * u_anchors_m1[None, :, :])
+        + f_int_all[:, :, None],
         axis=1,
     )
     pred_a = scale[:, None] * g_a
@@ -113,9 +113,9 @@ def mcmc_log_joint(
 
     if u_prior_m1 is not None:
         g_p = np.mean(
-            (1.0 - f_int_all[:, None, :])
-            * np.exp(k_all[:, None, :] * u_prior_m1[None, :, :])
-            + f_int_all[:, None, :],
+            (1.0 - f_int_all[:, :, None])
+            * np.exp(k_all[:, :, None] * u_prior_m1[None, :, :])
+            + f_int_all[:, :, None],
             axis=1,
         )
         ll += -0.5 * np.sum(

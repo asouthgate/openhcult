@@ -511,3 +511,47 @@ details summary:hover {
     grid-template-columns: 1fr;
   }
 }
+
+.current-rate-display {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 12px 0 4px;
+  justify-content: center;
+}
+
+.current-rate-value {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.current-rate-value.drying {
+  color: var(--sky);
+}
+
+.current-rate-value.watering {
+  color: var(--accent);
+}
+
+.current-rate-unit {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.current-rate-label {
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.rate-controls {
+  display: flex;
+  gap: 0;
+  margin-bottom: 4px;
+}
+
+.rate-controls .range-btns {
+  display: inline-flex;
+}
