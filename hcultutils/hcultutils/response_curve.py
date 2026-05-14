@@ -6,7 +6,7 @@ from hcultinf.calibrator import plot_response_curve
 from hcultinf.plot_style import apply_dark_theme, YELLOW, ORANGE, CLOUD_BLUE
 from hcultutils.query import request_ctrl
 
-from hcultinf.power import PowerCordCalibrator
+from hcultinf.exp_mcmc import ExponentialCordCalibratorMCMC
 
 
 def response_curve_estimate_main(ctrl_url: str, args) -> int:
@@ -20,7 +20,7 @@ def response_curve_estimate_main(ctrl_url: str, args) -> int:
         "gp_std_ml": args.gp_std_ml,
         "offset_ms": args.offset_min * 60 * 1000,
         "width_ms": args.width_min * 60 * 1000,
-        "estimator": "powerlaw",
+        "estimator": "exp_mcmc",
         "prior_weight": 1.0,
     }
     if args.scale_prior_mean is not None:
@@ -33,7 +33,6 @@ def response_curve_estimate_main(ctrl_url: str, args) -> int:
     import matplotlib.pyplot as plt
 
     apply_dark_theme()
-    pct_fc = getattr
     nlml = data.get("nlml")
     fig = plot_response_curve(
         prior_x=np.array(data["prior_x"]),
@@ -47,9 +46,7 @@ def response_curve_estimate_main(ctrl_url: str, args) -> int:
         dy=np.array(data["chords_dy"]),
         mean_at_x=np.array(data["mean_at_chord_starts"]),
         xlabel="sensor reading",
-        ylabel="%SC" if pct_fc else "SWC (ml)",
-        pct_fc=pct_fc,
-        scale=data["scale"],
+        ylabel="SWC (ml)",
     )
 
     for xi, x in enumerate(data["chords_x"]):
@@ -57,8 +54,7 @@ def response_curve_estimate_main(ctrl_url: str, args) -> int:
             f"Chord {xi}: start={x:.1f}, dx={data['chords_dx'][xi]:.1f}, dy={data['chords_dy'][xi]:.1f})"
         )
 
-    cal = PowerCordCalibrator(
-        xmin=800,
+    cal = ExponentialCordCalibratorMCMC(
         xmax=2000,
         prior_weight=0.1,
     ).fit(

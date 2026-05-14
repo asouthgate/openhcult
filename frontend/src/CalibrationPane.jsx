@@ -1,37 +1,39 @@
 import { useState } from 'react'
-import { sensorPart, toWater } from './utils'
+import { sensorPart } from './utils'
 import CalibrationCurve from './CalibrationCurve'
 import ScatterPlot from './ScatterPlot'
 import CalibrationParams from './CalibrationParams'
+import { computeSwcStats } from './computeSwcStats'
 
 export default function CalibrationPane({
-  plantFilter, sensorFilter, calibration, calibError, calibLoading, calibParams, setCalibParam,
+  plantFilter, sensorFilter, calibrationMl, calibrationFrac, calibErrorMl, calibErrorFrac, calibLoadingMl, calibLoadingFrac, calibParams, setCalibParam, recalculateMl, recalculateFrac,
 }) {
-  const [showPct, setShowPct] = useState(false)
+  const [showFractional, setShowFractional] = useState(false)
+
+  const calibration = showFractional ? calibrationFrac : calibrationMl
+  const calibError = showFractional ? calibErrorFrac : calibErrorMl
+  const calibLoading = showFractional ? calibLoadingFrac : calibLoadingMl
+  const recalculate = showFractional ? recalculateFrac : recalculateMl
+  const hasSystemCapacity = calibParams.systemCapacityMean !== '' && calibParams.systemCapacityStd !== ''
 
   if (!plantFilter) return <div className="empty">Select a plant to view calibration.</div>
 
-  const { chords_dx, chords_dy, chord_times, scale, nlml, mean, prior_x, ci_low, ci_high } = calibration ?? {}
+  if (sensorFilter === '__combined__') return <div className="empty">Combined view is available on the Sensors tab.</div>
 
-  const showPctLabel = showPct ? ' %SC' : ' ml'
-  const swcStats = calibration ? (() => {
-    const toV = v => toWater(v, scale, showPct)
-    const ref = mean[mean.length - 1]
-    const estMin = toV(Math.min(...mean) - ref)
-    const estMax = toV(Math.max(...mean) - ref)
-    const lo = ci_low ? toV(Math.min(...ci_low) - ref) : null
-    const hi = ci_high ? toV(Math.max(...ci_high) - ref) : null
-    return { estMin, estMax, lo, hi }
-  })() : null
+  const { chords_dx, chords_dy, chord_times, scale, nlml, fractional: isFractional } = calibration ?? {}
+  const swcStats = hasSystemCapacity ? computeSwcStats(calibration, showFractional) : null
+  const unitLabel = isFractional ? '' : ' ml'
+
+  const sensorLabel = sensorFilter === '__combined__' ? 'Combined' : (sensorFilter ? ` / ${sensorPart(sensorFilter)}` : '')
 
   return (
     <section className="pane-grid">
       <div className="full" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <h3 style={{ margin: 0 }}>Calibration: {plantFilter}{sensorFilter ? ` / ${sensorPart(sensorFilter)}` : ''}</h3>
-        {!calibLoading && calibration && (
+        <h3 style={{ margin: 0 }}>Calibration: {plantFilter}{sensorLabel}</h3>
+        {!calibLoading && calibration && hasSystemCapacity && (
           <div className="range-btns">
-            <button className={!showPct ? 'active' : ''} onClick={() => setShowPct(false)}>ml</button>
-            <button className={showPct ? 'active' : ''} onClick={() => setShowPct(true)}>%SC</button>
+            <button className={!showFractional ? 'active' : ''} onClick={() => setShowFractional(false)}>ml</button>
+            <button className={showFractional ? 'active' : ''} onClick={() => setShowFractional(true)}>Fractional</button>
           </div>
         )}
         {nlml != null && (
@@ -39,24 +41,43 @@ export default function CalibrationPane({
         )}
       </div>
       {calibLoading && <div className="full loading"><span className="spinner" />Computing…</div>}
-      {calibError && <div className="full error">{calibError}</div>}
-      {calibration && <>
+      {calibError && !calibration && <div className="full error">{calibError}</div>}
+      {!hasSystemCapacity && calibration && (
+        <div className="empty">Enter system capacity params and recalculate to view water calibration</div>
+      )}
+      {hasSystemCapacity && calibration && <>
         <div className="full">
-          <CalibrationCurve calibration={calibration} showPct={showPct} />
+          <CalibrationCurve calibration={calibration} showFractional={showFractional} />
         </div>
-        {chord_times?.length > 0 && (() => {
-          const dy = chords_dy.map(v => toWater(v, scale, showPct))
+{chord_times?.length > 0 && (() => {
+          const dy = chords_dy
           const stats = [
             ['Events', chord_times.length],
             ['Earliest', new Date(Math.min(...chord_times)).toLocaleString()],
             ['Latest', new Date(Math.max(...chord_times)).toLocaleString()],
             ['Δsensor min', Math.min(...chords_dx).toFixed(1) + ' mV'],
             ['Δsensor max', Math.max(...chords_dx).toFixed(1) + ' mV'],
-            ['Dose min', Math.min(...dy).toFixed(1) + showPctLabel],
-            ['Dose max', Math.max(...dy).toFixed(1) + showPctLabel],
-            ['Dose mean', (dy.reduce((a, b) => a + b, 0) / dy.length).toFixed(1) + showPctLabel],
-            ['SWC range', swcStats ? `${swcStats.estMin.toFixed(1)}–${swcStats.estMax.toFixed(1)}${showPctLabel}` : '—'],
-            ...(swcStats?.lo != null ? [['95% CI', `${swcStats.lo.toFixed(1)}–${swcStats.hi.toFixed(1)}${showPctLabel}`]] : []),
+            ['Dose min', Math.min(...dy).toFixed(1) + unitLabel],
+            ['Dose max', Math.max(...dy).toFixed(1) + unitLabel],
+            ['Dose mean', (dy.reduce((a, b) => a + b, 0) / dy.length).toFixed(1) + unitLabel],
+            ['SWC range', swcStats ? `${swcStats.estMin.toFixed(1)}–${swcStats.estMax.toFixed(1)}${unitLabel}` : '—'],
+            ...(swcStats?.lo != null ? [['95% CI', `${swcStats.lo.toFixed(1)}–${swcStats.hi.toFixed(1)}${unitLabel}`]] : []),
+          ]
+          return (
+            <table className="obs-table full">
+              <tbody>
+                {stats.map(([label, value]) => (
+                  <tr key={label}><td style={{ opacity: 0.6 }}>{label}</td><td>{value}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          )
+        })()}
+        {!chord_times?.length && calibration && (() => {
+          const stats = [
+            ['SWC range', swcStats ? `${swcStats.estMin.toFixed(1)}–${swcStats.estMax.toFixed(1)}${unitLabel}` : '—'],
+            ...(swcStats?.lo != null ? [['95% CI', `${swcStats.lo.toFixed(1)}–${swcStats.hi.toFixed(1)}${unitLabel}`]] : []),
+            ...(calibration.n_sensors ? [['Sensors combined', calibration.n_sensors]] : []),
           ]
           return (
             <table className="obs-table full">
@@ -90,14 +111,17 @@ export default function CalibrationPane({
         <div>
           <ScatterPlot
             dx={chords_dx}
-            dy={chords_dy.map(v => toWater(v, scale, showPct))}
+            dy={chords_dy}
             xLabel="Δsensor"
-            yLabel={showPct ? 'Δ%SC' : 'Δml'}
+            yLabel={isFractional ? 'Δfractional' : 'Δml'}
           />
         </div>
       )}
       <div>
         <CalibrationParams calibParams={calibParams} setCalibParam={setCalibParam} />
+        <button className="recalc-btn" onClick={recalculate} disabled={calibLoading || !plantFilter}>
+          {calibLoading ? 'Computing…' : 'Recalculate'}
+        </button>
       </div>
     </section>
   )

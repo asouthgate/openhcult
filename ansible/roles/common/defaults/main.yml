@@ -27,4 +27,7 @@ openhcult_log_file: ""
 openhcult_ctrl_host: 0.0.0.0
 openhcult_ctrl_port: 8000
 
+openhcult_admin_username: admin
+openhcult_admin_password: ""
+
 openhcult_calibration_csv: /opt/openhcult/calib/calibration.csv

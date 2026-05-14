@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import logging
+import numpy as np
+import re
 from typing import Iterable, Optional
 
 from .connection import (
@@ -12,6 +14,46 @@ from .connection import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def create_user(conn, *, username: str, password_hash: str, jwt_secret: str) -> None:
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO users (username, password_hash, jwt_secret) VALUES (%s, %s, %s)",
+        (username, password_hash, jwt_secret),
+    )
+    conn.commit()
+
+
+def reset_user_password(
+    conn, *, username: str, password_hash: str, jwt_secret: str
+) -> None:
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE users SET password_hash = %s, jwt_secret = %s WHERE username = %s",
+        (password_hash, jwt_secret, username),
+    )
+    conn.commit()
+
+
+def get_user_by_username(conn, *, username: str) -> dict | None:
+    placeholder = placeholder_for(conn)
+    cursor = conn.cursor()
+    cursor.execute(
+        f"SELECT id, username, password_hash, jwt_secret FROM users WHERE username = {placeholder}",
+        (username,),
+    )
+    row = cursor.fetchone()
+    if row is None:
+        return None
+    cols = [desc[0] for desc in cursor.description]
+    return dict(zip(cols, row))
+
+
+def count_users(conn) -> int:
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM users")
+    return cursor.fetchone()[0]
 
 
 def register_device(conn, name, address):
@@ -101,6 +143,15 @@ def fetch_timeseries(
     limit: int = 10000,
 ) -> Iterable[dict]:
     """Return sensor readings matching the filter criteria."""
+    logger.info(
+        "fetch_timeseries sensor=%s device=%s plant=%s start_ms=%s end_ms=%s limit=%s",
+        sensor,
+        device,
+        plant,
+        start_ms,
+        end_ms,
+        limit,
+    )
     clauses = []
     params = []
     placeholder = placeholder_for(conn)
@@ -214,10 +265,103 @@ def fetch_observations(
     return fetchall_dicts(cursor)
 
 
+def fetch_watering_events(
+    conn,
+    *,
+    plant_name: Optional[str] = None,
+    start_ms: Optional[int] = None,
+    end_ms: Optional[int] = None,
+    limit: int = 1000,
+) -> Iterable[dict]:
+
+    _ML_RE = re.compile(r"\bml=(\d+(?:\.\d+)?)\b")
+
+    def _volume_ml(note: str) -> float | None:
+        m = _ML_RE.search(note or "")
+        return float(m.group(1)) if m else None
+
+    obs = fetch_observations_for_plant(
+        conn,
+        plant_name=plant_name,
+        start_ms=start_ms,
+        end_ms=end_ms,
+        note_contains="water",
+        limit=limit,
+    )
+
+    waterings = [
+        (o["observed_at"], _volume_ml(o["note"]))
+        for o in obs
+        if o.get("note")
+        and "AUTO" not in o["note"]
+        and _volume_ml(o["note"]) is not None
+    ]
+
+    return waterings
+
+
+def fetch_chords(
+    conn,
+    offset_ms: int,
+    width_ms: int,
+    *,
+    plant_name: Optional[str] = None,
+    device_address: Optional[str] = None,
+    sensor: Optional[str] = None,
+    start_ms: Optional[int] = None,
+    end_ms: Optional[int] = None,
+    limit: int = 1000,
+) -> Iterable[dict]:
+
+    waterings = fetch_watering_events(
+        conn,
+        plant_name=plant_name,
+        start_ms=start_ms,
+        end_ms=end_ms,
+        limit=limit,
+    )
+
+    chords = []
+    chord_times = []
+    for t_ms, ml in waterings:
+        before = list(
+            fetch_timeseries(
+                conn,
+                plant=plant_name,
+                device=device_address,
+                sensor=sensor,
+                start_ms=t_ms - offset_ms - width_ms,
+                end_ms=t_ms - offset_ms,
+                limit=5000,
+            )
+        )
+        after = list(
+            fetch_timeseries(
+                conn,
+                plant=plant_name,
+                device=device_address,
+                sensor=sensor,
+                start_ms=t_ms + offset_ms,
+                end_ms=t_ms + offset_ms + width_ms,
+                limit=5000,
+            )
+        )
+        if not before or not after:
+            continue
+        x = float(np.median([r["voltage_mv"] for r in before]))
+        x_after = float(np.median([r["voltage_mv"] for r in after]))
+        chords.append((x, x_after - x, ml))
+        chord_times.append(t_ms)
+    return chords, chord_times
+
+
 def fetch_observations_for_plant(
     conn,
     *,
     plant_name: str,
+    start_ms: Optional[int] = None,
+    end_ms: Optional[int] = None,
+    note_contains: Optional[str] = None,
     limit: int = 100,
 ) -> Iterable[dict]:
     """Return recent observations for a plant, newest first."""
@@ -227,11 +371,24 @@ def fetch_observations_for_plant(
         FROM observations o
         JOIN plants p ON p.id = o.plant_id
         WHERE p.plant_name = {placeholder}
+        {"AND o.observed_at >= " + placeholder if start_ms is not None else ""}
+        {"AND o.observed_at <= " + placeholder if end_ms is not None else ""}
+        {"AND o.note ILIKE " + placeholder if note_contains is not None else ""}
         ORDER BY o.observed_at DESC, o.id DESC
         LIMIT {placeholder}
     """
     cursor = conn.cursor()
-    cursor.execute(query, [plant_name, limit])
+    # supply parameters in the same order as the query placeholders, including optional ones
+    params = [plant_name]
+    if start_ms is not None:
+        params.append(start_ms)
+    if end_ms is not None:
+        params.append(end_ms)
+    if note_contains is not None:
+        params.append(f"%{note_contains}%")
+    params.append(limit)
+
+    cursor.execute(query, params)
     return fetchall_dicts(cursor)
 
 
@@ -301,9 +458,11 @@ def update_device_name(conn, *, address: str, name: str) -> None:
     placeholder = placeholder_for(conn)
     cursor = conn.cursor()
     logger.info(
-        "Updating device name",
-        address,
-        name,
+        (
+            "Updating device name",
+            address,
+            name,
+        )
     )
     cursor.execute(
         f"UPDATE devices SET name = {placeholder} WHERE address = {placeholder}",
@@ -414,7 +573,7 @@ def fetch_plants(
     if include_sensors:
         query = f"""
             SELECT 
-                p.id, p.plant_name, p.species_id, s.name AS species_name, p.tag, p.metadata,
+                p.id, p.plant_name, p.species_id, s.name AS species_name, p.tag, p.metadata, p.soil_volume,
                 COALESCE(json_agg(json_build_object(
                     'id', ps.id,
                     'device_address', d.address,
@@ -430,7 +589,7 @@ def fetch_plants(
         """
     else:
         query = f"""
-            SELECT p.id, p.plant_name, p.species_id, s.name AS species_name, p.tag, p.metadata
+            SELECT p.id, p.plant_name, p.species_id, s.name AS species_name, p.tag, p.metadata, p.soil_volume
             FROM plants p
             LEFT JOIN species s ON s.id = p.species_id
             ORDER BY p.id ASC
@@ -446,7 +605,7 @@ def fetch_plant_by_name(conn, *, plant_name: str) -> dict | None:
     """Return a plant row for a given plant_name."""
     placeholder = placeholder_for(conn)
     query = f"""
-        SELECT p.id, p.plant_name, p.species_id, s.name AS species_name, p.tag, p.metadata
+        SELECT p.id, p.plant_name, p.species_id, s.name AS species_name, p.tag, p.metadata, p.soil_volume
         FROM plants p
         LEFT JOIN species s ON s.id = p.species_id
         WHERE p.plant_name = {placeholder}
@@ -498,12 +657,13 @@ def insert_plant(
     species_id: int | None,
     tag: str | None,
     metadata: str | None,
+    soil_volume: float | None = None,
 ) -> int:
     """Insert a plant and return its id."""
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT INTO plants (plant_name, species_id, tag, metadata) VALUES (%s, %s, %s, %s) RETURNING id",
-        (plant_name, species_id, tag, metadata),
+        "INSERT INTO plants (plant_name, species_id, tag, metadata, soil_volume) VALUES (%s, %s, %s, %s, %s) RETURNING id",
+        (plant_name, species_id, tag, metadata, soil_volume),
     )
     plant_id = cursor.fetchone()[0]
     conn.commit()
@@ -517,6 +677,7 @@ def update_plant(
     species_id: int | None,
     tag: str | None,
     metadata: str | None,
+    soil_volume: float | None = None,
 ) -> None:
     """Update a plant row."""
     placeholder = placeholder_for(conn)
@@ -531,6 +692,9 @@ def update_plant(
     if metadata is not None:
         fields.append(f"metadata = {placeholder}")
         params.append(metadata)
+    if soil_volume is not None:
+        fields.append(f"soil_volume = {placeholder}")
+        params.append(soil_volume)
     if not fields:
         return
     params.append(plant_id)

@@ -1,22 +1,19 @@
 import { valueTicks, SvgAxes, M, VW, VH, IW, IH } from './TimeseriesChart'
 import { OBS_COLOR } from './theme'
-import { toWater } from './utils'
 
-export default function CalibrationCurve({ calibration, showPct = false }) {
+export default function CalibrationCurve({ calibration, showFractional = false }) {
   if (!calibration) return null
 
   const { prior_x, prior_y, mean, ci_low, ci_high, anchors_x, anchors_y, chords_x, chords_dx, chords_dy, mean_at_chord_starts, scale } = calibration
 
-  const toY = v => toWater(v, scale, showPct)
-
-  const ref = mean[mean.length - 1]
-  const meanNorm = mean.map(v => toY(v - ref))
-  const ciLo = ci_low ? ci_low.map(v => toY(v - ref)) : mean.map((v, i) => toY(v - 1.96 * (std?.[i] ?? 0) - ref))
-  const ciHi = ci_high ? ci_high.map(v => toY(v - ref)) : mean.map((v, i) => toY(v + 1.96 * (std?.[i] ?? 0) - ref))
+  const ref = showFractional ? 0 : mean[mean.length - 1]
+  const meanNorm = mean.map(v => v - ref)
+  const ciLo = ci_low ? ci_low.map(v => v - ref) : mean.map((v, i) => v - 1.96 * (calibration.std?.[i] ?? 0) - ref)
+  const ciHi = ci_high ? ci_high.map(v => v - ref) : mean.map((v, i) => v + 1.96 * (calibration.std?.[i] ?? 0) - ref)
   const gpRange = Math.max(...meanNorm) - Math.min(...meanNorm)
   const priorScaled = prior_y.map(v => v * gpRange)
 
-  const chordEndYs = chords_x.map((_, i) => toY(mean_at_chord_starts[i] - ref + chords_dy[i]))
+  const chordEndYs = chords_x.map((_, i) => mean_at_chord_starts[i] - ref + chords_dy[i])
 
   const xMin = Math.min(...prior_x, ...chords_x, ...chords_x.map((x, i) => x + chords_dx[i]))
   const xMax = Math.max(...prior_x, ...chords_x, ...chords_x.map((x, i) => x + chords_dx[i]))
@@ -62,8 +59,8 @@ export default function CalibrationCurve({ calibration, showPct = false }) {
         {chords_x.map((xi, i) => {
           const x0 = scx(xi).toFixed(1)
           const x1 = scx(xi + chords_dx[i]).toFixed(1)
-          const y0 = scy(toY(mean_at_chord_starts[i] - ref)).toFixed(1)
-          const y1 = scy(toY(mean_at_chord_starts[i] - ref + chords_dy[i])).toFixed(1)
+          const y0 = scy(mean_at_chord_starts[i] - ref).toFixed(1)
+          const y1 = scy(mean_at_chord_starts[i] - ref + chords_dy[i]).toFixed(1)
           return (
             <g key={i}>
               <line x1={x0} y1={y0} x2={x1} y2={y1} stroke={OBS_COLOR} strokeWidth="1.5" opacity="0.5" />
@@ -81,9 +78,9 @@ export default function CalibrationCurve({ calibration, showPct = false }) {
           xTicks={xTicks} yTicks={yTicks}
           x={scx} y={scy}
           m={M} vw={VW} iw={IW} ih={IH}
-          formatX={v => Math.round(v)} formatY={v => v.toFixed(1)}
+          formatX={v => Math.round(v)} formatY={v => v.toFixed(showFractional ? 3 : 1)}
           xLabel="sensor reading"
-          yLabel={showPct ? 'SWC (%SC)' : 'SWC (ml)'}
+          yLabel={showFractional ? 'Fractional content' : 'SWC (ml)'}
         />
       </svg>
 

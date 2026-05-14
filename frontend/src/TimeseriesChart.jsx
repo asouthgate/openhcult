@@ -9,7 +9,17 @@ export const IH = VH - M.top - M.bottom
 
 const pts = (arr, fx, fy) => arr.map(p => `${fx(p).toFixed(1)},${fy(p).toFixed(1)}`).join(' ')
 
-function timeTicks(tMin, tMax, n) {
+function symlog(v, linear = 0.01) {
+  const sign = v >= 0 ? 1 : -1
+  return sign * Math.log10(1 + Math.abs(v) / linear)
+}
+
+function symlogInv(sv, linear = 0.01) {
+  const sign = sv >= 0 ? 1 : -1
+  return sign * linear * (Math.pow(10, Math.abs(sv)) - 1)
+}
+
+export function timeTicks(tMin, tMax, n) {
   const step = (tMax - tMin) / n
   return Array.from({ length: n + 1 }, (_, i) => tMin + i * step)
 }
@@ -61,7 +71,7 @@ export function SvgAxes({ xTicks, yTicks, x, y, m, vw, iw, ih, formatX, formatY,
   )
 }
 
-export function TimeseriesChart({ series, bands = [], observations, rangeMs, onTimePick, pendingTime, yLabel, eventWindowOffset, eventWindowWidth }) {
+export function TimeseriesChart({ series, bands = [], observations, rangeMs, onTimePick, pendingTime, yLabel, eventWindowOffset, eventWindowWidth, hideObsLegend, logScale = false }) {
   const [cursor, setCursor] = useState(null)
 
   const allT = series.flatMap(s => s.points.map(p => p.t))
@@ -76,12 +86,31 @@ export function TimeseriesChart({ series, bands = [], observations, rangeMs, onT
   const vMin = Math.min(...allV)
   const vMax = Math.max(...allV)
   const vRange = vMax - vMin || 1
+  const vPadding = vRange * 0.08
+  const yMin = vMin - vPadding
+  const yMax = vMax + vPadding
+  const yRange = yMax - yMin || 1
 
   const x = t => M.left + ((t - tMin) / (tMax - tMin || 1)) * IW
-  const y = v => M.top + IH - ((v - vMin) / vRange) * IH
+
+  let y
+  let yTickValues
+  if (logScale) {
+    const svMin = symlog(yMin)
+    const svMax = symlog(yMax)
+    const svRange = svMax - svMin || 1
+    y = v => M.top + IH - ((symlog(v) - svMin) / svRange) * IH
+    const rawTicks = valueTicks(yMin, yMax, 8)
+    yTickValues = rawTicks
+  } else {
+    y = v => M.top + IH - ((v - yMin) / yRange) * IH
+    yTickValues = valueTicks(yMin, yMax, 8)
+  }
 
   const xTicks = timeTicks(tMin, tMax, 6)
-  const yTicks = valueTicks(vMin, vMax, 8)
+  const yTicks = yTickValues
+  const yStep = yTicks.length > 1 ? Math.abs(yTicks[1] - yTicks[0]) : 1
+  const yDecimals = yStep >= 1 ? 0 : Math.max(0, -Math.floor(Math.log10(yStep)) + 1)
 
   const inRange = t => t >= tMin && t <= tMax
 
@@ -185,7 +214,7 @@ export function TimeseriesChart({ series, bands = [], observations, rangeMs, onT
           xTicks={xTicks} yTicks={yTicks}
           x={x} y={y}
           m={M} vw={VW} iw={IW} ih={IH}
-          formatX={t => fmtTime(t, rangeMs)} formatY={v => Math.round(v)}
+          formatX={t => fmtTime(t, rangeMs)} formatY={v => v.toFixed(yDecimals)}
           yLabel={yLabel}
         />
 
@@ -231,14 +260,18 @@ export function TimeseriesChart({ series, bands = [], observations, rangeMs, onT
             {s.label}
           </span>
         ))}
-        <span className="legend-item">
-          <span className="legend-dot" style={{ background: OBS_COLOR }} />
-          recorded watering
-        </span>
-        <span className="legend-item">
-          <span className="legend-dot" style={{ background: PENDING_COLOR }} />
-          candidate
-        </span>
+        {!hideObsLegend && (
+          <span className="legend-item">
+            <span className="legend-dot" style={{ background: OBS_COLOR }} />
+            recorded watering
+          </span>
+        )}
+        {!hideObsLegend && (
+          <span className="legend-item">
+            <span className="legend-dot" style={{ background: PENDING_COLOR }} />
+            candidate
+          </span>
+        )}
       </div>
     </div>
   )

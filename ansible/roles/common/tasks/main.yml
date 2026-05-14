@@ -1,15 +1,26 @@
-- name: Ensure apt packages are installed
+- name: Ensure apt packages are installed (except nodejs)
   ansible.builtin.apt:
     name:
       - bluez
       - dbus
       - git
       - logrotate
-      - nodejs
-      - npm
       - python3
       - python3-pip
       - python3-venv
+      - curl
+    state: present
+    update_cache: true
+
+- name: Add NodeSource 20.x repository
+  ansible.builtin.shell:
+    cmd: curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+  args:
+    creates: /etc/apt/sources.list.d/nodesource.list
+
+- name: Install Node.js 20.x
+  ansible.builtin.apt:
+    name: nodejs
     state: present
     update_cache: true
 
@@ -165,6 +176,25 @@
   notify:
     - restart hcultmon
     - restart hcultctrl
+
+- name: Load admin password from environment when unset
+  ansible.builtin.set_fact:
+    openhcult_admin_password: "{{ lookup('env', 'OPENHCULT_ADMIN_PASSWORD') }}"
+  when: openhcult_admin_password | length == 0
+  no_log: true
+
+- name: Fail when admin password is missing
+  ansible.builtin.fail:
+    msg: "Set OPENHCULT_ADMIN_PASSWORD or openhcult_admin_password."
+  when: openhcult_admin_password | length == 0
+
+- name: Seed admin user
+  ansible.builtin.command:
+    cmd: >
+      {{ openhcult_install_dir }}/.venv/bin/python -c
+      "from hcultdb.setup import ensure_admin; ensure_admin('{{ openhcult_database_url }}', '{{ openhcult_admin_username }}', '{{ openhcult_admin_password }}')"
+  become_user: "{{ openhcult_user }}"
+  no_log: true
 
 - name: Schedule hourly event inference
   ansible.builtin.cron:

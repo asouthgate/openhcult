@@ -6,20 +6,24 @@ from scipy.optimize import least_squares
 from .calibrator import CordCalibrator, _u, _estimate_covariance
 
 
-def exponential_target(x, k, f_int, xmin, xmax):
-    u = _u(x, xmin, xmax)
+def exponential_target_u(u, k, f_int):
     return (1.0 - f_int) * np.exp(k * (u - 1.0)) + f_int
 
 
+def exponential_target(x, k, f_int, xmin, xmax):
+    u = _u(x, xmin, xmax)
+    return exponential_target_u(u, k, f_int)
+
+
 class ExponentialCordCalibrator(CordCalibrator):
-    def __init__(self, xmin, xmax, prior_weight=1.0):
+    def __init__(self, xmax, prior_weight=1.0):
         super().__init__()
-        self._xmin = xmin
         self._xmax = xmax
         self._prior_weight = prior_weight
+        self._data_xmin = None
 
     def target_func(self, x, scale, k, f_int):
-        return scale * exponential_target(x, k, f_int, self._xmin, self._xmax)
+        return scale * exponential_target(x, k, f_int, self._data_xmin, self._xmax)
 
     def fit(
         self, x_anchors, swc_anchors, x_starts, delta_x, delta_swc, prior_x, prior_y
@@ -31,6 +35,11 @@ class ExponentialCordCalibrator(CordCalibrator):
         prior_x = np.asarray(prior_x)
         prior_y = np.asarray(prior_y)
         x_ends = x_starts + np.asarray(delta_x)
+
+        candidates = [x_starts.min(), x_ends.min(), x_anchors.min()]
+        if len(prior_x) > 0:
+            candidates.append(prior_x.min())
+        self._data_xmin = float(min(candidates))
 
         k0 = 20.0
         y_int0 = 0.1
@@ -77,7 +86,7 @@ class ExponentialCordCalibrator(CordCalibrator):
 
         def _std_internal(x):
             x = np.atleast_1d(x)
-            u = _u(x, self._xmin, self._xmax)
+            u = _u(x, self._data_xmin, self._xmax)
             exp_term = np.exp(k * (u - 1.0))
             g = (1.0 - f_int) * exp_term + f_int
 

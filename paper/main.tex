@@ -5,11 +5,12 @@
 \usepackage{hyperref}
 \usepackage{graphicx}
 \usepackage{soul}
+\usepackage{tabularx}
 \usepackage{xcolor}
 \sethlcolor{yellow} % default is yellow
 
 
-\title{A FOSS automated calibration software system for low-cost capacitive soil moisture sensors using ESP32 microcontrollers}
+\title{A Bayesian method for estimation of soil water content with low-cost capacitive moisture sensors.}
 \author{Alex Southgate\\
 \texttt{alex.southgate@equalitylabs.cymru}
 }
@@ -21,7 +22,7 @@
 
 \begin{abstract}
 
-ESP32s are low-cost, low-energy microcontrollers with integrated bluetooth and WiFi, and have recently lowered the barrier for entry into prototyping smart devices. ESP32s equipped with capacitive moisture sensors have been suggested for low-cost smart plant watering systems. However, measuring moisture in soil is complex, potentially destructive, and requires careful calibration in order to characterise the response curve mapping soil water content to sensor measurements, which many users are unlikely to undertake. Even accurately measuring soil moisture content requires effort, with variability across soils and environmental conditions, and consumer-grade probes tending to offer coarse measurements only. In order for these low-cost smart sensor systems to be practically useful for this category of user, calibration must be easy, and uncertainty measures available. The objective of this work was to develop a near-automous, free and open source software (FOSS) system for monitoring, with continuously updating calibration and measures of uncertainty. \hl{With our method we jointly estimate scale and shape; using a prior calibration curve we can only achieve FC estimation (shape)} \hl{Could be of interest for scientific operations or others requiring low cost}. \hl{Each sensor has its own offsets/bias due to lolocal soil factors; our method allows calibration for each of them.} 
+ESP32s are low-cost, low-energy microcontrollers with integrated bluetooth and WiFi, and have recently lowered the barrier for entry into prototyping smart devices. ESP32s equipped with capacitive moisture sensors have been suggested for low-cost smart plant watering systems. However, measuring moisture in soil is complex, potentially destructive, and requires careful calibration in order to characterise the response curve mapping soil water content to sensor measurements, which many users are unlikely to undertake. Even accurately measuring soil moisture content requires effort, with variability across soils and environmental conditions, and consumer-grade probes tending to offer coarse measurements only. In order for these low-cost smart sensor systems to be practically useful for this category of user, calibration must be easy, and uncertainty measures available. The objective of this work was to develop a near-automous, free and open source software (FOSS) system for monitoring, with continuously updating calibration and measures of uncertainty. \hl{With our method we jointly estimate scale and shape; using a prior calibration curve we can only achieve FC estimation (shape)} \hl{Could be of interest for scientific operations or others requiring low cost}. \hl{Each sensor has its own offsets/bias due to lolocal soil factors; our method allows calibration for each of them. Sensor heterogeneity is built into this.} \hl{The target tone of this paper should be like when someone creates a novel distributed system, database, etc. using a small test environment. It's not CONSUMER exactly, it's a tech that consumers or engineers could use or build up elsewhere}. \hl{The ESP32s maybe just a test system for the algorithm}.
 
 \end{abstract}
 
@@ -70,59 +71,61 @@ See Appendix \ref{fig:myfigure} for an example of segmentation for a single segm
 
 \subsection{Calibration}
 
-Three sources of data are assumed to be available for estimation of the unknown response curve: anchor points (typically only sensor measurement at 0\% FC); sampled watering events of known quantity $\Delta y$ at initial sensor value $x$, and response $\Delta x$ (also referred to as `chord' data); prior calibration curve shape $m(x)$. The prior calibration curve shape is assumed without scale, that is with a maximum of $1.0$, because each vessel of soil has an unknown maximum soil water content $\theta_{max}$ at $100\%$ field capacity. However, the prior response curve can provide information on shape. Together, normalized shape and deltas can be used to estimate the scale $s$ and retrieve the overall inverse response $\hat{Y}(X) = sm(X)$. Our GP prior is then:\\
+\subsubsection{Integral data and the inverse response function}
+
+Let $Y_t$ be the absolute SWC at time $t$, $X_t = h(Y_t)$ the sensor response. We cannot directly measure $Y_t$ non-destructively for an arbitrary container pot. If the total wet soil mass or volume, excluding plant matter, was known, $Y_t$ could be deduced from a relative measurement, combined with a known field capacity of the soil, from a known small volume. These paramters may not be available for an arbitrary container. In the opposite direction, the sensor measurements $X_t$ are readily available, and if the inverse response function $h^{-1}$ is known, $Y_t = h^{-1}(X_t)$ could be computed. Unfortunately, the response function can depend on both soil parameters, environmental factors, and sensor paramters including placement (e.g. how densely packed soil is around the sensor). \\
+
+Another quantity that is readily available is the applied water dosage given to a plant, $\Delta Y_i$, if it is recorded. Paired with sensor measurements $X_i$, in principle the response curve can be reconstructed by considering the integral or "cord" data $\Delta Y_i = Y_{after} - Y_{before} = X_{after} - X_{before}$. For example, if the inverse response was a linear function, assuming no noise, the slope could be reconstructed from $\Delta Y_i$ and $\Delta X_i$, and the intercept from a single measurement $X = h^{-1}(0)$. In practice, the response curve is non-linear, and plants are usually sensitive to water content, tolerating only a narrow range of saturation. As such, only a narrow section of the curve $h^{-1}$ can be sampled. \\
+
+In order to resolve these issues, cord data can be used to estimate absolute soil water content provided a sufficiently flexible parametric form. The sensor response has two plateaus, one at dry (low SWC) and one at wet (high SWC), which can be modelled with polynomials \hl{cite}. For a plant that does not tolerate dry conditions, it is not possible to characterise the dry part of this curve. In our case, this part of the curve was also not of interest, so a simpler function such as an exponential can be used with unknown scale and shape. Given that the response function becomes flat at saturation, the inverse response function becomes vertical at full saturation. In order to model this, the sensor value at full saturation $x_{wet}$ and zero saturation $x_{dry}$ is also a required parameter. In our framework, $x_{wet}$ is a free parameter, and $x_{dry}$ is assumed to be known. It is assumed that $x_{wet}$ is not measurable in general since sampling sufficient soil may be destructive, and $x_{wet}$ depends on sensor packing or placement in heterogeneous media.
 
 \begin{equation}
-Y(X) \sim \mathcal{GP}(sm(X), K(X,X'))
-\label{eq:gpprior}
+h^{-1}(X_t) = S \cdot g(X_t) = S \cdot \Big((1-q_{dry})\exp\Big\{-k (1 - u(X_t; x_{wet}, x_{dry})\Big\} + q_{dry}\Big)
 \end{equation}
 
-We use standard methodology for Gaussian process regression to tackle this problem. The Gaussian process assumes that differences between the modelled function $Y(X_{1})-Y(X_{2})$ have Gaussian distribution, so the input data of differences is well suited with some modifications. We stack the anchor data (generally only $(x_{min}, 0)$, and difference data defining:
+Where $u(X_t)$ is a rescaling of $[x_{wet}, x_{dry}]$ to the interval $[0, 1]$. In principle, any function representing proportional SWC could be used for $g(X_t)$, the shape of the inverse response, and may perform better than an exponential curve. In order to accommodate an intercept at the dry end of the response function, the parameter $q_{dry}$ allows the normalized curve $g(x)$ to be squashed into the interval $[q_{dry}, 1.0]$ to accommodate the non-zero SWC in this part of the curve until the dry end. \\
+
+\subsubsection{Bayesian estimation}
+
+To combine the cord data $(\Delta Y_i, \Delta X_i, X_i)$, dry anchor sample $X = h^{-1}(Y=0)$, prior assumptions on the parametric form of $h^{-1}$, optional prior calibration points, and the unknown scale parameter $S$, we adopt a Bayesian framework. We assume lognormal dosage samples:
 
 \begin{equation}
-z = \begin{bmatrix} Y_1 \\ Y_2 \\ \vdots \\ Y_m \\ \Delta Y_1 \\ \Delta Y_2 \\ \vdots \\ \Delta Y_n \end{bmatrix}
+\log(\Delta Y_i) \sim Normal(\log (h^{-1}(X_{end}; S, k, x_{wet}) - h^{-1}(X_{start}; S, k), \sigma^2)
 \end{equation}
 
-And use the matrix:
+With the target parameters $\theta = (S, k, x_{wet}, \sigma^2)$. Priors on the lower bound $x_{wet}$ are taken as uniform on a user-specified interval. Priors on scale $S$ can be estimated from soil volume or total plant weight.
+
+\begin{table}[ht]
+    \centering
+    \small % Slightly smaller font to help with density
+    \caption{Summary of Prior Distributions for Model Parameters}
+    \label{tab:priors}
+    % Specify the width as \textwidth
+    \begin{tabularx}{\textwidth}{llX} 
+        \toprule
+        \textbf{Parameter} & \textbf{Prior Distribution} & \textbf{Description} \\
+        \midrule
+        $S$ (Scale) & Normal & Weakly informative; roughly estimated by user from e.g. container size \\
+        $k$ (Exp. shape) & Improper & Unconstrained shape \\
+        $x_{wet}$ (Saturation) & Uniform & User-specified, upper bound from data, default chosen from experiment\\
+        $q_{dry}$ (Intercept) & Uniform(0, 0.5) & User-specified, default chosen from experiment \\
+        $\sigma^2$ (Variance) & Improper & Accommodates noise sources including error in water measurement \\
+        \bottomrule
+    \end{tabularx}
+\end{table}
+
+For a given posterior calibration curve sample and input time interval, water consumption rate is approximated by a linear estimate. Current water consumption is calculated by computing the linear rate over a time period for each posterior sample of calibration curves, providing uncertainty over calibration curves.\\
+
+\subsubsection{Combining sensor estimates}
+
+Each sensor has its own local saturation $g_j(x)$, determined by physical heterogeneity. At the same time, the total water content of the container is a global property of the system. Our method estimates, per sensor, the total water content. Given $N$ sensors with voltage measurement vector $\mathbf{x}$. Each inverse sensor response is itself a random variable. We refine our single-sensor model as:
 
 \begin{equation}
-K = \begin{bmatrix}
-    K_{aa}       & K_{ac} \\
-    K_{ac}^T       & I\sigma^2 + K_{cc} \\
-\end{bmatrix}
-\label{eq:gpprior}
+SWC(\mathbf{x}) = S \cdot E[g(\mathbf{x})] \approx S \Big(\sum_{j=0}^N g_j(x_j) \Big)
 \end{equation}
 
-For chord data, given bilinearity of covariance:
+allowing $S$, a global quantity to be estimated jointly, with separate estimates for the local relative saturation functions $g$ per-sensor.
 
-\begin{equation}
-    \begin{split}
-        K_{cc}(\Delta Y_i, \Delta Y_j) & = K_{cc}(Y(X_i) - Y(X_i + \Delta X_i), Y(X_j + \Delta X_j) - Y(X_j)) \\
-        & = k(X_i + \Delta X_i, X_j + \Delta X_j) - k(X_i + \Delta X_i, X_j) \\ 
-        & - k(X_i, X_j + \Delta X_j) + k(X_i, X_j)
-    \end{split}
-    \label{eq:cov}
-\end{equation}
-
-And for chords and anchors:
-
-\begin{align}
-K_{ac}(Y_k, \Delta Y_j) & = k(X_k, X_j + \Delta X_j) - k(X_k, X_j)
-\end{align}
-
-For the prior shape, we use a curve generated through empirical calibration. We do not expect that this calibration curve necessarily holds for all soil types. The prior noise is also specified in advance from the calibration experiment and variance observed in literature to capture prior belief. The length hyperparameter was chosen as standard from the domain length. The data noise parameter $\sigma^2$ can typically be selected from data, but cannot in our case. The cord data is expected to vary, even in the absence of error, due to variable $\Delta Y$ and random start positions $X$. As such, $\sigma^2$ is estimated through a MLE procedure \hl{cite}. In addition, the scale factor $s$ is estimated through $MLE$ given an improper prior as:
-
-\begin{equation}
-\hat{s} = \frac{m^T K^{-1} z}{m^T K^{-1} m}
-\end{equation}
-
-And then:
-
-\begin{equation}
-Y_{pred}(x_*) = \hat{s} m(x_*) + k_*^TK^{-1}(z - \hat{s}m)
-\end{equation}
-
-\subsection{Combining per-sensor estimates}
 
 \section{Results}
 

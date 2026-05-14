@@ -1,7 +1,6 @@
-import json
-import os
 import uuid
-from urllib import parse, error
+
+from hcultdb import queries as database
 
 from test_observations import (
     test_observation_without_plant,
@@ -17,45 +16,21 @@ from test_water_calibration import (
 
 from test_utils import request_json
 
-SEED_DSN = os.environ.get(
-    "OPENHCULT_SEED_DSN",
-    "postgresql://hcult:hcult@127.0.0.1:5432/hcult",
-)
+
+def _seed_db(conn):
+    device_id = database.register_device(conn, "pytest-device", "AA:BB:CC:DD:EE:FF")
+    database.write_sensor_readings(
+        conn,
+        device_id=device_id,
+        readings=[("sensor1", 123, 117, 0, 0, 0)],
+    )
+    database.insert_observation(
+        conn, note="pytest seed", observed_at_ms=0, plant_name=None
+    )
 
 
-def _seed_postgres():
-    try:
-        import psycopg
-    except ImportError as exc:
-        raise RuntimeError("psycopg is required for OPENHCULT_SEED_DSN") from exc
-
-    with psycopg.connect(SEED_DSN) as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO devices (name, address) VALUES (%s, %s) "
-                "ON CONFLICT (address) DO UPDATE SET name = EXCLUDED.name "
-                "RETURNING id",
-                ("pytest-device", "AA:BB:CC:DD:EE:FF"),
-            )
-            device_id = cur.fetchone()[0]
-            cur.execute(
-                """
-                INSERT INTO sensor_readings
-                    (device_id, sensor, measurement, voltage_mv, measurement_time_us, collection_time_ms, adjusted_time_ms)
-                VALUES
-                    (%s, %s, %s, %s, %s, %s, %s)
-                """,
-                (device_id, "sensor1", 123, 117, 0, 0, 0),
-            )
-            cur.execute(
-                "INSERT INTO observations (observed_at, note) VALUES (%s, %s)",
-                (0, "pytest seed"),
-            )
-        conn.commit()
-
-
-def test_root_ok():
-    _seed_postgres()
+def test_root_ok(db_conn):
+    _seed_db(db_conn)
     payload = request_json("/status")
     assert payload["service"] == "hcultctrl"
     assert payload["status"] == "ok"
@@ -79,19 +54,6 @@ def test_create_and_list_observations():
     assert note in notes
 
 
-def test_postgres_sensor_readings_seeded():
-    try:
-        import psycopg
-    except ImportError as exc:
-        raise RuntimeError("psycopg is required for OPENHCULT_SEED_DSN") from exc
-
-    with psycopg.connect(SEED_DSN) as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT COUNT(*) FROM sensor_readings")
-            count = cur.fetchone()[0]
-    assert count > 0
-
-
 def test_species_smoke_flow():
     name = f"pytest-species-{uuid.uuid4().hex[:8]}"
     created = request_json("/species", method="POST", payload={"name": name})
@@ -112,14 +74,11 @@ def test_plants_smoke_flow():
         "/species", method="POST", payload={"name": species_name}
     )
     assert created_species["name"] == species_name
-    print(species_name)
-    created_plant = request_json(
+    request_json(
         "/plants",
         method="POST",
         payload={"plant_name": plant_name, "species_name": species_name},
     )
-    plant_id = created_plant["id"]
-
     status_payload = request_json(
         f"/plants/{plant_name}/status",
         method="POST",
@@ -142,13 +101,8 @@ def test_plants_smoke_flow():
     request_json(f"/species/{species_name}", method="DELETE")
 
 
-def test_timeseries_respects_assignment_window():
+def test_timeseries_respects_assignment_window(db_conn):
     """Readings outside the plant_sensors assignment window must not appear in timeseries."""
-    try:
-        import psycopg
-    except ImportError as exc:
-        raise RuntimeError("psycopg is required for OPENHCULT_SEED_DSN") from exc
-
     species_name = f"pytest-species-{uuid.uuid4().hex[:8]}"
     plant_a = f"pytest-plant-{uuid.uuid4().hex[:8]}"
     plant_b = f"pytest-plant-{uuid.uuid4().hex[:8]}"
@@ -166,40 +120,39 @@ def test_timeseries_respects_assignment_window():
     t_pre = 1_000_000
     t_assign_a = 2_000_000
     t_during_a = 3_000_000
-    t_reassign = 4_000_000  # unassign from A, assign to B
+    t_reassign = 4_000_000
     t_during_b = 5_000_000
 
-    with psycopg.connect(SEED_DSN) as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO devices (name, address) VALUES (%s, %s) RETURNING id",
-                (f"pytest-dev-{uuid.uuid4().hex[:6]}", device_addr),
-            )
-            device_id = cur.fetchone()[0]
-            cur.execute("SELECT id FROM plants WHERE plant_name = %s", (plant_a,))
-            plant_id_a = cur.fetchone()[0]
-            cur.execute("SELECT id FROM plants WHERE plant_name = %s", (plant_b,))
-            plant_id_b = cur.fetchone()[0]
+    device_id = database.register_device(
+        db_conn, f"pytest-dev-{uuid.uuid4().hex[:6]}", device_addr
+    )
+    plant_id_a = database.fetch_plant_by_name(db_conn, plant_name=plant_a)["id"]
+    plant_id_b = database.fetch_plant_by_name(db_conn, plant_name=plant_b)["id"]
 
-            # Assign device/sensor to plant A from t_assign_a, then to plant B from t_reassign
-            cur.execute(
-                "INSERT INTO plant_sensors (plant_id, device_id, sensor, assigned_at, unassigned_at) VALUES (%s, %s, %s, %s, %s)",
-                (plant_id_a, device_id, "cap1", t_assign_a, t_reassign),
-            )
-            cur.execute(
-                "INSERT INTO plant_sensors (plant_id, device_id, sensor, assigned_at) VALUES (%s, %s, %s, %s)",
-                (plant_id_b, device_id, "cap1", t_reassign),
-            )
+    database.assign_plant_sensor(
+        db_conn,
+        plant_id=plant_id_a,
+        device_id=device_id,
+        sensor="cap1",
+        assigned_at=t_assign_a,
+    )
+    database.assign_plant_sensor(
+        db_conn,
+        plant_id=plant_id_b,
+        device_id=device_id,
+        sensor="cap1",
+        assigned_at=t_reassign,
+    )
 
-            cur.executemany(
-                "INSERT INTO sensor_readings (device_id, sensor, measurement, voltage_mv, measurement_time_us, collection_time_ms, adjusted_time_ms) VALUES (%s, %s, %s, %s, 0, %s, %s)",
-                [
-                    (device_id, "cap1", 100, 100, t_pre, t_pre),
-                    (device_id, "cap1", 200, 200, t_during_a, t_during_a),
-                    (device_id, "cap1", 300, 300, t_during_b, t_during_b),
-                ],
-            )
-        conn.commit()
+    database.write_sensor_readings(
+        db_conn,
+        device_id=device_id,
+        readings=[
+            ("cap1", 100, 100, 0, t_pre, t_pre),
+            ("cap1", 200, 200, 0, t_during_a, t_during_a),
+            ("cap1", 300, 300, 0, t_during_b, t_during_b),
+        ],
+    )
 
     ts_a = request_json(
         f"/timeseries?plant={plant_a}&sensor=cap1&device={device_addr}&limit=1000"
@@ -230,22 +183,10 @@ def test_timeseries_respects_assignment_window():
     request_json(f"/species/{species_name}", method="DELETE")
 
 
-def test_devices_smoke_flow():
-    try:
-        import psycopg
-    except ImportError as exc:
-        raise RuntimeError("psycopg is required for OPENHCULT_SEED_DSN") from exc
-
+def test_devices_smoke_flow(db_conn):
     address = f"AA:BB:CC:DD:{uuid.uuid4().hex[:4].upper()}"
     name = f"pytest-device-{uuid.uuid4().hex[:8]}"
-    with psycopg.connect(SEED_DSN) as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO devices (name, address) VALUES (%s, %s) "
-                "ON CONFLICT (address) DO UPDATE SET name = EXCLUDED.name",
-                (name, address),
-            )
-        conn.commit()
+    database.register_device(db_conn, name, address)
 
     listed = request_json("/devices?limit=10000")
     addresses = [item["address"] for item in listed.get("data", [])]

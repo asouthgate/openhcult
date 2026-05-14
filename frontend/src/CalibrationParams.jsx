@@ -1,5 +1,5 @@
 export default function CalibrationParams({ calibParams, setCalibParam }) {
-  const { offsetMin, widthMin, gpStdMl, scalePriorMean, scalePriorStd, prior, priorMin, priorMax, priorAlpha, estimator, priorWeight, nBurn, nSteps, xminLow, xminHigh } = calibParams
+  const { offsetMin, widthMin, prior, priorMin, priorMax, estimator, priorWeight, nBurn, nSteps, emaTauMin, systemCapacityMean, systemCapacityStd } = calibParams
   return (
     <table className="param-table">
       <tbody>
@@ -14,34 +14,20 @@ export default function CalibrationParams({ calibParams, setCalibParam }) {
           <td>min</td>
         </tr>
         <tr>
+          <td>EMA tau</td>
+          <td><input type="number" min="1" step="1" className="param-input" value={emaTauMin} onChange={e => setCalibParam('emaTauMin', e.target.value)} /></td>
+          <td>min</td>
+        </tr>
+        <tr>
           <td>estimator</td>
           <td colSpan={2}>
             <div className="range-btns">
-              <button className={estimator === 'gp' ? 'active' : ''} onClick={() => setCalibParam('estimator', 'gp')}>GP</button>
-              <button className={estimator === 'powerlaw' ? 'active' : ''} onClick={() => setCalibParam('estimator', 'powerlaw')}>power law</button>
               <button className={estimator === 'exponential' ? 'active' : ''} onClick={() => setCalibParam('estimator', 'exponential')}>exponential</button>
               <button className={estimator === 'exp_mcmc' ? 'active' : ''} onClick={() => setCalibParam('estimator', 'exp_mcmc')}>exp MCMC</button>
             </div>
           </td>
         </tr>
-        {estimator === 'gp' && <>
-          <tr>
-            <td>GP std</td>
-            <td><input type="number" min="0.1" step="0.1" className="param-input" value={gpStdMl} onChange={e => setCalibParam('gpStdMl', e.target.value)} /></td>
-            <td>ml</td>
-          </tr>
-          <tr>
-            <td>scale prior μ</td>
-            <td><input type="number" min="0" step="10" className="param-input-wide" value={scalePriorMean} onChange={e => setCalibParam('scalePriorMean', e.target.value)} placeholder="off" /></td>
-            <td>ml</td>
-          </tr>
-          <tr>
-            <td>scale prior σ</td>
-            <td><input type="number" min="0" step="10" className="param-input-wide" value={scalePriorStd} onChange={e => setCalibParam('scalePriorStd', e.target.value)} placeholder="off" /></td>
-            <td>ml</td>
-          </tr>
-        </>}
-        {(estimator === 'powerlaw' || estimator === 'exponential' || estimator === 'exp_mcmc') && (
+        {(estimator === 'exponential' || estimator === 'exp_mcmc') && (
           <tr>
             <td>prior weight</td>
             <td><input type="number" min="0.001" step="0.1" className="param-input" value={priorWeight} onChange={e => setCalibParam('priorWeight', e.target.value)} /></td>
@@ -60,14 +46,14 @@ export default function CalibrationParams({ calibParams, setCalibParam }) {
             <td>steps</td>
           </tr>
           <tr>
-            <td>xmin low</td>
-            <td><input type="number" step="1" className="param-input" value={xminLow} onChange={e => setCalibParam('xminLow', e.target.value)} /></td>
-            <td>mV</td>
+            <td>sys capacity mean</td>
+            <td><input type="number" step="1" className="param-input" value={systemCapacityMean} onChange={e => setCalibParam('systemCapacityMean', e.target.value)} /></td>
+            <td>ml</td>
           </tr>
           <tr>
-            <td>xmin high</td>
-            <td><input type="number" step="1" className="param-input" value={xminHigh} onChange={e => setCalibParam('xminHigh', e.target.value)} /></td>
-            <td>mV</td>
+            <td>sys capacity std</td>
+            <td><input type="number" step="1" className="param-input" value={systemCapacityStd} onChange={e => setCalibParam('systemCapacityStd', e.target.value)} /></td>
+            <td>ml</td>
           </tr>
         </>}
         <tr>
@@ -76,11 +62,10 @@ export default function CalibrationParams({ calibParams, setCalibParam }) {
             <div className="range-btns">
               <button className={prior === 'calibrated' ? 'active' : ''} onClick={() => setCalibParam('prior', 'calibrated')}>calibrated</button>
               <button className={prior === 'linear' ? 'active' : ''} onClick={() => setCalibParam('prior', 'linear')}>linear</button>
-              <button className={prior === 'power' ? 'active' : ''} onClick={() => setCalibParam('prior', 'power')}>power</button>
             </div>
           </td>
         </tr>
-        {(prior === 'linear' || prior === 'power') && <>
+        {prior === 'linear' && <>
           <tr>
             <td>prior min</td>
             <td><input type="number" className="param-input" value={priorMin} onChange={e => setCalibParam('priorMin', e.target.value)} placeholder="mV" /></td>
@@ -92,13 +77,6 @@ export default function CalibrationParams({ calibParams, setCalibParam }) {
             <td>mV</td>
           </tr>
         </>}
-        {prior === 'power' && (
-          <tr>
-            <td>α</td>
-            <td><input type="number" min="0.01" step="0.05" className="param-input" value={priorAlpha} onChange={e => setCalibParam('priorAlpha', e.target.value)} /></td>
-            <td></td>
-          </tr>
-        )}
       </tbody>
     </table>
   )

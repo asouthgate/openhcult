@@ -14,7 +14,10 @@ authors = [
 ]
 
 dependencies = [
+    "cvxpy",
+    "matplotlib",
     "numpy",
+    "pandas",
     "scipy",
     "emcee",
 ]

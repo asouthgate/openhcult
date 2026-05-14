@@ -53,9 +53,9 @@ def simulate_calibration_data_samples(
     return x, dx, dy
 
 
-def linear_response(fc_frac, x0, xmax):
-    """Linear sensor response: dry (WC=0)→base, full FC (WC=1)→wet."""
-    return int(x0 - fc_frac * (x0 - xmax))
+def linear_response(content_frac, x0, xmax):
+    """Linear sensor response: dry (content=0)→base, full (content=1)→wet."""
+    return int(x0 - content_frac * (x0 - xmax))
 
 
 def simulate_plant_moisture(
@@ -63,7 +63,7 @@ def simulate_plant_moisture(
     base,
     wet,
     dose_frac_range=(0.3, 0.7),
-    target_fc_range=(0.15, 0.5),
+    target_content_range=(0.15, 0.5),
     drain_per_day=0.08,
     noise=25,
     response_fn=None,
@@ -71,18 +71,18 @@ def simulate_plant_moisture(
     n_days=300,
     step_ms=30 * 60 * 1000,
 ):
-    """Simulate plant watering holding FC within target_fc_range.
+    """Simulate plant watering holding content within target_content_range.
 
-    Drains linearly at drain_per_day (fraction of FC per day). Waters when FC
-    drops to target_fc_range[0], adding a random dose drawn from dose_frac_range
-    (as fraction of FC). Sensor readings are derived via response_fn throughout.
+    Drains linearly at drain_per_day (fraction of content per day). Waters when content
+    drops to target_content_range[0], adding a random dose drawn from dose_frac_range
+    (as fraction of content). Sensor readings are derived via response_fn throughout.
 
     Returns (readings, watering_times, ml_amounts, before_readings, after_readings).
     ml_amounts are absolute ml (dose_frac * max_swc_ml).
     before/after_readings are sensor values at the moment of each watering event.
     """
     if response_fn is None:
-        response_fn = lambda fc: linear_response(fc, base, wet)
+        response_fn = lambda content: linear_response(content, base, wet)
     if rng is None:
         rng = random.Random(42)
 
@@ -91,24 +91,30 @@ def simulate_plant_moisture(
     dt_days = step_ms / (24 * 3600 * 1000)
     n_steps = (n_days * 24 * 3600 * 1000) // step_ms
 
-    fc = sum(target_fc_range) / 2
-    readings, watering_times, ml_amounts, before_fcs, after_fcs = [], [], [], [], []
-    next_trigger = rng.uniform(*target_fc_range)
+    content = sum(target_content_range) / 2
+    readings, watering_times, ml_amounts, before_contents, after_contents = (
+        [],
+        [],
+        [],
+        [],
+        [],
+    )
+    next_trigger = rng.uniform(*target_content_range)
 
     for i in range(n_steps):
         t = start_ms + i * step_ms
-        fc = max(0.0, fc - drain_per_day * dt_days)
-        if fc <= next_trigger:
-            before_fcs.append(fc)
+        content = max(0.0, content - drain_per_day * dt_days)
+        if content <= next_trigger:
+            before_contents.append(content)
             watering_times.append(t)
             dose = rng.uniform(*dose_frac_range)
-            fc = min(1.0, fc + dose)
-            after_fcs.append(fc)
+            content = min(1.0, content + dose)
+            after_contents.append(content)
             ml_amounts.append(dose * max_swc_ml)
-            next_trigger = rng.uniform(*target_fc_range)
-        mv = max(wet, min(base, response_fn(fc) + rng.randint(-noise, noise)))
+            next_trigger = rng.uniform(*target_content_range)
+        mv = max(wet, min(base, response_fn(content) + rng.randint(-noise, noise)))
         readings.append((t, mv, mv))
 
-    before_readings = [response_fn(fc) for fc in before_fcs]
-    after_readings = [response_fn(fc) for fc in after_fcs]
+    before_readings = [response_fn(content) for content in before_contents]
+    after_readings = [response_fn(content) for content in after_contents]
     return readings, watering_times, ml_amounts, before_readings, after_readings

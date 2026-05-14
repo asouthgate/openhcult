@@ -2,16 +2,22 @@
 
 OpenHCult is robotics system for horticultural applications
 
-## Running tests
+## Development
 
-To run the unit tests:
-
-```
-bash tests/run_unit_tests.sh
-```
-
-To run the smoke tests with docker-compose:
+Start the full stack (postgres, ctrl with hot-reload, frontend with HMR):
 
 ```
-python3 tests/run_docker_smoke_tests.py
+python3 dev.py start
+```
+
+Run tests in a separate terminal while it's running:
+
+```
+python3 dev.py test
+```
+
+Full CI (builds docker, tests, tears down):
+
+```
+python3 dev.py ci
 ```

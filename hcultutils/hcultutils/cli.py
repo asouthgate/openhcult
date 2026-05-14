@@ -178,12 +178,18 @@ def _add_plants_command(subparsers):
     plants_sub.add_parser("ls")
     plants_sub.add_parser("sensors")
     plants_update = plants_sub.add_parser("update")
-    plants_update.add_argument("id", type=str)
+    plants_update.add_argument("plant_name", type=str)
     plants_update.add_argument("--species-id", type=int, default=None)
     plants_update.add_argument("--tag", default=None)
     _add_metadata_arg(plants_update)
     plants_rm = plants_sub.add_parser("rm")
     plants_rm.add_argument("plant_name", type=str)
+
+    plants_set = plants_sub.add_parser("set")
+    plants_set.add_argument("plant_name", type=str)
+    plants_set.add_argument(
+        "fields", nargs="*", help="key=value pairs to update (e.g. soil_volume=2000)"
+    )
 
     plants_assign = plants_sub.add_parser("assign")
     plants_assign.add_argument("plant_name", type=str)
@@ -251,12 +257,6 @@ def _add_response_curve_command(subparsers):
         "--out", default=None, help="Write PNG here instead of showing a window"
     )
     parser.add_argument(
-        "--pct-fc",
-        action="store_true",
-        default=False,
-        help="Show Y axis as percent field capacity",
-    )
-    parser.add_argument(
         "--gp-std-ml",
         type=float,
         default=5.0,
@@ -278,7 +278,7 @@ def _add_response_curve_command(subparsers):
         "--scale-prior-mean",
         type=float,
         default=None,
-        help="Mean of Gaussian prior on scale (field capacity in ml). Prevents unbounded scale.",
+        help="Mean of Gaussian prior on scale (ml). Prevents unbounded scale.",
     )
     parser.add_argument(
         "--scale-prior-std",

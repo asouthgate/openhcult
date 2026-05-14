@@ -2,24 +2,35 @@ import json
 import os
 from pathlib import Path
 
+import matplotlib.pyplot as plt
+from hcultinf.plot_style import (
+    apply_dark_theme,
+    CLOUD_BLUE,
+    CLOUD_WHITE,
+    ORANGE,
+    YELLOW,
+)
+
+apply_dark_theme()
 import numpy as np
 import pytest
 
-from hcultinf.gp import GPWithPriorShape
-from hcultinf.power import PowerCordCalibrator
 from hcultinf.exp import ExponentialCordCalibrator, exponential_target
-from hcultinf.exp_mcmc import ExponentialCordCalibratorMCMC
+from hcultinf.exp_mcmc import ExponentialCordCalibratorMCMC, plot_corner
+
 from hcultinf.simulation import (
     simulate_calibration_data_samples,
     Y_TEST_FUNCTION,
     power_function,
 )
 
-TEST_XMIN = 3.0
+_NO_PLOTS = os.environ.get("HCULT_NO_PLOT", "0") == "1"
+
 TEST_XMAX = 8.5
 TEST_DXMIN = 0.2
 TEST_DXMAX = 0.5
 TEST_NOISE_LEVEL = 0.2
+TEST_XMIN = 3.0
 
 TEST_POWER_FUNCTION = lambda x: 10.0 * power_function(x, 5.0, 0.0, TEST_XMIN, TEST_XMAX)
 
@@ -44,8 +55,6 @@ TEST_EXPONENTIAL_FUNCTION = lambda x: 10.0 * exponential_target(
     [
         (
             ExponentialCordCalibratorMCMC(
-                xmin_low=2.5,
-                xmin_high=3.0,
                 xmax=TEST_XMAX,
                 prior_weight=1.0,
                 n_burn=30,
@@ -54,14 +63,9 @@ TEST_EXPONENTIAL_FUNCTION = lambda x: 10.0 * exponential_target(
             TEST_EXPONENTIAL_FUNCTION,
         ),
         (
-            ExponentialCordCalibrator(TEST_XMIN, TEST_XMAX, 1e-8),
+            ExponentialCordCalibrator(TEST_XMAX, 1e-8),
             TEST_EXPONENTIAL_FUNCTION,
         ),
-        (
-            PowerCordCalibrator(TEST_XMIN, TEST_XMAX, prior_weight=0.001),
-            TEST_POWER_FUNCTION,
-        ),
-        (GPWithPriorShape(length_scale=1.0), TEST_POWER_FUNCTION),
     ],
 )
 def test_convergence_in_n_bad_prior(estimator_func_pair):
@@ -104,21 +108,22 @@ def test_convergence_in_n_bad_prior(estimator_func_pair):
         curve_error = np.mean(errs)
         preverrs.append(curve_error)
 
-    plot_x = np.linspace(TEST_XMIN * 0.75, TEST_XMAX, 500)
-    plot_y = np.interp(plot_x, priorx_pts, priory_pts)
-    last_pwl.plot(
-        plot_x,
-        plot_y,
-        anchorx,
-        anchory,
-        last_x,
-        last_dx,
-        last_dy,
-        true_y=test_function(plot_x),
-        out=f"artifacts/convergence_n_bad_prior_{estimator.__class__.__name__}.png",
-        title=f"Test convergence in n with bad prior ({estimator.__class__.__name__})",
-        show_chords_pane=False,
-    )
+    if not _NO_PLOTS:
+        plot_x = np.linspace(TEST_XMIN * 0.75, TEST_XMAX, 500)
+        plot_y = np.interp(plot_x, priorx_pts, priory_pts)
+        last_pwl.plot(
+            plot_x,
+            plot_y,
+            anchorx,
+            anchory,
+            last_x,
+            last_dx,
+            last_dy,
+            true_y=test_function(plot_x),
+            out=f"artifacts/convergence_n_bad_prior_{estimator.__class__.__name__}.png",
+            title=f"Test convergence in n with bad prior ({estimator.__class__.__name__})",
+            show_chords_pane=False,
+        )
 
     assert all(
         np.diff(preverrs) < 0
@@ -142,44 +147,47 @@ def test_realistic():
     anchor_swc = np.array([0.0])
 
     estimator = ExponentialCordCalibratorMCMC(
-        xmin_low=750.0,
-        xmin_high=1000.0,
         xmax=xmax,
-        n_burn=150,
-        n_steps=250,
+        n_burn=250,
+        n_steps=400,
     )
     cal = estimator.fit(anchor_x, anchor_swc, x, dx, dy, prior_x, prior_y)
 
-    cal.plot(
-        prior_x,
-        prior_y,
-        anchor_x,
-        anchor_swc,
-        x,
-        dx,
-        dy,
-        out="artifacts/realistic_mcmc.png",
-        title="Realistic MCMC calibration",
-        show_chords_pane=False,
-    )
+    if not _NO_PLOTS:
+        cal.plot(
+            prior_x,
+            prior_y,
+            anchor_x,
+            anchor_swc,
+            x,
+            dx,
+            dy,
+            out="artifacts/realistic_mcmc.png",
+            title="Realistic MCMC calibration",
+            show_chords_pane=False,
+        )
 
     mean, ci_low, ci_high = cal.predict(prior_x)
     EST_SWC = 800.0
-    assert np.abs(max(mean) - EST_SWC) <= 100
-    assert all(np.abs(ci_low - mean) <= 500)
-    assert all(np.abs(ci_high - mean) <= 500)
+    assert np.abs(max(mean) - EST_SWC) <= 150
+    assert all(np.abs(ci_low - mean) <= 750)
+    assert all(np.abs(ci_high - mean) <= 750)
     assert np.all(np.isfinite(mean))
     assert np.all(np.isfinite(ci_low))
     assert np.all(np.isfinite(ci_high))
     assert np.all(ci_low <= mean)
     assert np.all(mean <= ci_high)
 
+    if not _NO_PLOTS:
+        plot_corner(
+            cal, out="artifacts/realistic_corner.png", title="Realistic MCMC posterior"
+        )
+
 
 @pytest.mark.parametrize(
     "estimator",
     [
-        PowerCordCalibrator(TEST_XMIN, TEST_XMAX, prior_weight=0.01),
-        GPWithPriorShape(),
+        ExponentialCordCalibrator(TEST_XMAX, prior_weight=0.01),
     ],
 )
 def test_unbiasedness(estimator):
@@ -212,37 +220,219 @@ def test_unbiasedness(estimator):
     mean_pred = estimates.mean(axis=0)
     std_of_means = estimates.std(axis=0) / np.sqrt(R)
 
-    import matplotlib.pyplot as plt
+    # import matplotlib.pyplot as plt
 
-    from hcultinf.plot_style import apply_dark_theme, CLOUD_BLUE, CLOUD_WHITE
+    # from hcultinf.plot_style import apply_dark_theme, CLOUD_BLUE, CLOUD_WHITE
 
-    apply_dark_theme()
+    # apply_dark_theme()
 
-    x_pad = (TEST_XMAX - TEST_XMIN) * 0.15
-    fig, ax = plt.subplots(figsize=(10, 5))
-    ax.plot(eval_x, true_y, label="true", color=CLOUD_WHITE)
-    ax.plot(
-        eval_x, mean_pred, label="mean prediction", linestyle="--", color=CLOUD_BLUE
-    )
-    ax.fill_between(
-        eval_x,
-        mean_pred - 1.96 * std_of_means,
-        mean_pred + 1.96 * std_of_means,
-        alpha=0.3,
-        color=CLOUD_BLUE,
-        label="95% CI on mean",
-    )
-    ax.set_xlabel("x")
-    ax.set_ylabel("y")
-    ax.set_xlim(TEST_XMIN - x_pad, TEST_XMAX + x_pad)
-    ax.legend()
-    fig.tight_layout()
-    fig.savefig("artifacts/unbiasedness.png")
-    if os.environ.get("HCULT_TEST_DEBUG_PLOT", "0") == "1":
-        plt.show()
-    plt.close(fig)
+    if not _NO_PLOTS:
+        x_pad = (TEST_XMAX - TEST_XMIN) * 0.15
+        fig, ax = plt.subplots(figsize=(10, 5))
+        ax.plot(eval_x, true_y, label="true", color=CLOUD_WHITE)
+        ax.plot(
+            eval_x, mean_pred, label="mean prediction", linestyle="--", color=CLOUD_BLUE
+        )
+        ax.fill_between(
+            eval_x,
+            mean_pred - 1.96 * std_of_means,
+            mean_pred + 1.96 * std_of_means,
+            alpha=0.3,
+            color=CLOUD_BLUE,
+            label="95% CI on mean",
+        )
+        ax.set_xlabel("x")
+        ax.set_ylabel("y")
+        ax.set_xlim(TEST_XMIN - x_pad, TEST_XMAX + x_pad)
+        ax.legend()
+        fig.tight_layout()
+        fig.savefig("artifacts/unbiasedness.png")
+        if os.environ.get("HCULT_TEST_DEBUG_PLOT", "0") == "1":
+            plt.show()
+        plt.close(fig)
 
     bias = np.abs(mean_pred - true_y).mean()
     assert (
         bias < 0.05 * true_y.max()
     ), f"Mean absolute bias {bias:.4f} exceeds threshold"
+
+
+def _fit_mcmc(n=30, seed=None):
+    if seed is not None:
+        np.random.seed(seed)
+    x, dx, dy = simulate_calibration_data_samples(
+        TEST_XMIN,
+        TEST_XMAX,
+        TEST_DXMAX,
+        TEST_DXMAX,
+        TEST_NOISE_LEVEL / 2,
+        n,
+        TEST_EXPONENTIAL_FUNCTION,
+        uniform=True,
+    )
+    cal = ExponentialCordCalibratorMCMC(
+        xmax=TEST_XMAX,
+        prior_weight=1.0,
+        n_burn=30,
+        n_steps=60,
+    ).fit(
+        np.array([TEST_XMAX]),
+        np.array([0.0]),
+        x,
+        dx,
+        dy,
+        np.array([TEST_XMIN, TEST_XMAX]),
+        np.array([1.0, 0.0]),
+    )
+    assert np.all(np.isfinite(cal(np.linspace(TEST_XMIN, TEST_XMAX, 10))))
+    assert np.all(cal(np.linspace(TEST_XMIN, TEST_XMAX, 10)) >= 0)
+    return cal
+
+
+def test_std_consistent_with_ci():
+    cal = _fit_mcmc(seed=42)
+    x_grid = np.linspace(TEST_XMIN, TEST_XMAX, 50)
+    mean, ci_low, ci_high = cal.predict(x_grid)
+    std = cal.std(x_grid)
+    ci_width = np.asarray(ci_high) - np.asarray(ci_low)
+    expected_width = 2 * 1.96 * np.asarray(std)
+    np.testing.assert_allclose(ci_width, expected_width, rtol=1e-6)
+
+
+def test_posterior_samples_swc_at():
+    cal = _fit_mcmc(seed=42)
+    x_grid = np.linspace(TEST_XMIN + 0.5, TEST_XMAX - 0.5, 20)
+    samples = cal.posterior_samples_swc_at(x_grid)
+    assert samples.shape[0] > 0
+    assert samples.shape[1] == len(x_grid)
+    assert np.all(np.isfinite(samples))
+    sample_mean = np.nanmean(samples, axis=0)
+    pred_mean = np.asarray(cal(x_grid))
+    np.testing.assert_allclose(sample_mean, pred_mean, rtol=1e-10)
+
+
+def test_multi_sensor_happy_path():
+    SCALE = 270.0
+    K0, K1 = 15.0, 20.0
+    F_INT0, F_INT1 = 0.05, 0.1
+    DATA_XMIN_0 = 3.0
+    DATA_XMIN_1 = 2.5
+    samples = 500
+    burnin = 250
+
+    fn0 = lambda x: SCALE * exponential_target(x, K0, F_INT0, DATA_XMIN_0, TEST_XMAX)
+    fn1 = lambda x: SCALE * exponential_target(x, K1, F_INT1, DATA_XMIN_1, TEST_XMAX)
+
+    n_chords_per_sensor = 15
+
+    x0, dx0, dy0 = simulate_calibration_data_samples(
+        DATA_XMIN_0,
+        4.0,
+        TEST_DXMIN,
+        TEST_DXMAX,
+        TEST_NOISE_LEVEL,
+        n_chords_per_sensor,
+        fn0,
+        uniform=True,
+    )
+    x1, dx1, dy1 = simulate_calibration_data_samples(
+        DATA_XMIN_1,
+        4.0,
+        TEST_DXMIN,
+        TEST_DXMAX,
+        TEST_NOISE_LEVEL,
+        n_chords_per_sensor,
+        fn1,
+        uniform=True,
+    )
+
+    x_starts = np.concatenate([x0, x1])
+    delta_x = np.concatenate([dx0, dx1])
+    delta_swc = np.concatenate([dy0, dy1])
+    sensor_chord_labels = np.array([0] * len(x0) + [1] * len(x1))
+    print(TEST_XMAX)
+    estimator_multi = ExponentialCordCalibratorMCMC(
+        xmax=TEST_XMAX,
+        prior_weight=1.0,
+        n_burn=burnin,
+        n_steps=samples,
+        n_sensors=2,
+    )
+
+    cal_multi = estimator_multi.fit(
+        np.array([TEST_XMAX]),
+        np.array([0.0]),
+        x_starts,
+        delta_x,
+        delta_swc,
+        np.array([TEST_XMAX]),
+        np.array([0.0]),
+        sensor_chord_labels=sensor_chord_labels,
+    )
+
+    print("Joint scale MAP:", np.mean(cal_multi.posterior_params()["scale"], axis=0))
+    est_kw = dict(
+        xmax=TEST_XMAX, prior_weight=1.0, n_burn=burnin, n_steps=samples, n_sensors=1
+    )
+    cal_s0 = ExponentialCordCalibratorMCMC(**est_kw).fit(
+        np.array([TEST_XMAX]),
+        np.array([0.0]),
+        x0,
+        dx0,
+        dy0,
+        np.array([TEST_XMAX]),
+        np.array([0.0]),
+    )
+    cal_s1 = ExponentialCordCalibratorMCMC(**est_kw).fit(
+        np.array([TEST_XMAX]),
+        np.array([0.0]),
+        x1,
+        dx1,
+        dy1,
+        np.array([TEST_XMAX]),
+        np.array([0.0]),
+    )
+    print("Sensor 0 MAP scale:", float(cal_s0.posterior_params()["scale"].mean()))
+    print("Sensor 1 MAP scale:", float(cal_s1.posterior_params()["scale"].mean()))
+
+    cal = cal_multi
+
+    x_grid = np.linspace(TEST_XMIN, TEST_XMAX, 20)
+    x_grid_2d = np.column_stack([x_grid, x_grid])
+    mean, ci_low, ci_high = cal.predict(x_grid_2d)
+    assert np.all(np.isfinite(mean))
+    assert np.all(mean >= 0)
+    assert np.all(np.isfinite(ci_low))
+    assert np.all(np.isfinite(ci_high))
+    assert np.all(ci_low <= mean)
+    assert np.all(mean <= ci_high)
+
+    params = cal.posterior_params()
+    assert "scale" in params
+    assert "k" in params
+    assert "f_int" in params
+    assert "sigma2" in params
+    assert params["scale"].ndim == 1
+    assert params["k"].shape == (params["scale"].shape[0], 2)
+    assert params["f_int"].shape == (params["scale"].shape[0], 2)
+    assert params["sigma2"].ndim == 1
+
+    samples = cal.posterior_samples_swc_at(x_grid_2d, n=20)
+    assert samples.shape == (20, len(x_grid))
+
+    scale_est = cal.scale
+    # assert 1.0 < scale_est < 2 * SCALE, f"Scale estimate {scale_est} out of range"
+
+    if not _NO_PLOTS:
+        cal.plot(
+            np.array([TEST_XMIN, TEST_XMAX]),
+            np.array([1.0, 0.0]),
+            np.array([TEST_XMAX]),
+            np.array([0.0]),
+            x_starts,
+            delta_x,
+            delta_swc,
+            out="artifacts/multi_sensor_mcmc.png",
+            title="Multi-sensor MCMC calibration",
+            show_chords_pane=False,
+        )

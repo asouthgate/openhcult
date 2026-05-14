@@ -1,9 +1,15 @@
 import { useState, useEffect, useMemo } from 'react'
 import { apiJson, apiFetch } from './api'
-import { sensorKey, interp, toWater } from './utils'
+import { sensorKey, parseSensorKey } from './utils'
 import { TimeseriesChart } from './TimeseriesChart'
 import { PALETTE } from './theme'
 import CalibrationParams from './CalibrationParams'
+import {
+  transformRateSeries,
+  transformSeriesToWaterMode,
+  transformCombinedSwc,
+  filterObservationsBySensorAssignment,
+} from './sensorDataTransforms'
 
 const TIME_RANGES = [
   { label: '6h', hours: 6 },
@@ -12,12 +18,10 @@ const TIME_RANGES = [
   { label: '30d', hours: 24 * 30 },
 ]
 
-const Y_LABELS = { raw: 'Raw', voltage: 'Voltage (mV)', water: 'Water (ml)', water_pct: 'Water (%SC)' }
+const Y_LABELS = { raw: 'Raw', voltage: 'Voltage (mV)', water: 'Water (ml)', fractional: 'Fractional content', rate: 'Rate (ml/day)' }
 
 function ObservationsTable({ observations, sensorAssignedAt, calibration, onDelete }) {
-  const visible = sensorAssignedAt != null
-    ? observations.filter(o => new Date(o.observed_at).getTime() >= sensorAssignedAt)
-    : observations
+  const visible = filterObservationsBySensorAssignment(observations, sensorAssignedAt)
   if (!visible.length) return null
 
   const estMap = {}
@@ -52,22 +56,36 @@ function ObservationsTable({ observations, sensorAssignedAt, calibration, onDele
 }
 
 export default function SensorsPane({
-  plantFilter, sensorFilter, sensorAssignedAt, calibration, calibParams, setCalibParam, plantSensors,
+  plantFilter, sensorFilter, sensorAssignedAt, calibrationMl, calibrationFrac, calibParams, setCalibParam, plantSensors, combinedSwcMl, combinedSwcFrac, calibLoadingMl, calibLoadingFrac, calibErrorMl, calibErrorFrac, dryingRate, dryingRateLoading, rangeHours, setRangeHours, recalculateMl, recalculateFrac,
 }) {
-  const [rangeHours, setRangeHours] = useState(48)
   const [measureMode, setMeasureMode] = useState('voltage')
+  const [showFractional, setShowFractional] = useState(false)
   const [series, setSeries] = useState([])
   const [observations, setObservations] = useState([])
   const [pendingTime, setPendingTime] = useState(null)
   const [pendingPlant, setPendingPlant] = useState('')
   const [pendingMl, setPendingMl] = useState('')
   const [loading, setLoading] = useState(false)
+  const [rateLogScale, setRateLogScale] = useState(false)
+
+  const isCombined = sensorFilter === '__combined__'
+  const hasSystemCapacity = calibParams.systemCapacityMean !== '' && calibParams.systemCapacityStd !== ''
+  const calibration = showFractional ? calibrationFrac : calibrationMl
+  const combinedSwc = showFractional ? combinedSwcFrac : combinedSwcMl
+  const calibLoading = showFractional ? calibLoadingFrac : calibLoadingMl
+  const calibError = showFractional ? calibErrorFrac : calibErrorMl
+  const recalculate = showFractional ? recalculateFrac : recalculateMl
 
   useEffect(() => {
     const end = new Date()
     const start = new Date(end - rangeHours * 3600 * 1000)
     const params = new URLSearchParams({ start_utc: start.toISOString(), end_utc: end.toISOString(), limit: '50000' })
     if (plantFilter) params.set('plant', plantFilter)
+    if (sensorFilter && !isCombined) {
+      const { deviceAddress, sensor } = parseSensorKey(sensorFilter)
+      params.set('sensor', sensor)
+      params.set('device_address', deviceAddress)
+    }
 
     setLoading(true)
     setPendingTime(null)
@@ -85,7 +103,7 @@ export default function SensorsPane({
         const grouped = {}
         for (const row of ts.data ?? []) {
           const key = sensorKey(row.device_address, row.sensor)
-          if (sensorFilter && key !== sensorFilter) continue
+          if (sensorFilter && !isCombined && key !== sensorFilter) continue
           if (!grouped[key]) grouped[key] = { label: labelMap[key] ?? key, points: [] }
           grouped[key].points.push({ t: row.adjusted_time_ms, raw: row.measurement, mv: row.voltage_mv })
         }
@@ -95,34 +113,49 @@ export default function SensorsPane({
       .finally(() => setLoading(false))
   }, [rangeHours, plantFilter, sensorFilter, plantSensors])
 
-  const { mappedSeries, bands } = useMemo(() => {
-    const isWater = (measureMode === 'water' || measureMode === 'water_pct') && calibration
-    const scale = calibration?.scale ?? 1
-    const toV = ml => toWater(ml, scale, measureMode === 'water_pct')
+  const filteredObs = useMemo(
+    () => filterObservationsBySensorAssignment(observations, sensorAssignedAt),
+    [observations, sensorAssignedAt],
+  )
 
-    const ms = series.map(s => ({
-      ...s,
-      points: s.points.map(p => {
-        let v = (measureMode === 'voltage' && p.mv != null) ? p.mv : p.raw
-        if (isWater) v = toV(interp(p.raw, calibration.prior_x, calibration.mean))
-        return { t: p.t, v, raw: p.raw }
-      }),
-    }))
+  const isRateMode = measureMode === 'rate'
+  const isWaterMode = measureMode === 'water' || measureMode === 'fractional'
+  const needsPlant = (isWaterMode || isRateMode) && plantFilter === ''
+  const needsSystemCapacity = isWaterMode && plantFilter && !hasSystemCapacity
 
-    if (!isWater) return { mappedSeries: ms, bands: [] }
+  const { mappedSeries: rateSeries, bands: rateBands } = useMemo(() => transformRateSeries(dryingRate), [dryingRate])
 
-    const loArr = calibration.ci_low ?? calibration.mean.map((m, i) => m - 2 * (calibration.std?.[i] ?? 0))
-    const hiArr = calibration.ci_high ?? calibration.mean.map((m, i) => m + 2 * (calibration.std?.[i] ?? 0))
-    const bs = ms.map(s => ({
-      color: s.color,
-      points: s.points.map(p => ({
-        t: p.t,
-        lo: toV(interp(p.raw, calibration.prior_x, loArr)),
-        hi: toV(interp(p.raw, calibration.prior_x, hiArr)),
-      })),
-    }))
-    return { mappedSeries: ms, bands: bs }
-  }, [series, measureMode, calibration])
+  const currentRate = useMemo(() => {
+    if (!rateSeries.length) return null
+    const points = rateSeries[0].points
+    if (!points.length) return null
+    const now = Math.max(...points.map(p => p.t))
+    const windowMs = 30 * 60 * 1000
+    const recent = points.filter(p => p.t > now - windowMs)
+    const validRecent = dryingRate?.valid
+      ? recent.filter((p, i) => {
+          const idx = points.indexOf(p)
+          return dryingRate.valid[idx]
+        })
+      : recent
+    const values = validRecent.length > 0 ? validRecent.map(p => p.v) : points.map(p => p.v)
+    return values.sort((a, b) => a - b)[Math.floor(values.length / 2)]
+  }, [rateSeries, dryingRate])
+
+  const { mappedSeries, bands, combinedReady } = useMemo(() => {
+    const isWaterMode = measureMode === 'water' || measureMode === 'fractional'
+    const isCombinedWater = isCombined && isWaterMode
+
+    if (isWaterMode && !isCombined && !calibration) {
+      return { mappedSeries: series, bands: [], combinedReady: true }
+    }
+
+    if (isCombinedWater) {
+      return transformCombinedSwc(combinedSwc, measureMode)
+    }
+
+    return transformSeriesToWaterMode(series, calibration, measureMode)
+  }, [series, measureMode, calibration, isCombined, combinedSwc])
 
   const submitWatering = () => {
     const payload = { note: `WATER manual ml=${pendingMl}`, observed_at: new Date(pendingTime).toISOString() }
@@ -134,6 +167,75 @@ export default function SensorsPane({
   const deleteObservation = id =>
     apiFetch(`/observations/${id}`, { method: 'DELETE' }).then(r => r.ok && setObservations(prev => prev.filter(o => o.id !== id)))
 
+  const chartProps = {
+    series: mappedSeries,
+    bands,
+    observations: filteredObs,
+    rangeMs: rangeHours * 3600 * 1000,
+    onTimePick: t => { setPendingTime(t); setPendingPlant(plantFilter || ''); setPendingMl('') },
+    pendingTime,
+    yLabel: Y_LABELS[measureMode],
+    eventWindowOffset: Number(calibParams.offsetMin) * 60 * 1000,
+    eventWindowWidth: Number(calibParams.widthMin) * 60 * 1000,
+  }
+
+  let chartContent
+  if (calibError) {
+    chartContent = <div className="full error">{calibError}</div>
+    } else if (isRateMode) {
+    if (!plantFilter) {
+      chartContent = <div className="empty">Select a plant to view drying rate</div>
+    } else if (dryingRateLoading) {
+      chartContent = <div className="loading"><span className="spinner" />Computing drying rate…</div>
+    } else if (!rateSeries.length) {
+      chartContent = <div className="empty">No drying rate data available.</div>
+    } else {
+      const allT = rateSeries.flatMap(s => s.points.map(p => p.t))
+      const rangeMs = allT.length > 1 ? Math.max(...allT) - Math.min(...allT) : rangeHours * 3600 * 1000
+      chartContent = (
+        <div>
+          {currentRate != null && (
+            <div className="current-rate-display">
+              <span className={`current-rate-value ${currentRate < 0 ? 'drying' : 'watering'}`}>
+                {currentRate.toFixed(2)}
+              </span>
+              <span className="current-rate-unit">ml/day</span>
+              <span className="current-rate-label">{currentRate < 0 ? 'Drying' : 'Watering'}</span>
+            </div>
+          )}
+          <div className="rate-controls">
+            <button className={rateLogScale ? 'active' : ''} onClick={() => setRateLogScale(v => !v)}>Log</button>
+          </div>
+          <TimeseriesChart
+            series={rateSeries}
+            bands={rateBands}
+            observations={[]}
+            rangeMs={rangeMs}
+            onTimePick={null}
+            pendingTime={null}
+            yLabel={Y_LABELS[measureMode]}
+            hideObsLegend
+            logScale={rateLogScale}
+          />
+        </div>
+      )
+    }
+  } else if (loading) {
+    chartContent = <div className="loading">Loading…</div>
+  } else if (needsPlant) {
+    chartContent = <div className="empty">Select a plant to show water estimates</div>
+  } else if (needsSystemCapacity) {
+    chartContent = <div className="empty">Enter system capacity params and recalculate to show water estimates</div>
+  } else if (isCombined && isWaterMode) {
+    if (calibLoading) chartContent = <div className="loading"><span className="spinner" />Computing combined SWC…</div>
+    else if (!combinedReady) chartContent = <div className="empty">No combined SWC data available.</div>
+    else chartContent = <TimeseriesChart {...chartProps} />
+  } else if (series.length === 0) {
+    chartContent = <div className="empty">No data in range.</div>
+  } else {
+    chartContent = <TimeseriesChart {...chartProps} />
+  }
+
   return (
     <div className="pane-grid">
       <div className="full controls">
@@ -143,33 +245,24 @@ export default function SensorsPane({
           ))}
         </div>
         <div className="range-btns">
-          {[['raw', 'Raw'], ['voltage', 'mV'], ['water', 'Water (ml)'], ['water_pct', 'Water (%SC)']].map(([m, label]) => (
-            <button key={m} className={measureMode === m ? 'active' : ''} onClick={() => setMeasureMode(m)}>{label}</button>
+          {[['raw', 'Raw'], ['voltage', 'mV'], ['water', 'Water (ml)'], ['fractional', 'Fractional'], ['rate', 'Rate']].map(([m, label]) => (
+            <button key={m} className={measureMode === m ? 'active' : ''} onClick={() => {
+              setMeasureMode(m)
+              setShowFractional(m === 'fractional')
+            }}>{label}</button>
           ))}
         </div>
       </div>
 
       <div className="full">
-        {loading
-          ? <div className="loading">Loading…</div>
-          : series.length === 0
-            ? <div className="empty">No data in range.</div>
-            : <TimeseriesChart
-                series={mappedSeries}
-                bands={bands}
-                observations={sensorAssignedAt != null ? observations.filter(o => new Date(o.observed_at).getTime() >= sensorAssignedAt) : observations}
-                rangeMs={rangeHours * 3600 * 1000}
-                onTimePick={t => { setPendingTime(t); setPendingPlant(plantFilter || ''); setPendingMl('') }}
-                pendingTime={pendingTime}
-                yLabel={Y_LABELS[measureMode]}
-                eventWindowOffset={Number(calibParams.offsetMin) * 60 * 1000}
-                eventWindowWidth={Number(calibParams.widthMin) * 60 * 1000}
-              />
-        }
+        {chartContent}
       </div>
 
       <div>
         <CalibrationParams calibParams={calibParams} setCalibParam={setCalibParam} />
+        <button className="recalc-btn" onClick={recalculate} disabled={calibLoading || !plantFilter}>
+          {calibLoading ? 'Computing…' : 'Recalculate'}
+        </button>
       </div>
 
       <div className="full">

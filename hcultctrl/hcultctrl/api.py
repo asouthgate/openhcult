@@ -10,6 +10,8 @@ from fastapi import Depends, FastAPI
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
+
+from hcultctrl import config
 from hcultctrl.auth import require_auth
 from hcultctrl.routes import (
     auth,
@@ -34,7 +36,7 @@ app.include_router(timeseries.router, **_protected)
 app.include_router(plant_sensors.router, **_protected)
 app.include_router(water_calibration.router, **_protected)
 
-
+config.setup_logging()
 logger = logging.getLogger(__name__)
 
 _frontend_dir = Path(

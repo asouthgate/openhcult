@@ -102,7 +102,14 @@ def _add_plant(base_url: str, plant_name, species_name, tag, metadata) -> int:
     return 0
 
 
-def _update_plant(base_url: str, species_id, tag, metadata, plant_id) -> int:
+def _update_plant(base_url: str, plant_name, species_id, tag, metadata) -> int:
+    plant = request_ctrl("GET", f"{base_url}/plants?limit=10000")
+    match = next(
+        (p for p in plant.get("data", []) if p["plant_name"] == plant_name), None
+    )
+    if not match:
+        print(f"Plant '{plant_name}' not found")
+        return 1
     payload = {}
     if species_id is not None:
         payload["species_id"] = species_id
@@ -110,8 +117,67 @@ def _update_plant(base_url: str, species_id, tag, metadata, plant_id) -> int:
         payload["tag"] = tag
     if metadata is not None:
         payload["metadata"] = json.loads(metadata)
-    updated = request_ctrl("PATCH", f"{base_url}/plants/{plant_id}", payload)
+    updated = request_ctrl("PATCH", f"{base_url}/plants/{match['id']}", payload)
     print(f"Updated plant {updated.get('id')}")
+    return 0
+
+
+def _set_plant(base_url: str, plant_name, fields) -> int:
+    plant = request_ctrl("GET", f"{base_url}/plants?limit=10000")
+    match = next(
+        (p for p in plant.get("data", []) if p["plant_name"] == plant_name), None
+    )
+    if not match:
+        print(f"Plant '{plant_name}' not found")
+        return 1
+    if not fields:
+        print("No fields to update. Usage: hcultutils plants set NAME key=value ...")
+        return 1
+    payload = {}
+    for field in fields:
+        if "=" not in field:
+            print(f"Invalid field format: {field}. Use key=value")
+            return 1
+        key, value = field.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if not key:
+            print(f"Empty key in field: {field}")
+            return 1
+        try:
+            payload[key] = json.loads(value)
+        except json.JSONDecodeError:
+            payload[key] = value
+    updated = request_ctrl("PATCH", f"{base_url}/plants/{match['id']}", payload)
+    print(
+        f"Updated plant {updated.get('id')}: {', '.join(f'{k}={v}' for k, v in payload.items())}"
+    )
+    return 0
+
+
+def _set_plant(base_url: str, plant_id, fields) -> int:
+    if not fields:
+        print("No fields to update. Usage: hcultutils plants set ID key=value ...")
+        return 1
+    payload = {}
+    for field in fields:
+        if "=" not in field:
+            print(f"Invalid field format: {field}. Use key=value")
+            return 1
+        key, value = field.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if not key:
+            print(f"Empty key in field: {field}")
+            return 1
+        try:
+            payload[key] = json.loads(value)
+        except json.JSONDecodeError:
+            payload[key] = value
+    updated = request_ctrl("PATCH", f"{base_url}/plants/{plant_id}", payload)
+    print(
+        f"Updated plant {updated.get('id')}: {', '.join(f'{k}={v}' for k, v in payload.items())}"
+    )
     return 0
 
 
@@ -180,7 +246,9 @@ def plants_via_ctrl(ctrl_url: str, action: str, args) -> int:
             base, args.plant_name, args.species_name, args.tag, args.metadata
         )
     if action == "update":
-        return _update_plant(base, args.species_id, args.tag, args.metadata, args.id)
+        return _update_plant(
+            base, args.plant_name, args.species_id, args.tag, args.metadata
+        )
     if action == "rm":
         return _delete_plant(base, args.plant_name)
     if action == "health":
@@ -189,4 +257,6 @@ def plants_via_ctrl(ctrl_url: str, action: str, args) -> int:
         return _assign_plant(base, args.plant_name, args.device, args.sensor)
     if action == "set-status":
         return _set_status(base, args.plant_name, args.status_code, args.note)
+    if action == "set":
+        return _set_plant(base, args.plant_name, args.fields)
     return 0

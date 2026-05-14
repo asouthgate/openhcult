@@ -15,7 +15,7 @@ from hcultinf.plot_style import (
 
 
 def _u(x, xmin, xmax):
-    return np.clip((xmax - x) / (xmax - xmin), 1e-10, 1.0)
+    return (xmax - x) / (xmax - xmin)
 
 
 def _estimate_covariance(result, n_data_obs):
@@ -45,6 +45,10 @@ class CordCalibrator(ABC):
 
     def predict(self, x):
         return self._mean(x), self._ci_low(x), self._ci_high(x)
+
+    def std(self, x):
+        _, lo, hi = self.predict(x)
+        return (np.asarray(hi) - np.asarray(lo)) / (2 * 1.96)
 
     def plot(
         self,
@@ -137,8 +141,6 @@ def plot_response_curve(
     true_y=None,
     xlabel="sensor reading",
     ylabel="SWC",
-    pct_fc=False,
-    scale=1.0,
     show_chords_pane=True,
 ):
     import matplotlib.pyplot as plt
@@ -154,15 +156,6 @@ def plot_response_curve(
     dx = np.asarray(dx)
     dy = np.asarray(dy)
     mean_at_x = np.asarray(mean_at_x)
-
-    if pct_fc:
-        mean = mean / scale * 100
-        ci_low = ci_low / scale * 100
-        ci_high = ci_high / scale * 100
-        dy = dy / scale * 100
-        mean_at_x = mean_at_x / scale * 100
-        if true_y is not None:
-            true_y = np.asarray(true_y) / scale * 100
 
     if show_chords_pane:
         fig, (ax, ax2) = plt.subplots(1, 2, figsize=(14, 6))

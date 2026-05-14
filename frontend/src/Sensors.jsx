@@ -1,9 +1,15 @@
-import { useState, useEffect, useRef } from 'react'
-import { apiJson } from './api'
-import { sensorKey, sensorPart } from './utils'
-import { clearToken } from './api'
+import { useState, useEffect } from 'react'
+import { apiJson, clearToken } from './api'
+import { sensorKey } from './utils'
 import SensorsPane from './SensorsPane'
 import CalibrationPane from './CalibrationPane'
+import { useCalibrationData } from './useCalibrationData'
+
+const DEFAULT_CALIB_PARAMS = {
+  offsetMin: '5', widthMin: '50', prior: 'calibrated', priorMin: '867', priorMax: '2009',
+  estimator: 'exp_mcmc', priorWeight: '1.0', nBurn: '10', nSteps: '30', emaTauMin: '60',
+  systemCapacityMean: '', systemCapacityStd: '',
+}
 
 export default function Sensors() {
   const [view, setView] = useState('sensors')
@@ -11,15 +17,17 @@ export default function Sensors() {
   const [plants, setPlants] = useState([])
   const [plantSensors, setPlantSensors] = useState([])
   const [sensorFilter, setSensorFilter] = useState('')
-  const [calibration, setCalibration] = useState(null)
-  const [calibError, setCalibError] = useState(null)
-  const [calibLoading, setCalibLoading] = useState(false)
-  const [calibParams, setCalibParams] = useState({
-    offsetMin: '5', widthMin: '50', gpStdMl: '50', scalePriorMean: '', scalePriorStd: '', prior: 'power', priorMin: '867', priorMax: '2009', priorAlpha: '5.4523129367441685', estimator: 'exp_mcmc', priorWeight: '1.0', nBurn: '10', nSteps: '30', xminLow: '800', xminHigh: '1100',
-  })
+  const [calibParams, setCalibParams] = useState(DEFAULT_CALIB_PARAMS)
+  const [rangeHours, setRangeHours] = useState(48)
 
-  const autoStdSet = useRef(false)
   const setCalibParam = (key, val) => setCalibParams(p => ({ ...p, [key]: val }))
+
+  const mlData = useCalibrationData({
+    plantFilter, sensorFilter, calibParams, rangeHours, setCalibParam, returnFractional: false,
+  })
+  const fracData = useCalibrationData({
+    plantFilter, sensorFilter, calibParams, rangeHours, setCalibParam, returnFractional: true,
+  })
 
   useEffect(() => {
     apiJson('/plants?limit=1000').then(d => setPlants(d.data ?? []))
@@ -38,72 +46,22 @@ export default function Sensors() {
   function handlePlantChange(plant) {
     setPlantFilter(plant)
     setSensorFilter('')
-    autoStdSet.current = false
+    if (plant) {
+      const p = plants.find(p => p.plant_name === plant)
+      if (p?.soil_volume != null) {
+        const mean = Math.round(p.soil_volume)
+        setCalibParams(cp => ({ ...cp, systemCapacityMean: String(mean), systemCapacityStd: String(Math.round(mean * 0.1)) }))
+      } else {
+        setCalibParams(cp => ({ ...cp, systemCapacityMean: '', systemCapacityStd: '' }))
+      }
+    } else {
+      setCalibParams(cp => ({ ...cp, systemCapacityMean: '', systemCapacityStd: '' }))
+    }
   }
 
   const handleSensorChange = sensor => {
     setSensorFilter(sensor)
-    autoStdSet.current = false
   }
-
-  useEffect(() => {
-    if (!plantFilter) { setCalibration(null); setCalibError(null); return }
-    const controller = new AbortController()
-    setCalibLoading(true)
-    setCalibError(null)
-    const { offsetMin, widthMin, gpStdMl, scalePriorMean, scalePriorStd, prior, priorMin, priorMax, priorAlpha, estimator, priorWeight, nBurn, nSteps, xminLow, xminHigh } = calibParams
-    const params = new URLSearchParams({
-      plant: plantFilter,
-      offset_ms: Number(offsetMin) * 60 * 1000,
-      width_ms: Number(widthMin) * 60 * 1000,
-    })
-    if (sensorFilter) {
-      const sep = sensorFilter.lastIndexOf(':')
-      params.set('sensor', sensorFilter.slice(sep + 1))
-      params.set('device_address', sensorFilter.slice(0, sep))
-    }
-    if (estimator !== 'gp') params.set('estimator', estimator)
-    if (estimator === 'gp') {
-      params.set('gp_std_ml', Number(gpStdMl))
-      if (scalePriorMean !== '') params.set('scale_prior_mean', scalePriorMean)
-      if (scalePriorStd !== '') params.set('scale_prior_std', scalePriorStd)
-    }
-    if (estimator === 'powerlaw' && priorWeight !== '') params.set('prior_weight', priorWeight)
-    if (estimator === 'exponential' && priorWeight !== '') params.set('prior_weight', priorWeight)
-    if (estimator === 'exp_mcmc') {
-      if (priorWeight !== '') params.set('prior_weight', priorWeight)
-      if (nBurn !== '') params.set('n_burn', nBurn)
-      if (nSteps !== '') params.set('n_steps', nSteps)
-      if (xminLow !== '') params.set('xmin_low', xminLow)
-      if (xminHigh !== '') params.set('xmin_high', xminHigh)
-    }
-    if (prior !== 'calibrated') params.set('prior', prior)
-    if (prior === 'linear' || prior === 'power') {
-      if (priorMin !== '') params.set('prior_min', priorMin)
-      if (priorMax !== '') params.set('prior_max', priorMax)
-    }
-    if (estimator === 'exponential' || estimator === 'exp_mcmc') {
-      if (priorMin !== '' && !params.has('prior_min')) params.set('prior_min', priorMin)
-      if (priorMax !== '' && !params.has('prior_max')) params.set('prior_max', priorMax)
-    }
-    if (prior === 'power' && priorAlpha !== '') params.set('prior_alpha', priorAlpha)
-    apiJson(`/water_calibration?${params}`, { signal: controller.signal })
-      .then(d => {
-        setCalibration(d)
-        if (!autoStdSet.current && d.chords_dy?.length > 0) {
-          const mean = d.chords_dy.reduce((a, b) => a + b, 0) / d.chords_dy.length
-          setCalibParam('gpStdMl', String(Math.round(mean)))
-          if (d.chords_x?.length > 0) {
-            const endpoints = d.chords_x.map((x, i) => x + (d.chords_dx?.[i] ?? 0))
-            setCalibParam('priorMin', String(Math.round(Math.min(...d.chords_x, ...endpoints))))
-          }
-          autoStdSet.current = true
-        }
-      })
-      .catch(err => { if (err.name !== 'AbortError') { setCalibration(null); setCalibError(String(err)) } })
-      .finally(() => setCalibLoading(false))
-    return () => controller.abort()
-  }, [plantFilter, sensorFilter, calibParams])
 
   return (
     <div className="app">
@@ -121,6 +79,7 @@ export default function Sensors() {
           {sensorsForPlant.length > 0 && (
             <select value={sensorFilter} onChange={e => handleSensorChange(e.target.value)}>
               <option value="">All sensors</option>
+              <option value="__combined__">Combined</option>
               {sensorsForPlant.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
             </select>
           )}
@@ -130,14 +89,24 @@ export default function Sensors() {
 
       {view === 'sensors'
         ? <SensorsPane
-            plantFilter={plantFilter} sensorFilter={sensorFilter} calibration={calibration}
+            plantFilter={plantFilter} sensorFilter={sensorFilter}
+            calibrationMl={mlData.calibration} calibrationFrac={fracData.calibration}
             sensorAssignedAt={sensorsForPlant.find(s => s.key === sensorFilter)?.assignedAt ?? null}
             calibParams={calibParams} setCalibParam={setCalibParam} plantSensors={plantSensors}
+            combinedSwcMl={mlData.combinedSwc} combinedSwcFrac={fracData.combinedSwc}
+            calibLoadingMl={mlData.calibLoading} calibLoadingFrac={fracData.calibLoading}
+            calibErrorMl={mlData.calibError} calibErrorFrac={fracData.calibError}
+            dryingRate={mlData.dryingRate} dryingRateLoading={mlData.dryingRateLoading}
+            rangeHours={rangeHours} setRangeHours={setRangeHours}
+            recalculateMl={mlData.recalculate} recalculateFrac={fracData.recalculate}
           />
         : <CalibrationPane
             plantFilter={plantFilter} sensorFilter={sensorFilter}
-            calibration={calibration} calibError={calibError} calibLoading={calibLoading}
+            calibrationMl={mlData.calibration} calibrationFrac={fracData.calibration}
+            calibErrorMl={mlData.calibError} calibErrorFrac={fracData.calibError}
+            calibLoadingMl={mlData.calibLoading} calibLoadingFrac={fracData.calibLoading}
             calibParams={calibParams} setCalibParam={setCalibParam}
+            recalculateMl={mlData.recalculate} recalculateFrac={fracData.recalculate}
           />
       }
     </div>
