@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { useSensorData } from './useSensorData'
 import ChartDisplay from './ChartDisplay'
 import DryingRateDisplay from './DryingRateDisplay'
@@ -54,9 +54,17 @@ export default function SensorsPane({ plantFilter, sensorFilter, calibrator }) {
     eventWindowWidth: Number(calibrator.params.widthMin) * 60 * 1000,
   }
 
+  const showFractionalRef = useRef(showFractional)
+  showFractionalRef.current = showFractional
+
   const handleRecalculate = () => {
-    calibrator.calculate({ plantFilter, sensorFilter, rangeHours, returnFractional: showFractional })
+    calibrator.calculate({ plantFilter, sensorFilter, rangeHours, returnFractional: showFractionalRef.current })
   }
+
+  useEffect(() => {
+    if (!plantFilter) return
+    calibrator.calculate({ plantFilter, sensorFilter, rangeHours, returnFractional: showFractionalRef.current })
+  }, [plantFilter, sensorFilter, rangeHours])
 
   return (
     <div className="pane-grid">

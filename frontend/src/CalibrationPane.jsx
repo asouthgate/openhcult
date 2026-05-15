@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { sensorPart } from './utils'
 import CalibrationCurve from './CalibrationCurve'
 import ScatterPlot from './ScatterPlot'
@@ -7,6 +7,14 @@ import { computeSwcStats } from './computeSwcStats'
 
 export default function CalibrationPane({ plantFilter, sensorFilter, calibrator }) {
   const [showFractional, setShowFractional] = useState(false)
+
+  const showFractionalRef = useRef(showFractional)
+  showFractionalRef.current = showFractional
+
+  useEffect(() => {
+    if (!plantFilter || sensorFilter === '__combined__') return
+    calibrator.calculate({ plantFilter, sensorFilter, rangeHours: 48, returnFractional: showFractionalRef.current })
+  }, [plantFilter, sensorFilter])
 
   const { calibration, calibError, calibLoading, params } = calibrator
   const hasSystemCapacity = params.systemCapacityMean !== '' && params.systemCapacityStd !== ''
