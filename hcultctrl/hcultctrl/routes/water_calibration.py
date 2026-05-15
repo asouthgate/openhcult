@@ -224,34 +224,78 @@ def _calibrate(conn, d, p: CalibrationParams):
 
 
 def _align_readings_by_sensor(all_readings, sensor_keys):
-    times_by_sensor = {}
-    volts_by_sensor = {}
+    """Group readings by sensor, returning aligned voltage arrays.
+
+    Sensors with no data in the time range are excluded from the result.
+    No interpolation is performed — if sensors have different timestamps,
+    NaNs will appear in the gaps.
+
+    Returns:
+        (all_times, voltages_per_sensor, active_sensor_keys)
+        where voltages_per_sensor has one array per active sensor,
+        all aligned to all_times.
+    """
+    keys_set = set(sensor_keys)
+    times_by_sensor = {k: [] for k in sensor_keys}
+    volts_by_sensor = {k: [] for k in sensor_keys}
+
     for r in all_readings:
         key = (r["device_address"], r["sensor"])
-        if key not in sensor_keys:
+        if key not in keys_set:
             continue
-        times_by_sensor.setdefault(key, []).append(r["adjusted_time_ms"])
-        volts_by_sensor.setdefault(key, []).append(r["voltage_mv"])
+        times_by_sensor[key].append(r["adjusted_time_ms"])
+        volts_by_sensor[key].append(r["voltage_mv"])
 
-    all_times = (
-        sorted(set().union(*[set(v) for v in times_by_sensor.values()]))
-        if times_by_sensor
-        else []
-    )
+    active_keys = [k for k in sensor_keys if times_by_sensor[k]]
+    excluded_keys = [k for k in sensor_keys if not times_by_sensor[k]]
+
+    if excluded_keys:
+        for k in excluded_keys:
+            logger.warning(
+                "Sensor %s/%s has no readings in time range, excluding",
+                k[0],
+                k[1],
+            )
+
+    if not active_keys:
+        return [], [], []
+
+    all_times = sorted(set().union(*[set(times_by_sensor[k]) for k in active_keys]))
     n = len(all_times)
     time_idx = {t: i for i, t in enumerate(all_times)}
 
+    sensor_time_sets = [set(times_by_sensor[k]) for k in active_keys]
+    if len(active_keys) > 1 and not all(
+        s == sensor_time_sets[0] for s in sensor_time_sets[1:]
+    ):
+        logger.warning(
+            "Sensors have different timestamps — no interpolation is performed, "
+            "NaNs will appear in gaps. all_times=%d",
+            n,
+        )
+
     voltages_per_sensor = []
-    for key in sensor_keys:
-        ts = times_by_sensor.get(key, [])
-        vs = volts_by_sensor.get(key, [])
+    for key in active_keys:
+        ts = times_by_sensor[key]
+        vs = volts_by_sensor[key]
         arr = np.full(n, np.nan)
         for t, v in zip(ts, vs):
             if t in time_idx:
                 arr[time_idx[t]] = v
         voltages_per_sensor.append(arr)
 
-    return all_times, voltages_per_sensor
+    X = np.column_stack(voltages_per_sensor)
+    n_nan = int(np.sum(~np.isfinite(X)))
+    if n_nan > 0:
+        total = X.size
+        logger.warning(
+            "Aligned voltage matrix has %d NaN values out of %d (%.1f%%)",
+            n_nan,
+            total,
+            100.0 * n_nan / total if total else 0,
+        )
+
+    return all_times, voltages_per_sensor, active_keys
 
 
 def _compute_drying_result(times_ms_arr, swc_samples, scale, lambda_tv=None):
@@ -297,9 +341,14 @@ def _predict_swc_timeseries(
             limit=50000,
         )
     )
-    all_times, voltages_per_sensor = _align_readings_by_sensor(
+    all_times, voltages_per_sensor, active_keys = _align_readings_by_sensor(
         all_readings, sensor_keys
     )
+    if not active_keys:
+        raise HTTPException(
+            status_code=400,
+            detail="No sensor data available in the specified time range",
+        )
     if len(all_times) < 2:
         raise HTTPException(
             status_code=400,
@@ -308,11 +357,12 @@ def _predict_swc_timeseries(
     X = np.column_stack(voltages_per_sensor)
 
     logger.info(
-        "_predict_swc_timeseries: n_readings=%d n_times=%d "
+        "_predict_swc_timeseries: n_readings=%d n_times=%d n_active_sensors=%d "
         "voltage_min=%s voltage_max=%s n_nan_in_X=%s "
         "cal_data_xmin=%s cal_xmax=%s",
         len(all_readings),
         len(all_times),
+        len(active_keys),
         float(np.nanmin(X)),
         float(np.nanmax(X)),
         int(np.sum(~np.isfinite(X))),
@@ -505,9 +555,14 @@ def drying_rate(
             limit=50000,
         )
     )
-    all_times, voltages_per_sensor = _align_readings_by_sensor(
+    all_times, voltages_per_sensor, active_keys = _align_readings_by_sensor(
         all_readings, sensor_keys
     )
+    if not active_keys:
+        raise HTTPException(
+            status_code=400,
+            detail="No sensor data available in the specified time range",
+        )
     X = np.column_stack(voltages_per_sensor)
     times_ms = np.array(all_times)
 

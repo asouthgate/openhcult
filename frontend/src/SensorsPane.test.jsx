@@ -11,6 +11,7 @@ const defaultCalibrator = {
   setParam: vi.fn(),
   calibration: null,
   calibLoading: false,
+  swcLoading: false,
   calibError: null,
   mappedSeries: [],
   mappedBands: [],
@@ -69,5 +70,13 @@ describe('SensorsPane error handling', () => {
     })
     expect(screen.queryByText(/Calibration failed/)).toBeNull()
     expect(screen.getByText(/No data in range/)).toBeTruthy()
+  })
+
+  it('shows loading when swcLoading is true even if calibLoading is false', () => {
+    renderWithProps({
+      calibrator: { ...defaultCalibrator, swcLoading: true, calibLoading: false },
+    })
+    fireEvent.click(screen.getByText('Water (ml)'))
+    expect(screen.getByText(/Computing calibration/)).toBeTruthy()
   })
 })

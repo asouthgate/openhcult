@@ -184,4 +184,29 @@ describe('useCalibrator', () => {
     expect(result.current.calibError).toBe('Calibration failed')
     expect(result.current.dryingRate).toEqual({ times_ms: [], rate_ml_per_day: [], valid: [], scale: 1 })
   })
+
+  it('sets swcLoading to true during calculate and false when swc_timeseries completes', async () => {
+    let swcResolve
+    const swcPromise = new Promise(resolve => { swcResolve = () => resolve({ times_ms: [], mean_swc: [] }) })
+    mockApiJson.mockImplementation((url) => {
+      if (url.includes('swc_timeseries')) return swcPromise
+      if (url.includes('water_calibration')) return Promise.resolve({ chords_x: [], mean: [] })
+      if (url.includes('drying_rate')) return Promise.resolve({ times_ms: [], rate_ml_per_day: [], valid: [], scale: 1 })
+      return Promise.resolve({})
+    })
+
+    const { result } = renderHook(() => useCalibrator())
+
+    await act(async () => {
+      result.current.calculate(calcArgs)
+    })
+
+    expect(result.current.swcLoading).toBe(true)
+
+    await act(async () => {
+      swcResolve()
+    })
+
+    await vi.waitFor(() => expect(result.current.swcLoading).toBe(false), { timeout: 2000 })
+  })
 })

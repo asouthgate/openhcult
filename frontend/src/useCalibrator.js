@@ -16,6 +16,7 @@ export function useCalibrator() {
   const [calibration, setCalibration] = useState(null)
   const [calibError, setCalibError] = useState(null)
   const [calibLoading, setCalibLoading] = useState(false)
+  const [swcLoading, setSwcLoading] = useState(false)
   const [dryingRate, setDryingRate] = useState(null)
   const [dryingRateLoading, setDryingRateLoading] = useState(false)
   const [mappedSeries, setMappedSeries] = useState([])
@@ -44,6 +45,7 @@ export function useCalibrator() {
     const drController = new AbortController()
     drControllerRef.current = drController
     setCalibLoading(true)
+    setSwcLoading(true)
     setCalibError(null)
     setDryingRateLoading(true)
     setMappedSeries([])
@@ -100,7 +102,7 @@ export function useCalibrator() {
         setMappedSeries([])
         setMappedBands([])
       })
-      .finally(() => {})
+      .finally(() => setSwcLoading(false))
 
     const waterParams = buildWaterCalibrationParams(plantFilter, sensorFilter, params, returnFractional)
     const waterController = new AbortController()
@@ -141,6 +143,7 @@ export function useCalibrator() {
     calibration,
     calibError,
     calibLoading,
+    swcLoading,
     dryingRate,
     dryingRateLoading,
     mappedSeries,

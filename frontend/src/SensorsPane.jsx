@@ -84,7 +84,7 @@ export default function SensorsPane({ plantFilter, sensorFilter, calibrator }) {
               loading={sensorLoading}
               sensorError={sensorError}
               calibError={calibrator.calibError}
-              calibLoading={calibrator.calibLoading}
+              calibLoading={calibrator.calibLoading || calibrator.swcLoading}
               isWaterMode={isWaterMode}
               hasCalibration={calibrator.mappedSeries.length > 0}
               plantFilter={plantFilter}
@@ -97,7 +97,7 @@ export default function SensorsPane({ plantFilter, sensorFilter, calibrator }) {
           calibParams={calibrator.params}
           setCalibParam={calibrator.setParam}
           recalculate={handleRecalculate}
-          calibLoading={calibrator.calibLoading}
+          calibLoading={calibrator.calibLoading || calibrator.swcLoading}
           plantFilter={plantFilter}
         />
       </div>
