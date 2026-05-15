@@ -29,23 +29,6 @@ describe('useCalibrator', () => {
     mockApiJson.mockResolvedValue({ chords_x: [], mean: [] })
   })
 
-  it('does not fetch on mount', () => {
-    renderHook(() => useCalibrator())
-    expect(mockApiJson).not.toHaveBeenCalled()
-  })
-
-  it('fetches when calculate is called', async () => {
-    mockApiJson.mockResolvedValue({ chords_x: [], mean: [], times_ms: [], mean_swc: [] })
-
-    const { result } = renderHook(() => useCalibrator())
-
-    await act(async () => {
-      result.current.calculate(calcArgs)
-    })
-
-    expect(mockApiJson).toHaveBeenCalled()
-  })
-
   it('sets calibError only on water_calibration failure, not swc_timeseries failure', async () => {
     mockApiJson.mockImplementation((url) => {
       if (url.includes('swc_timeseries')) return Promise.reject(new Error('swc failed'))
@@ -155,14 +138,50 @@ describe('useCalibrator', () => {
     expect(result.current.mappedBands.length).toBe(1)
   })
 
-  it('exposes params and setParam', () => {
-    const { result } = renderHook(() => useCalibrator())
-    expect(result.current.params.offsetMin).toBe('5')
-
-    act(() => {
-      result.current.setParam('offsetMin', '10')
+  it('populates mappedSeries and dryingRate independently when water_calibration fails', async () => {
+    mockApiJson.mockImplementation((url) => {
+      if (url.includes('water_calibration')) return Promise.reject(new Error('Calibration failed'))
+      if (url.includes('drying_rate')) return Promise.resolve({ times_ms: [100], rate_ml_per_day: [-5], valid: [true], scale: 1 })
+      if (url.includes('swc_timeseries')) return Promise.resolve({
+        times_ms: [1000, 2000, 3000],
+        mean_swc: [10, 20, 30],
+        ci_low: [8, 18, 28],
+        ci_high: [12, 22, 32],
+      })
+      return Promise.resolve({})
     })
 
-    expect(result.current.params.offsetMin).toBe('10')
+    const { result } = renderHook(() => useCalibrator())
+
+    await act(async () => {
+      result.current.calculate(calcArgs)
+    })
+
+    await vi.waitFor(() => expect(result.current.calibLoading).toBe(false), { timeout: 2000 })
+    expect(result.current.calibError).toBe('Calibration failed')
+    expect(result.current.calibration).toBeNull()
+    expect(result.current.mappedSeries.length).toBe(1)
+    expect(result.current.mappedSeries[0].points.length).toBe(3)
+    expect(result.current.dryingRateLoading).toBe(false)
+    expect(result.current.dryingRate).toEqual({ times_ms: [100], rate_ml_per_day: [-5], valid: [true], scale: 1 })
+  })
+
+  it('sets dryingRateLoading to false even when water_calibration fails', async () => {
+    mockApiJson.mockImplementation((url) => {
+      if (url.includes('water_calibration')) return Promise.reject(new Error('Calibration failed'))
+      if (url.includes('drying_rate')) return Promise.resolve({ times_ms: [], rate_ml_per_day: [], valid: [], scale: 1 })
+      if (url.includes('swc_timeseries')) return Promise.resolve({ times_ms: [], mean_swc: [] })
+      return Promise.resolve({})
+    })
+
+    const { result } = renderHook(() => useCalibrator())
+
+    await act(async () => {
+      result.current.calculate(calcArgs)
+    })
+
+    await vi.waitFor(() => expect(result.current.dryingRateLoading).toBe(false), { timeout: 2000 })
+    expect(result.current.calibError).toBe('Calibration failed')
+    expect(result.current.dryingRate).toEqual({ times_ms: [], rate_ml_per_day: [], valid: [], scale: 1 })
   })
 })

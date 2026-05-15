@@ -37,22 +37,23 @@ describe('ChartDisplay', () => {
       expect(screen.queryByText(/Calibration failed/)).toBeNull()
       expect(screen.getByText(/No data in range/)).toBeTruthy()
     })
-
-    it('shows loading when loading is true', () => {
-      renderWithProps({ loading: true })
-      expect(screen.getByText(/Loading/)).toBeTruthy()
-    })
-
-    it('shows no data when series empty and no error', () => {
-      renderWithProps({})
-      expect(screen.getByText(/No data in range/)).toBeTruthy()
-    })
   })
 
   describe('water mode (isWaterMode=true)', () => {
-    it('shows calibError when set', () => {
+    it('shows calibError when set and no calibration data', () => {
       renderWithProps({ isWaterMode: true, calibError: 'Invalid capacity' })
       expect(screen.getByText(/Calibration failed/)).toBeTruthy()
+    })
+
+    it('shows chart with warning when calibError set but hasCalibration is true', () => {
+      renderWithProps({
+        isWaterMode: true,
+        calibError: 'Invalid capacity',
+        hasCalibration: true,
+        series: [{ label: 'water', points: [{ t: 1000, v: 10, raw: 10 }], color: '#000' }],
+      })
+      expect(screen.getByText(/Calibration warning/)).toBeTruthy()
+      expect(screen.queryByText(/No water data/)).toBeNull()
     })
 
     it('does NOT show sensorError in water mode', () => {

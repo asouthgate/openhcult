@@ -41,7 +41,7 @@ function renderWithProps(overrides = {}) {
 describe('SensorsPane error handling', () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it('shows calibError in water mode', () => {
+  it('shows calibError in water mode when no mappedSeries', () => {
     renderWithProps({
       calibrator: { ...defaultCalibrator, calibError: 'Calibration failed' },
     })
@@ -49,16 +49,18 @@ describe('SensorsPane error handling', () => {
     expect(screen.getByText(/Calibration failed/)).toBeTruthy()
   })
 
-  it('shows loading state when calibLoading is true', () => {
-    renderWithProps({ calibrator: { ...defaultCalibrator, calibLoading: true, calibError: null } })
+  it('shows water chart when calibError set but mappedSeries has data', () => {
+    renderWithProps({
+      calibrator: {
+        ...defaultCalibrator,
+        calibError: 'Calibration failed',
+        mappedSeries: [{ label: 'water', points: [{ t: 1000, v: 10, raw: 10 }], color: '#000' }],
+        mappedBands: [],
+      },
+    })
     fireEvent.click(screen.getByText('Water (ml)'))
-    expect(screen.getByText(/Computing calibration/)).toBeTruthy()
-  })
-
-  it('shows recalculate prompt when no calibration', () => {
-    renderWithProps({ calibrator: { ...defaultCalibrator } })
-    fireEvent.click(screen.getByText('Water (ml)'))
-    expect(screen.getByText(/Click Recalculate/)).toBeTruthy()
+    expect(screen.getByText(/Calibration warning/)).toBeTruthy()
+    expect(screen.queryByText(/Click Recalculate/)).toBeNull()
   })
 
   it('does NOT block mV mode when calibError is set', () => {

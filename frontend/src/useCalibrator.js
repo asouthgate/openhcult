@@ -103,12 +103,6 @@ export function useCalibrator() {
           }
           autoStdSet.current = true
         }
-
-        const drParams = buildDryingRateParams(plantFilter, sensorFilter, params, rangeHours, isCombined, returnFractional)
-        apiJson(`/drying_rate?${drParams}`, { signal: drController.signal })
-          .then(dr => setDryingRate(dr))
-          .catch(() => setDryingRate(null))
-          .finally(() => setDryingRateLoading(false))
       })
       .catch(err => {
         if (err.name !== 'AbortError') {
@@ -117,6 +111,12 @@ export function useCalibrator() {
         setCalibration(null)
       })
       .finally(() => setCalibLoading(false))
+
+    const drParams = buildDryingRateParams(plantFilter, sensorFilter, params, rangeHours, isCombined, returnFractional)
+    apiJson(`/drying_rate?${drParams}`, { signal: drController.signal })
+      .then(dr => setDryingRate(dr))
+      .catch(() => setDryingRate(null))
+      .finally(() => setDryingRateLoading(false))
 
     return () => { swcController.abort(); drController.abort(); waterController.abort() }
   }, [params])

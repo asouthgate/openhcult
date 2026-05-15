@@ -9,30 +9,33 @@ export default function ChartDisplay({
     if (calibLoading) {
       return <div className="loading"><span className="spinner" />Computing calibration…</div>
     }
-    if (calibError) {
-      return <div className="full error">Calibration failed: {calibError}</div>
-    }
     if (!plantFilter) {
       return <div className="empty">Select a plant to show water estimates</div>
     }
     if (!hasCalibration) {
+      if (calibError) {
+        return <div className="full error">Calibration failed: {calibError}</div>
+      }
       return <div className="empty">Click Recalculate to compute water estimates</div>
     }
     if (series.length === 0) {
       return <div className="empty">No water data in range.</div>
     }
     return (
-      <TimeseriesChart
-        series={series}
-        bands={bands}
-        observations={observations}
-        rangeMs={rangeMs}
-        onTimePick={onTimePick}
-        pendingTime={pendingTime}
-        yLabel={yLabel}
-        eventWindowOffset={eventWindowOffset}
-        eventWindowWidth={eventWindowWidth}
-      />
+      <div>
+        {calibError && <div className="full error">Calibration warning: {calibError}</div>}
+        <TimeseriesChart
+          series={series}
+          bands={bands}
+          observations={observations}
+          rangeMs={rangeMs}
+          onTimePick={onTimePick}
+          pendingTime={pendingTime}
+          yLabel={yLabel}
+          eventWindowOffset={eventWindowOffset}
+          eventWindowWidth={eventWindowWidth}
+        />
+      </div>
     )
   }
 
