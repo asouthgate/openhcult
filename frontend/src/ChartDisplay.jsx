@@ -3,7 +3,7 @@ import { TimeseriesChart } from './TimeseriesChart'
 export default function ChartDisplay({
   series, bands, observations, rangeMs, onTimePick, pendingTime, yLabel,
   eventWindowOffset, eventWindowWidth, loading, calibError, calibLoading,
-  isWaterMode, isCombined, hasCalibration, plantFilter, hasSystemCapacity,
+  isWaterMode, hasCalibration, plantFilter,
 }) {
   if (calibError) {
     return <div className="full error">{calibError}</div>
@@ -21,16 +21,8 @@ export default function ChartDisplay({
     return <div className="empty">Select a plant to show water estimates</div>
   }
 
-  if (isWaterMode && plantFilter && !hasSystemCapacity && !hasCalibration) {
+  if (isWaterMode && !hasCalibration) {
     return <div className="empty">Enter system capacity params and recalculate to show water estimates</div>
-  }
-
-  if (isWaterMode && !isCombined && !hasCalibration) {
-    return <div className="empty">Click Recalculate to compute water calibration</div>
-  }
-
-  if (isCombined && isWaterMode && !bands && !series.length) {
-    return <div className="empty">No combined SWC data available.</div>
   }
 
   if (series.length === 0) {

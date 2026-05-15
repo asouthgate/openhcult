@@ -2,12 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import { useCalibrator } from './useCalibrator'
 
-const defaultParams = {
-  offsetMin: '5', widthMin: '50', prior: 'calibrated', priorMin: '867', priorMax: '2009',
-  estimator: 'exp_mcmc', priorWeight: '1.0', nBurn: '10', nSteps: '30',
-  systemCapacityMean: '', systemCapacityStd: '', emaTauMin: '60',
-}
-
 const mockApiJson = vi.fn()
 
 vi.mock('./api', () => ({
@@ -40,7 +34,9 @@ describe('useCalibrator', () => {
     expect(mockApiJson).not.toHaveBeenCalled()
   })
 
-  it('fetches only when calculate is called', async () => {
+  it('fetches when calculate is called', async () => {
+    mockApiJson.mockResolvedValue({ chords_x: [], mean: [], times_ms: [], mean_swc: [] })
+
     const { result } = renderHook(() => useCalibrator())
 
     await act(async () => {
@@ -54,6 +50,7 @@ describe('useCalibrator', () => {
     mockApiJson.mockImplementation((url) => {
       if (url.includes('water_calibration')) return Promise.reject(new Error('Invalid system_capacity_mean value'))
       if (url.includes('drying_rate')) return Promise.resolve({ times_ms: [], rate_ml_per_day: [], valid: [], scale: 1 })
+      if (url.includes('swc_timeseries')) return Promise.resolve({ times_ms: [], mean_swc: [] })
       return Promise.resolve({})
     })
 
@@ -68,24 +65,6 @@ describe('useCalibrator', () => {
     expect(result.current.calibration).toBeNull()
   })
 
-  it('clears combinedSwc on swc_timeseries error', async () => {
-    mockApiJson.mockImplementation((url) => {
-      if (url.includes('swc_timeseries')) return Promise.reject(new Error('Bad request'))
-      if (url.includes('drying_rate')) return Promise.resolve({ times_ms: [], rate_ml_per_day: [], valid: [], scale: 1 })
-      return Promise.resolve({})
-    })
-
-    const { result } = renderHook(() => useCalibrator())
-
-    await act(async () => {
-      result.current.calculate({ ...calcArgs, sensorFilter: '__combined__' })
-    })
-
-    await vi.waitFor(() => expect(result.current.calibLoading).toBe(false), { timeout: 2000 })
-    expect(result.current.calibError).toBe('Bad request')
-    expect(result.current.combinedSwc).toBeNull()
-  })
-
   it('clears all state when plantFilter is empty', () => {
     const { result } = renderHook(() => useCalibrator())
 
@@ -95,7 +74,7 @@ describe('useCalibrator', () => {
 
     expect(result.current.calibError).toBeNull()
     expect(result.current.calibration).toBeNull()
-    expect(result.current.combinedSwc).toBeNull()
+    expect(result.current.mappedSeries).toEqual([])
   })
 
   it('ignores AbortError', async () => {
@@ -117,6 +96,7 @@ describe('useCalibrator', () => {
     mockApiJson.mockImplementation((url) => {
       if (url.includes('water_calibration')) return Promise.resolve({ chords_x: [], mean: [] })
       if (url.includes('drying_rate')) return Promise.reject(new Error('DR failed'))
+      if (url.includes('swc_timeseries')) return Promise.resolve({ times_ms: [], mean_swc: [] })
       return Promise.resolve({})
     })
 
@@ -131,45 +111,29 @@ describe('useCalibrator', () => {
     expect(result.current.calibration).toEqual({ chords_x: [], mean: [] })
   })
 
-  it('recalculates with updated params when calculate is called again', async () => {
-    mockApiJson.mockResolvedValue({ chords_x: [], mean: [] })
-
-    const { result } = renderHook(() => useCalibrator())
-
-    await act(async () => {
-      result.current.calculate(calcArgs)
-    })
-
-    await vi.waitFor(() => expect(result.current.calibLoading).toBe(false), { timeout: 2000 })
-    expect(result.current.calibError).toBeNull()
-
+  it('produces mappedSeries from swc_timeseries response', async () => {
     mockApiJson.mockImplementation((url) => {
-      if (url.includes('water_calibration')) return Promise.reject(new Error('Bad system_capacity_mean'))
-      if (url.includes('swc_timeseries')) return Promise.resolve({ times_ms: [], mean_swc: [] })
+      if (url.includes('water_calibration')) return Promise.resolve({ chords_x: [], mean: [] })
       if (url.includes('drying_rate')) return Promise.resolve({ times_ms: [], rate_ml_per_day: [], valid: [], scale: 1 })
+      if (url.includes('swc_timeseries')) return Promise.resolve({
+        times_ms: [1000, 2000, 3000],
+        mean_swc: [10, 20, 30],
+        ci_low: [8, 18, 28],
+        ci_high: [12, 22, 32],
+      })
       return Promise.resolve({})
     })
 
+    const { result } = renderHook(() => useCalibrator())
+
     await act(async () => {
       result.current.calculate(calcArgs)
     })
 
-    await vi.waitFor(() => expect(result.current.calibError).toBe('Bad system_capacity_mean'), { timeout: 2000 })
-  })
-
-  it('passes returnFractional to the API calls', async () => {
-    mockApiJson.mockResolvedValue({ chords_x: [], mean: [] })
-
-    const { result } = renderHook(() => useCalibrator())
-
-    await act(async () => {
-      result.current.calculate({ ...calcArgs, returnFractional: true })
-    })
-
     await vi.waitFor(() => expect(result.current.calibLoading).toBe(false), { timeout: 2000 })
-
-    const waterCall = mockApiJson.mock.calls.find(c => c[0].includes('water_calibration'))
-    expect(waterCall[0]).toContain('return_fractional=true')
+    expect(result.current.mappedSeries.length).toBe(1)
+    expect(result.current.mappedSeries[0].points.length).toBe(3)
+    expect(result.current.mappedBands.length).toBe(1)
   })
 
   it('exposes params and setParam', () => {

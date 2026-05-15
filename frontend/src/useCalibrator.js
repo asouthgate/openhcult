@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from 'react'
 import { apiJson } from './api'
 import { buildSwcTimeseriesParams, buildDryingRateParams, buildWaterCalibrationParams } from './paramsBuilder'
+import { PALETTE } from './theme'
 
 const DEFAULT_CALIB_PARAMS = {
   offsetMin: '5', widthMin: '50', prior: 'calibrated', priorMin: '867', priorMax: '2009',
@@ -15,7 +16,8 @@ export function useCalibrator() {
   const [calibLoading, setCalibLoading] = useState(false)
   const [dryingRate, setDryingRate] = useState(null)
   const [dryingRateLoading, setDryingRateLoading] = useState(false)
-  const [combinedSwc, setCombinedSwc] = useState(null)
+  const [mappedSeries, setMappedSeries] = useState([])
+  const [mappedBands, setMappedBands] = useState([])
 
   const drControllerRef = useRef(null)
 
@@ -31,7 +33,8 @@ export function useCalibrator() {
       setCalibError(null)
       setDryingRate(null)
       setDryingRateLoading(false)
-      setCombinedSwc(null)
+      setMappedSeries([])
+      setMappedBands([])
       return
     }
 
@@ -42,34 +45,46 @@ export function useCalibrator() {
     setCalibLoading(true)
     setCalibError(null)
     setDryingRateLoading(true)
+    setMappedSeries([])
+    setMappedBands([])
 
     const autoStdSet = { current: false }
 
-    if (isCombined) {
-      const swcParams = buildSwcTimeseriesParams(plantFilter, params, rangeHours, returnFractional)
-      setCalibration(null)
-      setCombinedSwc(null)
-      apiJson(`/swc_timeseries?${swcParams}`, { signal: controller.signal })
-        .then(d => { setCombinedSwc(d); setCalibLoading(false) })
-        .catch(err => {
-          if (err.name !== 'AbortError') {
-            console.error(err)
-            setCalibError(err.message)
-            setCombinedSwc(null)
-            setCalibLoading(false)
-          }
-        })
+    const endMs = Date.now()
+    const startMs = endMs - rangeHours * 3600 * 1000
 
-      const drParams = buildDryingRateParams(plantFilter, '', params, rangeHours, true, returnFractional)
-      apiJson(`/drying_rate?${drParams}`, { signal: drController.signal })
-        .then(dr => setDryingRate(dr))
-        .catch(() => setDryingRate(null))
-        .finally(() => setDryingRateLoading(false))
-
-      return () => { controller.abort(); drController.abort() }
+    const swcParams = buildSwcTimeseriesParams(plantFilter, params, rangeHours, returnFractional)
+    if (!isCombined && sensorFilter) {
+      const sep = sensorFilter.lastIndexOf(':')
+      swcParams.set('sensor', sensorFilter.slice(sep + 1))
+      swcParams.set('device_address', sensorFilter.slice(0, sep))
     }
+    swcParams.set('start_ms', String(startMs))
+    swcParams.set('end_ms', String(endMs))
 
-    setCombinedSwc(null)
+    apiJson(`/swc_timeseries?${swcParams}`, { signal: controller.signal })
+      .then(swc => {
+        if (!swc.times_ms?.length) {
+          setMappedSeries([])
+          setMappedBands([])
+          return
+        }
+
+        const label = isCombined ? 'Combined SWC' : `${plantFilter} / water`
+        const color = PALETTE[0]
+        const points = swc.times_ms.map((t, i) => ({ t, v: swc.mean_swc[i], raw: swc.mean_swc[i] })).filter(p => p.v != null)
+        const bandPoints = swc.times_ms.map((t, i) => ({ t, lo: swc.ci_low[i], hi: swc.ci_high[i] })).filter(p => p.lo != null && p.hi != null)
+
+        setMappedSeries(points.length ? [{ label, points, color }] : [])
+        setMappedBands(bandPoints.length ? [{ color, points: bandPoints }] : [])
+      })
+      .catch(err => {
+        if (err.name !== 'AbortError') {
+          console.error(err)
+          setCalibError(err.message)
+        }
+      })
+
     const waterParams = buildWaterCalibrationParams(plantFilter, sensorFilter, params, returnFractional)
 
     apiJson(`/water_calibration?${waterParams}`, { signal: controller.signal })
@@ -85,7 +100,7 @@ export function useCalibrator() {
           autoStdSet.current = true
         }
 
-        const drParams = buildDryingRateParams(plantFilter, sensorFilter, params, rangeHours, false, returnFractional)
+        const drParams = buildDryingRateParams(plantFilter, sensorFilter, params, rangeHours, isCombined, returnFractional)
         apiJson(`/drying_rate?${drParams}`, { signal: drController.signal })
           .then(dr => setDryingRate(dr))
           .catch(() => setDryingRate(null))
@@ -111,7 +126,8 @@ export function useCalibrator() {
     calibLoading,
     dryingRate,
     dryingRateLoading,
-    combinedSwc,
+    mappedSeries,
+    mappedBands,
     calculate,
   }
 }

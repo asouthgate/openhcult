@@ -4,10 +4,7 @@ import ChartDisplay from './ChartDisplay'
 import DryingRateDisplay from './DryingRateDisplay'
 import ObservationsPanel, { usePendingTime } from './ObservationsPanel'
 import CalibrationControls from './CalibrationControls'
-import {
-  transformSeriesToWaterMode,
-  transformCombinedSwc,
-} from './sensorDataTransforms'
+import { transformRateSeries } from './sensorDataTransforms'
 
 const TIME_RANGES = [
   { label: '6h', hours: 6 },
@@ -29,30 +26,17 @@ export default function SensorsPane({ plantFilter, sensorFilter, calibrator }) {
 
   const { pendingTime, pendingPlant, pendingMl, pickTime, cancel: cancelPending, setPendingMl } = usePendingTime()
 
-  const isCombined = sensorFilter === '__combined__'
-  const hasSystemCapacity = calibrator.params.systemCapacityMean !== '' && calibrator.params.systemCapacityStd !== ''
   const isRateMode = measureMode === 'rate'
   const isWaterMode = measureMode === 'water' || measureMode === 'fractional'
 
-  const { mappedSeries, bands } = useMemo(() => {
-    if (isRateMode) return { mappedSeries: [], bands: [] }
-
-    if (isWaterMode && !isCombined && !calibrator.calibration) {
-      return { mappedSeries: series, bands: [] }
-    }
-
-    if (isCombined && isWaterMode) {
-      return transformCombinedSwc(calibrator.combinedSwc, measureMode)
-    }
-
-    return transformSeriesToWaterMode(series, calibrator.calibration, measureMode)
-  }, [series, measureMode, calibrator, isCombined, isRateMode])
+  const displaySeries = isWaterMode ? calibrator.mappedSeries : series
+  const displayBands = isWaterMode ? calibrator.mappedBands : []
 
   const handleTimePick = t => pickTime(t, plantFilter)
 
   const chartProps = {
-    series: mappedSeries,
-    bands,
+    series: displaySeries,
+    bands: displayBands,
     observations,
     rangeMs: rangeHours * 3600 * 1000,
     onTimePick: handleTimePick,
@@ -93,10 +77,8 @@ export default function SensorsPane({ plantFilter, sensorFilter, calibrator }) {
               calibError={calibrator.calibError}
               calibLoading={calibrator.calibLoading}
               isWaterMode={isWaterMode}
-              isCombined={isCombined}
-              hasCalibration={!!calibrator.calibration}
+              hasCalibration={calibrator.mappedSeries.length > 0}
               plantFilter={plantFilter}
-              hasSystemCapacity={hasSystemCapacity}
             />
         }
       </div>
