@@ -167,7 +167,7 @@ def samples_swc_at(x, scale_s, k_s, f_int_s, data_xmin, xmax):
     f_exp = f_int_s[:, None, :]
     u_b = u[None, :, :]
 
-    g_mean = np.mean(_compute_g(k_exp, f_exp, u_b), axis=2)
+    g_mean = np.nanmean(_compute_g(k_exp, f_exp, u_b), axis=2)
     return scale_s[:, None] * g_mean
 
 
@@ -265,16 +265,20 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         self._data_xmin = None
 
     def _reshape_x(self, x):
-        x = np.atleast_1d(np.asarray(x))
+        x = np.atleast_1d(np.asarray(x, dtype=float))
         if x.ndim == 1:
-            x = (
-                np.column_stack([x] * self.n_sensors)
-                if self.n_sensors > 1
-                else x[:, None]
+            if self.n_sensors == 1:
+                x = x[:, None]
+            else:
+                x = np.column_stack([x] * self.n_sensors)
+        if x.shape[1] < self.n_sensors:
+            pad = np.full((x.shape[0], self.n_sensors - x.shape[1]), np.nan)
+            x = np.column_stack([x, pad])
+        if x.shape[1] > self.n_sensors:
+            raise ValueError(
+                f"x has {x.shape[1]} columns but model expects {self.n_sensors}; "
+                f"provide x as (n_points, {self.n_sensors}) array"
             )
-        assert (
-            x.ndim == 2 and x.shape[1] == self.n_sensors
-        ), f"x must have shape (n_points, {self.n_sensors}), got {x.shape}"
         return x
 
     def _compute_mean(self, x):

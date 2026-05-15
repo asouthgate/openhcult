@@ -151,3 +151,41 @@ def test_combined_water_between_individual_sensors(seeded_db):
     finite = fused_swc[np.isfinite(fused_swc)]
     assert len(finite) > 0, "Should have some valid SWC predictions"
     assert np.all(finite >= 0), "SWC should be non-negative"
+
+
+def test_swc_timeseries_with_empty_sensor(seeded_db):
+    if not os.path.exists(_CALIB_CSV):
+        pytest.skip("calib/calibration.csv not found")
+
+    import time
+
+    plant_name = _FIDDLE_LEAF
+    db_conn = seeded_db.conn
+    plant = database.fetch_plant_by_name(db_conn, plant_name=plant_name)
+
+    ghost_device_id = database.register_device(
+        db_conn, f"pytest-ghost-dev-{uuid.uuid4().hex[:6]}", f"AA:DE:AD:BE:EF:99"
+    )
+    database.assign_plant_sensor(
+        db_conn,
+        plant_id=plant["id"],
+        device_id=ghost_device_id,
+        sensor="cap_ghost",
+        assigned_at=0,
+    )
+
+    now_ms = int(time.time() * 1000)
+    start_ms = now_ms - 7 * 24 * 3600 * 1000
+
+    result = request_json(
+        f"/swc_timeseries?plant={plant_name}&prior=calibrated"
+        f"&start_ms={start_ms}&end_ms={now_ms}"
+    )
+
+    assert "times_ms" in result
+    assert "mean_swc" in result
+
+    fused_swc = np.array([v if v is not None else np.nan for v in result["mean_swc"]])
+    finite = fused_swc[np.isfinite(fused_swc)]
+    assert len(finite) > 0, "Should have valid SWC predictions despite empty sensor"
+    assert np.all(finite >= 0), "SWC should be non-negative"

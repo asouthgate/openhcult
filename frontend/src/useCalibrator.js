@@ -98,6 +98,7 @@ export function useCalibrator() {
       .catch(err => {
         if (err.name !== 'AbortError') {
           console.error('swc_timeseries error:', err)
+          setCalibError(err.message)
         }
         setMappedSeries([])
         setMappedBands([])

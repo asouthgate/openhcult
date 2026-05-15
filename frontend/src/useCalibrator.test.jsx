@@ -29,7 +29,7 @@ describe('useCalibrator', () => {
     mockApiJson.mockResolvedValue({ chords_x: [], mean: [] })
   })
 
-  it('sets calibError only on water_calibration failure, not swc_timeseries failure', async () => {
+  it('sets calibError on swc_timeseries failure', async () => {
     mockApiJson.mockImplementation((url) => {
       if (url.includes('swc_timeseries')) return Promise.reject(new Error('swc failed'))
       if (url.includes('water_calibration')) return Promise.resolve({ chords_x: [], mean: [] })
@@ -43,8 +43,8 @@ describe('useCalibrator', () => {
       result.current.calculate(calcArgs)
     })
 
-    await vi.waitFor(() => expect(result.current.calibLoading).toBe(false), { timeout: 2000 })
-    expect(result.current.calibError).toBeNull()
+    await vi.waitFor(() => expect(result.current.swcLoading).toBe(false), { timeout: 2000 })
+    expect(result.current.calibError).toBe('swc failed')
     expect(result.current.mappedSeries).toEqual([])
   })
 

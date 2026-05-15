@@ -187,7 +187,7 @@ def _validate_linear_prior(prior, prior_min, prior_max):
         )
 
 
-def _calibrate(conn, d, p: CalibrationParams):
+def _calibrate(d, p: CalibrationParams):
     active_sensors = d["active_sensors"]
     n_sensors = len(active_sensors)
     exp_xmax = max(
@@ -223,18 +223,10 @@ def _calibrate(conn, d, p: CalibrationParams):
     return cal
 
 
-def _align_readings_by_sensor(all_readings, sensor_keys):
-    """Group readings by sensor, returning aligned voltage arrays.
+def _readings_to_input_data_array(all_readings, sensor_keys):
+    if not sensor_keys:
+        return [], np.empty((0, 0)), set()
 
-    Sensors with no data in the time range are excluded from the result.
-    No interpolation is performed — if sensors have different timestamps,
-    NaNs will appear in the gaps.
-
-    Returns:
-        (all_times, voltages_per_sensor, active_sensor_keys)
-        where voltages_per_sensor has one array per active sensor,
-        all aligned to all_times.
-    """
     keys_set = set(sensor_keys)
     times_by_sensor = {k: [] for k in sensor_keys}
     volts_by_sensor = {k: [] for k in sensor_keys}
@@ -246,28 +238,35 @@ def _align_readings_by_sensor(all_readings, sensor_keys):
         times_by_sensor[key].append(r["adjusted_time_ms"])
         volts_by_sensor[key].append(r["voltage_mv"])
 
-    active_keys = [k for k in sensor_keys if times_by_sensor[k]]
-    excluded_keys = [k for k in sensor_keys if not times_by_sensor[k]]
+    sensors_with_data = {k for k in sensor_keys if times_by_sensor[k]}
+    sensors_without_data = {k for k in sensor_keys if not times_by_sensor[k]}
 
-    if excluded_keys:
-        for k in excluded_keys:
+    if sensors_without_data:
+        for k in sorted(sensors_without_data):
             logger.warning(
-                "Sensor %s/%s has no readings in time range, excluding",
+                "Sensor %s/%s has no readings in time range, column will be NaN",
                 k[0],
                 k[1],
             )
 
-    if not active_keys:
-        return [], [], []
+    if not sensors_with_data:
+        return [], np.empty((0, 0)), sensors_with_data
 
-    all_times = sorted(set().union(*[set(times_by_sensor[k]) for k in active_keys]))
+    all_times = sorted(
+        set().union(
+            *(set(times_by_sensor[k]) for k in sensor_keys if times_by_sensor[k])
+        )
+    )
     n = len(all_times)
     time_idx = {t: i for i, t in enumerate(all_times)}
 
-    sensor_time_sets = [set(times_by_sensor[k]) for k in active_keys]
-    if len(active_keys) > 1 and not all(
-        s == sensor_time_sets[0] for s in sensor_time_sets[1:]
-    ):
+    same_timestamps = all(
+        set(times_by_sensor[k])
+        == set(times_by_sensor[next(k for k in sensor_keys if times_by_sensor[k])])
+        for k in sensor_keys
+        if times_by_sensor[k]
+    )
+    if not same_timestamps and len(sensors_with_data) > 1:
         logger.warning(
             "Sensors have different timestamps — no interpolation is performed, "
             "NaNs will appear in gaps. all_times=%d",
@@ -275,7 +274,7 @@ def _align_readings_by_sensor(all_readings, sensor_keys):
         )
 
     voltages_per_sensor = []
-    for key in active_keys:
+    for key in sensor_keys:
         ts = times_by_sensor[key]
         vs = volts_by_sensor[key]
         arr = np.full(n, np.nan)
@@ -295,7 +294,7 @@ def _align_readings_by_sensor(all_readings, sensor_keys):
             100.0 * n_nan / total if total else 0,
         )
 
-    return all_times, voltages_per_sensor, active_keys
+    return all_times, X, sensors_with_data
 
 
 def _compute_drying_result(times_ms_arr, swc_samples, scale, lambda_tv=None):
@@ -341,10 +340,11 @@ def _predict_swc_timeseries(
             limit=50000,
         )
     )
-    all_times, voltages_per_sensor, active_keys = _align_readings_by_sensor(
+    all_times, X, sensors_with_data = _readings_to_input_data_array(
         all_readings, sensor_keys
     )
-    if not active_keys:
+    n_active_sensors = len(sensors_with_data)
+    if not n_active_sensors:
         raise HTTPException(
             status_code=400,
             detail="No sensor data available in the specified time range",
@@ -354,7 +354,6 @@ def _predict_swc_timeseries(
             status_code=400,
             detail="Not enough sensor readings in the specified time range",
         )
-    X = np.column_stack(voltages_per_sensor)
 
     logger.info(
         "_predict_swc_timeseries: n_readings=%d n_times=%d n_active_sensors=%d "
@@ -362,7 +361,7 @@ def _predict_swc_timeseries(
         "cal_data_xmin=%s cal_xmax=%s",
         len(all_readings),
         len(all_times),
-        len(active_keys),
+        n_active_sensors,
         float(np.nanmin(X)),
         float(np.nanmax(X)),
         int(np.sum(~np.isfinite(X))),
@@ -415,7 +414,7 @@ def water_calibration(p: CalibrationParams = Depends(), conn=Depends(get_db_conn
 
     sensor_specs = _resolve_sensors(conn, p)
     d = _fetch_cord_data(conn, p.plant, sensor_specs, p)
-    cal = _calibrate(conn, d, p)
+    cal = _calibrate(d, p)
     plot_x = np.linspace(d["x_arr"].min(), d["x_arr"].max(), 500)
     plot_prior_y = np.interp(plot_x, d["prior_x"], d["prior_y"])
 
@@ -473,7 +472,7 @@ def swc_timeseries(
 
     sensor_specs = _resolve_sensors(conn, p)
     d = _fetch_cord_data(conn, p.plant, sensor_specs, p)
-    cal = _calibrate(conn, d, p)
+    cal = _calibrate(d, p)
 
     sensor_keys = [(ps["device_address"], ps["sensor"]) for ps in d["active_sensors"]]
     times_ms, mean_swc, ci_low, ci_high = _predict_swc_timeseries(
@@ -518,9 +517,6 @@ def drying_rate(
     p: CalibrationParams = Depends(),
     start_utc: str | None = None,
     end_utc: str | None = None,
-    combined: bool = False,
-    combine_method: str = "bayesian",
-    sigma_bias: float = 0.0,
     lambda_tv: float | None = None,
     conn=Depends(get_db_conn),
 ):
@@ -543,7 +539,7 @@ def drying_rate(
 
     sensor_specs = _resolve_sensors(conn, p)
     d = _fetch_cord_data(conn, p.plant, sensor_specs, p)
-    cal = _calibrate(conn, d, p)
+    cal = _calibrate(d, p)
 
     sensor_keys = [(ps["device_address"], ps["sensor"]) for ps in d["active_sensors"]]
     all_readings = list(
@@ -555,15 +551,15 @@ def drying_rate(
             limit=50000,
         )
     )
-    all_times, voltages_per_sensor, active_keys = _align_readings_by_sensor(
+    all_times, X, sensors_with_data = _readings_to_input_data_array(
         all_readings, sensor_keys
     )
-    if not active_keys:
+    n_active_sensors = len(sensors_with_data)
+    if not n_active_sensors:
         raise HTTPException(
             status_code=400,
             detail="No sensor data available in the specified time range",
         )
-    X = np.column_stack(voltages_per_sensor)
     times_ms = np.array(all_times)
 
     use_fractional = (
