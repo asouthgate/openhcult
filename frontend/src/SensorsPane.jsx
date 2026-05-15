@@ -1,14 +1,12 @@
-import { useState, useEffect, useMemo } from 'react'
-import { apiJson, apiFetch } from './api'
-import { sensorKey, parseSensorKey } from './utils'
-import { TimeseriesChart } from './TimeseriesChart'
-import { PALETTE } from './theme'
-import CalibrationParams from './CalibrationParams'
+import { useState, useMemo } from 'react'
+import { useSensorData } from './useSensorData'
+import ChartDisplay from './ChartDisplay'
+import DryingRateDisplay from './DryingRateDisplay'
+import ObservationsPanel, { usePendingTime } from './ObservationsPanel'
+import CalibrationControls from './CalibrationControls'
 import {
-  transformRateSeries,
   transformSeriesToWaterMode,
   transformCombinedSwc,
-  filterObservationsBySensorAssignment,
 } from './sensorDataTransforms'
 
 const TIME_RANGES = [
@@ -20,220 +18,52 @@ const TIME_RANGES = [
 
 const Y_LABELS = { raw: 'Raw', voltage: 'Voltage (mV)', water: 'Water (ml)', fractional: 'Fractional content', rate: 'Rate (ml/day)' }
 
-function ObservationsTable({ observations, sensorAssignedAt, calibration, onDelete }) {
-  const visible = filterObservationsBySensorAssignment(observations, sensorAssignedAt)
-  if (!visible.length) return null
-
-  const estMap = {}
-  if (calibration?.chord_times) {
-    calibration.chord_times.forEach((t, i) => { estMap[t] = calibration.estimated_chords_dx[i] })
-  }
-
-  return (
-    <div className="table-container">
-      <table className="obs-table">
-        <thead>
-          <tr><th>Time</th><th>Plant</th><th>Note</th><th>Dose (ml)</th><th>ΔmV (est.)</th><th></th></tr>
-        </thead>
-        <tbody>
-          {[...visible].reverse().map(o => {
-            const est = estMap[new Date(o.observed_at).getTime()]
-            return (
-              <tr key={o.id}>
-                <td>{new Date(o.observed_at).toLocaleString()}</td>
-                <td>{o.plant_name ?? '—'}</td>
-                <td>{o.note}</td>
-                <td>{o.volume_ml ?? '—'}</td>
-                <td>{est != null ? est.toFixed(1) : '—'}</td>
-                <td><button onClick={() => onDelete(o.id)}>Delete</button></td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
-export default function SensorsPane({
-  plantFilter, sensorFilter, sensorAssignedAt, calibrationMl, calibrationFrac, calibParams, setCalibParam, plantSensors, combinedSwcMl, combinedSwcFrac, calibLoadingMl, calibLoadingFrac, calibErrorMl, calibErrorFrac, dryingRate, dryingRateLoading, rangeHours, setRangeHours, recalculateMl, recalculateFrac,
-}) {
+export default function SensorsPane({ plantFilter, sensorFilter, calibrator }) {
   const [measureMode, setMeasureMode] = useState('voltage')
   const [showFractional, setShowFractional] = useState(false)
-  const [series, setSeries] = useState([])
-  const [observations, setObservations] = useState([])
-  const [pendingTime, setPendingTime] = useState(null)
-  const [pendingPlant, setPendingPlant] = useState('')
-  const [pendingMl, setPendingMl] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [rateLogScale, setRateLogScale] = useState(false)
+  const [rangeHours, setRangeHours] = useState(48)
+
+  const { series, observations, loading: sensorLoading } = useSensorData({
+    plantFilter, sensorFilter, rangeHours,
+  })
+
+  const { pendingTime, pendingPlant, pendingMl, pickTime, cancel: cancelPending, setPendingMl } = usePendingTime()
 
   const isCombined = sensorFilter === '__combined__'
-  const hasSystemCapacity = calibParams.systemCapacityMean !== '' && calibParams.systemCapacityStd !== ''
-  const calibration = showFractional ? calibrationFrac : calibrationMl
-  const combinedSwc = showFractional ? combinedSwcFrac : combinedSwcMl
-  const calibLoading = showFractional ? calibLoadingFrac : calibLoadingMl
-  const calibError = showFractional ? calibErrorFrac : calibErrorMl
-  const recalculate = showFractional ? recalculateFrac : recalculateMl
-
-  useEffect(() => {
-    const end = new Date()
-    const start = new Date(end - rangeHours * 3600 * 1000)
-    const params = new URLSearchParams({ start_utc: start.toISOString(), end_utc: end.toISOString(), limit: '50000' })
-    if (plantFilter) params.set('plant', plantFilter)
-    if (sensorFilter && !isCombined) {
-      const { deviceAddress, sensor } = parseSensorKey(sensorFilter)
-      params.set('sensor', sensor)
-      params.set('device_address', deviceAddress)
-    }
-
-    setLoading(true)
-    setPendingTime(null)
-
-    const labelMap = {}
-    for (const row of plantSensors) {
-      labelMap[sensorKey(row.device_address, row.sensor)] = `${row.plant_name} / ${row.device_address} / ${row.sensor}`
-    }
-
-    Promise.all([
-      apiJson(`/timeseries?${params}`),
-      apiJson(`/observations?${new URLSearchParams({ start_utc: start.toISOString(), end_utc: end.toISOString(), limit: '10000' })}`),
-    ])
-      .then(([ts, obs]) => {
-        const grouped = {}
-        for (const row of ts.data ?? []) {
-          const key = sensorKey(row.device_address, row.sensor)
-          if (sensorFilter && !isCombined && key !== sensorFilter) continue
-          if (!grouped[key]) grouped[key] = { label: labelMap[key] ?? key, points: [] }
-          grouped[key].points.push({ t: row.adjusted_time_ms, raw: row.measurement, mv: row.voltage_mv })
-        }
-        setSeries(Object.entries(grouped).map(([, s], i) => ({ ...s, color: PALETTE[i % PALETTE.length] })))
-        setObservations((obs.data ?? []).filter(o => !plantFilter || o.plant_name === plantFilter))
-      })
-      .finally(() => setLoading(false))
-  }, [rangeHours, plantFilter, sensorFilter, plantSensors])
-
-  const filteredObs = useMemo(
-    () => filterObservationsBySensorAssignment(observations, sensorAssignedAt),
-    [observations, sensorAssignedAt],
-  )
-
+  const hasSystemCapacity = calibrator.params.systemCapacityMean !== '' && calibrator.params.systemCapacityStd !== ''
   const isRateMode = measureMode === 'rate'
   const isWaterMode = measureMode === 'water' || measureMode === 'fractional'
-  const needsPlant = (isWaterMode || isRateMode) && plantFilter === ''
-  const needsSystemCapacity = isWaterMode && plantFilter && !hasSystemCapacity
 
-  const { mappedSeries: rateSeries, bands: rateBands } = useMemo(() => transformRateSeries(dryingRate), [dryingRate])
+  const { mappedSeries, bands } = useMemo(() => {
+    if (isRateMode) return { mappedSeries: [], bands: [] }
 
-  const currentRate = useMemo(() => {
-    if (!rateSeries.length) return null
-    const points = rateSeries[0].points
-    if (!points.length) return null
-    const now = Math.max(...points.map(p => p.t))
-    const windowMs = 30 * 60 * 1000
-    const recent = points.filter(p => p.t > now - windowMs)
-    const validRecent = dryingRate?.valid
-      ? recent.filter((p, i) => {
-          const idx = points.indexOf(p)
-          return dryingRate.valid[idx]
-        })
-      : recent
-    const values = validRecent.length > 0 ? validRecent.map(p => p.v) : points.map(p => p.v)
-    return values.sort((a, b) => a - b)[Math.floor(values.length / 2)]
-  }, [rateSeries, dryingRate])
-
-  const { mappedSeries, bands, combinedReady } = useMemo(() => {
-    const isWaterMode = measureMode === 'water' || measureMode === 'fractional'
-    const isCombinedWater = isCombined && isWaterMode
-
-    if (isWaterMode && !isCombined && !calibration) {
-      return { mappedSeries: series, bands: [], combinedReady: true }
+    if (isWaterMode && !isCombined && !calibrator.calibration) {
+      return { mappedSeries: series, bands: [] }
     }
 
-    if (isCombinedWater) {
-      return transformCombinedSwc(combinedSwc, measureMode)
+    if (isCombined && isWaterMode) {
+      return transformCombinedSwc(calibrator.combinedSwc, measureMode)
     }
 
-    return transformSeriesToWaterMode(series, calibration, measureMode)
-  }, [series, measureMode, calibration, isCombined, combinedSwc])
+    return transformSeriesToWaterMode(series, calibrator.calibration, measureMode)
+  }, [series, measureMode, calibrator, isCombined, isRateMode])
 
-  const submitWatering = () => {
-    const payload = { note: `WATER manual ml=${pendingMl}`, observed_at: new Date(pendingTime).toISOString() }
-    if (pendingPlant) payload.plant_name = pendingPlant
-    apiJson('/observations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-      .then(created => { setObservations(prev => [...prev, created]); setPendingTime(null) })
-  }
-
-  const deleteObservation = id =>
-    apiFetch(`/observations/${id}`, { method: 'DELETE' }).then(r => r.ok && setObservations(prev => prev.filter(o => o.id !== id)))
+  const handleTimePick = t => pickTime(t, plantFilter)
 
   const chartProps = {
     series: mappedSeries,
     bands,
-    observations: filteredObs,
+    observations,
     rangeMs: rangeHours * 3600 * 1000,
-    onTimePick: t => { setPendingTime(t); setPendingPlant(plantFilter || ''); setPendingMl('') },
+    onTimePick: handleTimePick,
     pendingTime,
     yLabel: Y_LABELS[measureMode],
-    eventWindowOffset: Number(calibParams.offsetMin) * 60 * 1000,
-    eventWindowWidth: Number(calibParams.widthMin) * 60 * 1000,
+    eventWindowOffset: Number(calibrator.params.offsetMin) * 60 * 1000,
+    eventWindowWidth: Number(calibrator.params.widthMin) * 60 * 1000,
   }
 
-  let chartContent
-  if (calibError) {
-    chartContent = <div className="full error">{calibError}</div>
-    } else if (isRateMode) {
-    if (!plantFilter) {
-      chartContent = <div className="empty">Select a plant to view drying rate</div>
-    } else if (dryingRateLoading) {
-      chartContent = <div className="loading"><span className="spinner" />Computing drying rate…</div>
-    } else if (!rateSeries.length) {
-      chartContent = <div className="empty">No drying rate data available.</div>
-    } else {
-      const allT = rateSeries.flatMap(s => s.points.map(p => p.t))
-      const rangeMs = allT.length > 1 ? Math.max(...allT) - Math.min(...allT) : rangeHours * 3600 * 1000
-      chartContent = (
-        <div>
-          {currentRate != null && (
-            <div className="current-rate-display">
-              <span className={`current-rate-value ${currentRate < 0 ? 'drying' : 'watering'}`}>
-                {currentRate.toFixed(2)}
-              </span>
-              <span className="current-rate-unit">ml/day</span>
-              <span className="current-rate-label">{currentRate < 0 ? 'Drying' : 'Watering'}</span>
-            </div>
-          )}
-          <div className="rate-controls">
-            <button className={rateLogScale ? 'active' : ''} onClick={() => setRateLogScale(v => !v)}>Log</button>
-          </div>
-          <TimeseriesChart
-            series={rateSeries}
-            bands={rateBands}
-            observations={[]}
-            rangeMs={rangeMs}
-            onTimePick={null}
-            pendingTime={null}
-            yLabel={Y_LABELS[measureMode]}
-            hideObsLegend
-            logScale={rateLogScale}
-          />
-        </div>
-      )
-    }
-  } else if (loading) {
-    chartContent = <div className="loading">Loading…</div>
-  } else if (needsPlant) {
-    chartContent = <div className="empty">Select a plant to show water estimates</div>
-  } else if (needsSystemCapacity) {
-    chartContent = <div className="empty">Enter system capacity params and recalculate to show water estimates</div>
-  } else if (isCombined && isWaterMode) {
-    if (calibLoading) chartContent = <div className="loading"><span className="spinner" />Computing combined SWC…</div>
-    else if (!combinedReady) chartContent = <div className="empty">No combined SWC data available.</div>
-    else chartContent = <TimeseriesChart {...chartProps} />
-  } else if (series.length === 0) {
-    chartContent = <div className="empty">No data in range.</div>
-  } else {
-    chartContent = <TimeseriesChart {...chartProps} />
+  const handleRecalculate = () => {
+    calibrator.calculate({ plantFilter, sensorFilter, rangeHours, returnFractional: showFractional })
   }
 
   return (
@@ -255,33 +85,38 @@ export default function SensorsPane({
       </div>
 
       <div className="full">
-        {chartContent}
+        {isRateMode
+          ? <DryingRateDisplay dryingRate={calibrator.dryingRate} dryingRateLoading={calibrator.dryingRateLoading} plantFilter={plantFilter} rangeHours={rangeHours} />
+          : <ChartDisplay
+              {...chartProps}
+              loading={sensorLoading}
+              calibError={calibrator.calibError}
+              calibLoading={calibrator.calibLoading}
+              isWaterMode={isWaterMode}
+              isCombined={isCombined}
+              hasCalibration={!!calibrator.calibration}
+              plantFilter={plantFilter}
+              hasSystemCapacity={hasSystemCapacity}
+            />
+        }
       </div>
 
       <div>
-        <CalibrationParams calibParams={calibParams} setCalibParam={setCalibParam} />
-        <button className="recalc-btn" onClick={recalculate} disabled={calibLoading || !plantFilter}>
-          {calibLoading ? 'Computing…' : 'Recalculate'}
-        </button>
-      </div>
-
-      <div className="full">
-        <ObservationsTable
-          observations={observations}
-          sensorAssignedAt={sensorAssignedAt}
-          calibration={calibration}
-          onDelete={deleteObservation}
+        <CalibrationControls
+          calibParams={calibrator.params}
+          setCalibParam={calibrator.setParam}
+          recalculate={handleRecalculate}
+          calibLoading={calibrator.calibLoading}
+          plantFilter={plantFilter}
         />
       </div>
 
-      {pendingTime && (
-        <div className="full event-panel">
-          <span>Watering at {new Date(pendingTime).toLocaleString()}</span>
-          <input type="number" placeholder="ml" value={pendingMl} onChange={e => setPendingMl(e.target.value)} />
-          <button onClick={submitWatering} disabled={!pendingMl}>Record</button>
-          <button onClick={() => setPendingTime(null)}>Cancel</button>
-        </div>
-      )}
+      <div className="full">
+        <ObservationsPanel
+          observations={observations}
+          calibration={calibrator.calibration}
+        />
+      </div>
     </div>
   )
 }

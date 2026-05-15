@@ -5,16 +5,11 @@ import ScatterPlot from './ScatterPlot'
 import CalibrationParams from './CalibrationParams'
 import { computeSwcStats } from './computeSwcStats'
 
-export default function CalibrationPane({
-  plantFilter, sensorFilter, calibrationMl, calibrationFrac, calibErrorMl, calibErrorFrac, calibLoadingMl, calibLoadingFrac, calibParams, setCalibParam, recalculateMl, recalculateFrac,
-}) {
+export default function CalibrationPane({ plantFilter, sensorFilter, calibrator }) {
   const [showFractional, setShowFractional] = useState(false)
 
-  const calibration = showFractional ? calibrationFrac : calibrationMl
-  const calibError = showFractional ? calibErrorFrac : calibErrorMl
-  const calibLoading = showFractional ? calibLoadingFrac : calibLoadingMl
-  const recalculate = showFractional ? recalculateFrac : recalculateMl
-  const hasSystemCapacity = calibParams.systemCapacityMean !== '' && calibParams.systemCapacityStd !== ''
+  const { calibration, calibError, calibLoading, params } = calibrator
+  const hasSystemCapacity = params.systemCapacityMean !== '' && params.systemCapacityStd !== ''
 
   if (!plantFilter) return <div className="empty">Select a plant to view calibration.</div>
 
@@ -25,6 +20,10 @@ export default function CalibrationPane({
   const unitLabel = isFractional ? '' : ' ml'
 
   const sensorLabel = sensorFilter === '__combined__' ? 'Combined' : (sensorFilter ? ` / ${sensorPart(sensorFilter)}` : '')
+
+  const handleRecalculate = () => {
+    calibrator.calculate({ plantFilter, sensorFilter, rangeHours: 48, returnFractional: showFractional })
+  }
 
   return (
     <section className="pane-grid">
@@ -49,7 +48,7 @@ export default function CalibrationPane({
         <div className="full">
           <CalibrationCurve calibration={calibration} showFractional={showFractional} />
         </div>
-{chord_times?.length > 0 && (() => {
+        {chord_times?.length > 0 && (() => {
           const dy = chords_dy
           const stats = [
             ['Events', chord_times.length],
@@ -118,8 +117,8 @@ export default function CalibrationPane({
         </div>
       )}
       <div>
-        <CalibrationParams calibParams={calibParams} setCalibParam={setCalibParam} />
-        <button className="recalc-btn" onClick={recalculate} disabled={calibLoading || !plantFilter}>
+        <CalibrationParams calibParams={params} setCalibParam={calibrator.setParam} />
+        <button className="recalc-btn" onClick={handleRecalculate} disabled={calibLoading || !plantFilter}>
           {calibLoading ? 'Computing…' : 'Recalculate'}
         </button>
       </div>
