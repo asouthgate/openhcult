@@ -3,6 +3,8 @@ import { apiJson } from './api'
 import { buildSwcTimeseriesParams, buildDryingRateParams, buildWaterCalibrationParams } from './paramsBuilder'
 import { PALETTE } from './theme'
 
+const DEBUG = true
+
 const DEFAULT_CALIB_PARAMS = {
   offsetMin: '5', widthMin: '50', prior: 'calibrated', priorMin: '867', priorMax: '2009',
   estimator: 'exp_mcmc', priorWeight: '1.0', nBurn: '10', nSteps: '30', emaTauMin: '60',
@@ -66,9 +68,20 @@ export function useCalibrator() {
     apiJson(`/swc_timeseries?${swcParams}`, { signal: swcController.signal })
       .then(swc => {
         if (!swc.times_ms?.length) {
+          if (DEBUG) console.log('[swc_timeseries] empty times_ms')
           setMappedSeries([])
           setMappedBands([])
           return
+        }
+
+        const nTotal = swc.times_ms.length
+        const nValid = swc.mean_swc?.filter(v => v != null).length ?? 0
+        if (DEBUG) {
+          console.log(
+            `[swc_timeseries] n_times=${nTotal} n_valid_swc=${nValid} n_null_swc=${nTotal - nValid}`,
+            'first_values:', swc.mean_swc?.slice(0, 5),
+            'last_values:', swc.mean_swc?.slice(-5),
+          )
         }
 
         const label = isCombined ? 'Combined SWC' : `${plantFilter} / water`
@@ -76,6 +89,7 @@ export function useCalibrator() {
         const points = swc.times_ms.map((t, i) => ({ t, v: swc.mean_swc[i], raw: swc.mean_swc[i] })).filter(p => p.v != null)
         const bandPoints = swc.times_ms.map((t, i) => ({ t, lo: swc.ci_low[i], hi: swc.ci_high[i] })).filter(p => p.lo != null && p.hi != null)
 
+        if (DEBUG) console.log(`[swc_timeseries] after filter: points=${points.length} bandPoints=${bandPoints.length}`)
         setMappedSeries(points.length ? [{ label, points, color }] : [])
         setMappedBands(bandPoints.length ? [{ color, points: bandPoints }] : [])
       })

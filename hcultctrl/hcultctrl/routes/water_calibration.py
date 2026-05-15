@@ -306,6 +306,20 @@ def _predict_swc_timeseries(
             detail="Not enough sensor readings in the specified time range",
         )
     X = np.column_stack(voltages_per_sensor)
+
+    logger.info(
+        "_predict_swc_timeseries: n_readings=%d n_times=%d "
+        "voltage_min=%s voltage_max=%s n_nan_in_X=%s "
+        "cal_data_xmin=%s cal_xmax=%s",
+        len(all_readings),
+        len(all_times),
+        float(np.nanmin(X)),
+        float(np.nanmax(X)),
+        int(np.sum(~np.isfinite(X))),
+        cal._data_xmin.tolist() if cal._data_xmin is not None else "none",
+        cal._xmax,
+    )
+
     if fractional:
         mean_swc, ci_low, ci_high = cal.fractional_water_content(X)
     else:
@@ -352,7 +366,7 @@ def water_calibration(p: CalibrationParams = Depends(), conn=Depends(get_db_conn
     sensor_specs = _resolve_sensors(conn, p)
     d = _fetch_cord_data(conn, p.plant, sensor_specs, p)
     cal = _calibrate(conn, d, p)
-    plot_x = np.linspace(d["prior_x"].min(), d["prior_x"].max(), 500)
+    plot_x = np.linspace(d["x_arr"].min(), d["x_arr"].max(), 500)
     plot_prior_y = np.interp(plot_x, d["prior_x"], d["prior_y"])
 
     if (
@@ -422,6 +436,19 @@ def swc_timeseries(
         fractional=p.return_fractional
         and p.system_capacity_mean is not None
         and p.system_capacity_std is not None,
+    )
+
+    logger.info(
+        "swc_timeseries: n_times=%d n_nan_swc=%d n_nan_ci_low=%d n_nan_ci_high=%d "
+        "swc_min=%s swc_max=%s data_xmin=%s xmax=%s",
+        len(times_ms),
+        int(np.sum(~np.isfinite(mean_swc))),
+        int(np.sum(~np.isfinite(ci_low))),
+        int(np.sum(~np.isfinite(ci_high))),
+        float(np.nanmin(mean_swc)) if np.any(np.isfinite(mean_swc)) else "all_nan",
+        float(np.nanmax(mean_swc)) if np.any(np.isfinite(mean_swc)) else "all_nan",
+        cal._data_xmin.tolist() if cal._data_xmin is not None else "none",
+        cal._xmax,
     )
 
     return {
