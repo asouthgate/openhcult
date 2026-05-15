@@ -4,7 +4,6 @@ import ChartDisplay from './ChartDisplay'
 import DryingRateDisplay from './DryingRateDisplay'
 import ObservationsPanel, { usePendingTime } from './ObservationsPanel'
 import CalibrationControls from './CalibrationControls'
-import { transformRateSeries } from './sensorDataTransforms'
 
 const TIME_RANGES = [
   { label: '6h', hours: 6 },
@@ -20,7 +19,7 @@ export default function SensorsPane({ plantFilter, sensorFilter, calibrator }) {
   const [showFractional, setShowFractional] = useState(false)
   const [rangeHours, setRangeHours] = useState(48)
 
-  const { series, observations, loading: sensorLoading } = useSensorData({
+  const { series, observations, loading: sensorLoading, error: sensorError } = useSensorData({
     plantFilter, sensorFilter, rangeHours,
   })
 
@@ -74,6 +73,7 @@ export default function SensorsPane({ plantFilter, sensorFilter, calibrator }) {
           : <ChartDisplay
               {...chartProps}
               loading={sensorLoading}
+              sensorError={sensorError}
               calibError={calibrator.calibError}
               calibLoading={calibrator.calibLoading}
               isWaterMode={isWaterMode}

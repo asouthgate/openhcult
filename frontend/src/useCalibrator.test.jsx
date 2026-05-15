@@ -46,6 +46,25 @@ describe('useCalibrator', () => {
     expect(mockApiJson).toHaveBeenCalled()
   })
 
+  it('sets calibError only on water_calibration failure, not swc_timeseries failure', async () => {
+    mockApiJson.mockImplementation((url) => {
+      if (url.includes('swc_timeseries')) return Promise.reject(new Error('swc failed'))
+      if (url.includes('water_calibration')) return Promise.resolve({ chords_x: [], mean: [] })
+      if (url.includes('drying_rate')) return Promise.resolve({ times_ms: [], rate_ml_per_day: [], valid: [], scale: 1 })
+      return Promise.resolve({})
+    })
+
+    const { result } = renderHook(() => useCalibrator())
+
+    await act(async () => {
+      result.current.calculate(calcArgs)
+    })
+
+    await vi.waitFor(() => expect(result.current.calibLoading).toBe(false), { timeout: 2000 })
+    expect(result.current.calibError).toBeNull()
+    expect(result.current.mappedSeries).toEqual([])
+  })
+
   it('sets calibError on water_calibration failure', async () => {
     mockApiJson.mockImplementation((url) => {
       if (url.includes('water_calibration')) return Promise.reject(new Error('Invalid system_capacity_mean value'))

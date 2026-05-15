@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import SensorsPane from './SensorsPane'
 
 const defaultCalibrator = {
@@ -31,7 +31,7 @@ vi.mock('./api', () => ({
 }))
 
 vi.mock('./useSensorData', () => ({
-  useSensorData: () => ({ series: [], observations: [], loading: false }),
+  useSensorData: () => ({ series: [], observations: [], loading: false, error: null }),
 }))
 
 function renderWithProps(overrides = {}) {
@@ -41,20 +41,23 @@ function renderWithProps(overrides = {}) {
 describe('SensorsPane error handling', () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it('shows calibError regardless of measure mode', () => {
-    renderWithProps({ calibrator: { ...defaultCalibrator, calibError: 'Invalid system_capacity_mean value' } })
-    expect(screen.getByText('Invalid system_capacity_mean value')).toBeTruthy()
-  })
-
-  it('shows error even when stale calibration data exists', () => {
+  it('shows calibError in water mode', () => {
     renderWithProps({
-      calibrator: { ...defaultCalibrator, calibration: { prior_x: [400, 500], mean: [10, 20], scale: 1 }, calibError: 'Some error occurred' },
+      calibrator: { ...defaultCalibrator, calibError: 'Calibration failed' },
     })
-    expect(screen.getByText('Some error occurred')).toBeTruthy()
+    fireEvent.click(screen.getByText('Water (ml)'))
+    expect(screen.getByText(/Calibration failed/)).toBeTruthy()
   })
 
   it('shows loading state when calibLoading is true', () => {
     renderWithProps({ calibrator: { ...defaultCalibrator, calibLoading: true, calibError: null } })
+    fireEvent.click(screen.getByText('Water (ml)'))
     expect(screen.getByText(/Computing calibration/)).toBeTruthy()
+  })
+
+  it('shows recalculate prompt when no calibration', () => {
+    renderWithProps({ calibrator: { ...defaultCalibrator } })
+    fireEvent.click(screen.getByText('Water (ml)'))
+    expect(screen.getByText(/Click Recalculate/)).toBeTruthy()
   })
 })

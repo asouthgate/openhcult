@@ -7,6 +7,7 @@ export function useSensorData({ plantFilter, sensorFilter, rangeHours }) {
   const [series, setSeries] = useState([])
   const [observations, setObservations] = useState([])
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
 
   const fetch = useCallback(() => {
     const end = new Date()
@@ -21,6 +22,7 @@ export function useSensorData({ plantFilter, sensorFilter, rangeHours }) {
     }
 
     setLoading(true)
+    setError(null)
 
     return apiJson(`/timeseries?${params}`)
       .then(ts => {
@@ -36,11 +38,17 @@ export function useSensorData({ plantFilter, sensorFilter, rangeHours }) {
         }
         setSeries(Object.entries(grouped).map(([, s], i) => ({ ...s, color: PALETTE[i % PALETTE.length] })))
       })
+      .catch(err => {
+        if (err.name !== 'AbortError') {
+          setError(err.message)
+        }
+      })
       .finally(() => setLoading(false))
   }, [plantFilter, sensorFilter, rangeHours])
 
   useEffect(() => {
     setSeries([])
+    setError(null)
     fetch()
   }, [fetch])
 
@@ -53,11 +61,12 @@ export function useSensorData({ plantFilter, sensorFilter, rangeHours }) {
         const filtered = (obs.data ?? []).filter(o => !plantFilter || o.plant_name === plantFilter)
         setObservations(filtered)
       })
+      .catch(() => {})
   }, [plantFilter, rangeHours])
 
   useEffect(() => {
     fetchObservations()
   }, [fetchObservations])
 
-  return { series, observations, loading }
+  return { series, observations, loading, error }
 }

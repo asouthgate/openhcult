@@ -39,7 +39,6 @@ export function useCalibrator() {
     }
 
     drControllerRef.current?.abort()
-    const controller = new AbortController()
     const drController = new AbortController()
     drControllerRef.current = drController
     setCalibLoading(true)
@@ -62,7 +61,9 @@ export function useCalibrator() {
     swcParams.set('start_ms', String(startMs))
     swcParams.set('end_ms', String(endMs))
 
-    apiJson(`/swc_timeseries?${swcParams}`, { signal: controller.signal })
+    const swcController = new AbortController()
+
+    apiJson(`/swc_timeseries?${swcParams}`, { signal: swcController.signal })
       .then(swc => {
         if (!swc.times_ms?.length) {
           setMappedSeries([])
@@ -80,14 +81,17 @@ export function useCalibrator() {
       })
       .catch(err => {
         if (err.name !== 'AbortError') {
-          console.error(err)
-          setCalibError(err.message)
+          console.error('swc_timeseries error:', err)
         }
+        setMappedSeries([])
+        setMappedBands([])
       })
+      .finally(() => {})
 
     const waterParams = buildWaterCalibrationParams(plantFilter, sensorFilter, params, returnFractional)
+    const waterController = new AbortController()
 
-    apiJson(`/water_calibration?${waterParams}`, { signal: controller.signal })
+    apiJson(`/water_calibration?${waterParams}`, { signal: waterController.signal })
       .then(d => {
         setCalibration(d)
 
@@ -108,14 +112,13 @@ export function useCalibrator() {
       })
       .catch(err => {
         if (err.name !== 'AbortError') {
-          console.error(err)
-          setCalibration(null)
           setCalibError(err.message)
         }
+        setCalibration(null)
       })
       .finally(() => setCalibLoading(false))
 
-    return () => { controller.abort(); drController.abort() }
+    return () => { swcController.abort(); drController.abort(); waterController.abort() }
   }, [params])
 
   return {

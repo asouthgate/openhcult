@@ -1,7 +1,6 @@
 import { useState, useMemo } from 'react'
 import { TimeseriesChart } from './TimeseriesChart'
 import { transformRateSeries } from './sensorDataTransforms'
-import { PALETTE } from './theme'
 
 export default function DryingRateDisplay({ dryingRate, dryingRateLoading, plantFilter, rangeHours }) {
   const [logScale, setLogScale] = useState(false)
@@ -31,6 +30,10 @@ export default function DryingRateDisplay({ dryingRate, dryingRateLoading, plant
 
   if (dryingRateLoading) {
     return <div className="loading"><span className="spinner" />Computing drying rate…</div>
+  }
+
+  if (!dryingRate) {
+    return <div className="full error">Drying rate computation failed. Check calibration and try again.</div>
   }
 
   if (!mappedSeries.length) {
