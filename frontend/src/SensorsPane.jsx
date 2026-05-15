@@ -28,7 +28,16 @@ export default function SensorsPane({ plantFilter, sensorFilter, calibrator }) {
   const isRateMode = measureMode === 'rate'
   const isWaterMode = measureMode === 'water' || measureMode === 'fractional'
 
-  const displaySeries = isWaterMode ? calibrator.mappedSeries : series
+  const displaySeries = useMemo(() => {
+    if (isWaterMode) return calibrator.mappedSeries
+    return series.map(s => ({
+      ...s,
+      points: s.points.map(p => ({
+        ...p,
+        v: measureMode === 'voltage' ? (p.mv ?? p.raw) : p.raw,
+      })),
+    }))
+  }, [series, measureMode, isWaterMode, calibrator.mappedSeries])
   const displayBands = isWaterMode ? calibrator.mappedBands : []
 
   const handleTimePick = t => pickTime(t, plantFilter)
