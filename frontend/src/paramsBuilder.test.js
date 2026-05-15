@@ -88,4 +88,30 @@ describe('buildWaterCalibrationParams', () => {
     const params = buildWaterCalibrationParams('plant1', '', { ...defaultCalibParams, nBurn: '', nSteps: '' })
     expect(params.has('n_burn')).toBe(false)
   })
+
+  describe('sensor filter handling', () => {
+    it('buildWaterCalibrationParams omits sensor params when sensorFilter is empty', () => {
+      const params = buildWaterCalibrationParams('plant1', '', defaultCalibParams)
+      expect(params.has('sensor')).toBe(false)
+      expect(params.has('device_address')).toBe(false)
+    })
+
+    it('buildWaterCalibrationParams parses sensor key when provided', () => {
+      const params = buildWaterCalibrationParams('plant1', 'AA:BB:CC:cap1', defaultCalibParams)
+      expect(params.get('sensor')).toBe('cap1')
+      expect(params.get('device_address')).toBe('AA:BB:CC')
+    })
+
+    it('buildDryingRateParams omits sensor params when sensorFilter is empty', () => {
+      const params = buildDryingRateParams('plant1', '', defaultCalibParams, 48)
+      expect(params.has('sensor')).toBe(false)
+      expect(params.has('device_address')).toBe(false)
+    })
+
+    it('buildDryingRateParams parses sensor key when provided', () => {
+      const params = buildDryingRateParams('plant1', 'AA:BB:CC:cap1', defaultCalibParams, 48)
+      expect(params.get('sensor')).toBe('cap1')
+      expect(params.get('device_address')).toBe('AA:BB:CC')
+    })
+  })
 })

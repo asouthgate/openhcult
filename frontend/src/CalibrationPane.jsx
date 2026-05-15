@@ -5,15 +5,15 @@ import ScatterPlot from './ScatterPlot'
 import CalibrationParams from './CalibrationParams'
 import { computeSwcStats } from './computeSwcStats'
 
-export default function CalibrationPane({ plantFilter, sensorFilter, calibrator }) {
+export default function CalibrationPane({ plantFilter, sensorFilter, calibrator, plantSensors }) {
   const [showFractional, setShowFractional] = useState(false)
 
   const showFractionalRef = useRef(showFractional)
   showFractionalRef.current = showFractional
 
   useEffect(() => {
-    if (!plantFilter || sensorFilter === '__combined__') return
-    calibrator.calculate({ plantFilter, sensorFilter, rangeHours: 48, returnFractional: showFractionalRef.current })
+    if (!plantFilter || sensorFilter === '_all_') return
+    calibrator.calculate({ plantFilter, sensorFilter, rangeHours: 48, returnFractional: showFractionalRef.current, plantSensors })
   }, [plantFilter, sensorFilter])
 
   const { calibration, calibError, calibLoading, params } = calibrator
@@ -21,16 +21,16 @@ export default function CalibrationPane({ plantFilter, sensorFilter, calibrator 
 
   if (!plantFilter) return <div className="empty">Select a plant to view calibration.</div>
 
-  if (sensorFilter === '__combined__') return <div className="empty">Combined view is available on the Sensors tab.</div>
+  if (sensorFilter === '_all_') return <div className="empty">Select Combined or a specific sensor to view calibration.</div>
 
   const { chords_dx, chords_dy, chord_times, scale, nlml, fractional: isFractional } = calibration ?? {}
   const swcStats = hasSystemCapacity ? computeSwcStats(calibration, showFractional) : null
   const unitLabel = isFractional ? '' : ' ml'
 
-  const sensorLabel = sensorFilter === '__combined__' ? 'Combined' : (sensorFilter ? ` / ${sensorPart(sensorFilter)}` : '')
+  const sensorLabel = sensorFilter === '_all_' ? ' / All sensors' : (sensorFilter ? ` / ${sensorPart(sensorFilter)}` : '')
 
   const handleRecalculate = () => {
-    calibrator.calculate({ plantFilter, sensorFilter, rangeHours: 48, returnFractional: showFractional })
+    calibrator.calculate({ plantFilter, sensorFilter, rangeHours: 48, returnFractional: showFractional, plantSensors })
   }
 
   return (

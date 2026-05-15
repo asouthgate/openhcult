@@ -52,8 +52,8 @@ export default function Sensors() {
           </select>
           {plantSensors.filter(ps => ps.plant_name === plantFilter).length > 0 && (
             <select value={sensorFilter} onChange={e => setSensorFilter(e.target.value)}>
-              <option value="">All sensors</option>
-              <option value="__combined__">Combined</option>
+              <option value="">Combined</option>
+              <option value="_all_">All sensors</option>
               {plantSensors.filter(ps => ps.plant_name === plantFilter).map(ps => (
                 <option key={`${ps.device_address}:${ps.sensor}`} value={`${ps.device_address}:${ps.sensor}`}>
                   {ps.device_address} / {ps.sensor}
@@ -66,8 +66,8 @@ export default function Sensors() {
       </div>
 
       {view === 'sensors'
-        ? <SensorsPane plantFilter={plantFilter} sensorFilter={sensorFilter} calibrator={calibrator} />
-        : <CalibrationPane plantFilter={plantFilter} sensorFilter={sensorFilter} calibrator={calibrator} />
+        ? <SensorsPane plantFilter={plantFilter} sensorFilter={sensorFilter} calibrator={calibrator} plantSensors={plantSensors} />
+        : <CalibrationPane plantFilter={plantFilter} sensorFilter={sensorFilter} calibrator={calibrator} plantSensors={plantSensors} />
       }
     </div>
   )

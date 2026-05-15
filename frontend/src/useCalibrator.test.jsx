@@ -13,7 +13,11 @@ vi.mock('./paramsBuilder', () => ({
   buildDryingRateParams: vi.fn(() => new URLSearchParams()),
   buildWaterCalibrationParams: vi.fn((plant, sensor, params, returnFractional) => {
     const p = new URLSearchParams({ plant })
-    if (sensor) p.set('sensor', sensor)
+    if (sensor) {
+      const sep = sensor.lastIndexOf(':')
+      p.set('sensor', sensor.slice(sep + 1))
+      p.set('device_address', sensor.slice(0, sep))
+    }
     if (returnFractional) p.set('return_fractional', 'true')
     return p
   }),
@@ -208,5 +212,244 @@ describe('useCalibrator', () => {
     })
 
     await vi.waitFor(() => expect(result.current.swcLoading).toBe(false), { timeout: 2000 })
+  })
+
+  describe('sensor modes', () => {
+    const swcResponse = (label = 'test') => ({
+      times_ms: [1000, 2000, 3000],
+      mean_swc: [10, 20, 30],
+      ci_low: [8, 18, 28],
+      ci_high: [12, 22, 32],
+    })
+
+    const defaultApiResponses = (swcOverrides) => (url) => {
+      if (url.includes('water_calibration')) return Promise.resolve({ chords_x: [], mean: [] })
+      if (url.includes('drying_rate')) return Promise.resolve({ times_ms: [], rate_ml_per_day: [], valid: [], scale: 1 })
+      if (url.includes('swc_timeseries')) return Promise.resolve(swcOverrides ?? swcResponse())
+      return Promise.resolve({})
+    }
+
+    it('combined mode (sensorFilter="") makes single swc call with no sensor param', async () => {
+      const calls = []
+      mockApiJson.mockImplementation((url) => {
+        calls.push(url)
+        return defaultApiResponses()(url)
+      })
+
+      const { result } = renderHook(() => useCalibrator())
+
+      await act(async () => {
+        result.current.calculate({ plantFilter: 'plant1', sensorFilter: '', rangeHours: 48 })
+      })
+
+      await vi.waitFor(() => expect(result.current.swcLoading).toBe(false), { timeout: 2000 })
+
+      const swcCalls = calls.filter(u => u.includes('swc_timeseries'))
+      expect(swcCalls.length).toBe(1)
+      expect(swcCalls[0]).not.toContain('sensor=')
+      expect(swcCalls[0]).not.toContain('device_address=')
+      expect(result.current.mappedSeries.length).toBe(1)
+      expect(result.current.mappedSeries[0].label).toBe('Combined SWC')
+    })
+
+    it('combined mode (sensorFilter="") uses no sensor param for water_calibration and drying_rate', async () => {
+      const calls = []
+      mockApiJson.mockImplementation((url) => {
+        calls.push(url)
+        return defaultApiResponses()(url)
+      })
+
+      const { result } = renderHook(() => useCalibrator())
+
+      await act(async () => {
+        result.current.calculate({ plantFilter: 'plant1', sensorFilter: '', rangeHours: 48 })
+      })
+
+      await vi.waitFor(() => expect(result.current.calibLoading).toBe(false), { timeout: 2000 })
+
+      const waterCalls = calls.filter(u => u.includes('water_calibration'))
+      const dryingCalls = calls.filter(u => u.includes('drying_rate'))
+      expect(waterCalls.length).toBe(1)
+      expect(waterCalls[0]).not.toContain('sensor=')
+      expect(dryingCalls.length).toBe(1)
+    })
+
+    it('single sensor mode sends sensor and device_address params', async () => {
+      const calls = []
+      mockApiJson.mockImplementation((url) => {
+        calls.push(url)
+        return defaultApiResponses()(url)
+      })
+
+      const { result } = renderHook(() => useCalibrator())
+
+      await act(async () => {
+        result.current.calculate({ plantFilter: 'plant1', sensorFilter: 'AA:BB:CC:DD:cap1', rangeHours: 48 })
+      })
+
+      await vi.waitFor(() => expect(result.current.swcLoading).toBe(false), { timeout: 2000 })
+
+      const swcCalls = calls.filter(u => u.includes('swc_timeseries'))
+      const waterCalls = calls.filter(u => u.includes('water_calibration'))
+      expect(swcCalls.length).toBe(1)
+      expect(swcCalls[0]).toContain('sensor=cap1')
+      expect(swcCalls[0]).toContain('device_address=AA%3ABB%3ACC%3ADD')
+      expect(waterCalls.length).toBe(1)
+      expect(waterCalls[0]).toContain('sensor=cap1')
+      expect(result.current.mappedSeries.length).toBe(1)
+      expect(result.current.mappedSeries[0].label).toBe('plant1 / cap1')
+    })
+
+    it('all sensors mode (_all_) makes N+1 swc calls and produces combined + per-sensor series', async () => {
+      const plantSensors = [
+        { plant_name: 'plant1', device_address: 'dev1', sensor: 'cap1' },
+        { plant_name: 'plant1', device_address: 'dev2', sensor: 'cap2' },
+      ]
+
+      const calls = []
+      mockApiJson.mockImplementation((url) => {
+        calls.push(url)
+        if (url.includes('water_calibration')) return Promise.resolve({ chords_x: [], mean: [] })
+        if (url.includes('drying_rate')) return Promise.resolve({ times_ms: [], rate_ml_per_day: [], valid: [], scale: 1 })
+        if (url.includes('swc_timeseries')) {
+          if (url.includes('sensor=cap1')) {
+            return Promise.resolve(swcResponse())
+          }
+          if (url.includes('sensor=cap2')) {
+            return Promise.resolve(swcResponse())
+          }
+          return Promise.resolve(swcResponse())
+        }
+        return Promise.resolve({})
+      })
+
+      const { result } = renderHook(() => useCalibrator())
+
+      await act(async () => {
+        result.current.calculate({ plantFilter: 'plant1', sensorFilter: '_all_', rangeHours: 48, plantSensors })
+      })
+
+      await vi.waitFor(() => expect(result.current.swcLoading).toBe(false), { timeout: 2000 })
+
+      const swcCalls = calls.filter(u => u.includes('swc_timeseries'))
+      expect(swcCalls.length).toBe(3)
+
+      const combinedCalls = swcCalls.filter(u => !u.includes('sensor='))
+      const sensorCalls = swcCalls.filter(u => u.includes('sensor='))
+      expect(combinedCalls.length).toBe(1)
+      expect(sensorCalls.length).toBe(2)
+
+      expect(result.current.mappedSeries.length).toBe(3)
+
+      const labels = result.current.mappedSeries.map(s => s.label)
+      expect(labels).toContain('Combined SWC')
+      expect(labels).toContain('dev1 / cap1')
+      expect(labels).toContain('dev2 / cap2')
+    })
+
+    it('all sensors mode filters plantSensors by plantFilter', async () => {
+      const plantSensors = [
+        { plant_name: 'plant1', device_address: 'dev1', sensor: 'cap1' },
+        { plant_name: 'plant2', device_address: 'dev3', sensor: 'cap3' },
+      ]
+
+      const calls = []
+      mockApiJson.mockImplementation((url) => {
+        calls.push(url)
+        return defaultApiResponses()(url)
+      })
+
+      const { result } = renderHook(() => useCalibrator())
+
+      await act(async () => {
+        result.current.calculate({ plantFilter: 'plant1', sensorFilter: '_all_', rangeHours: 48, plantSensors })
+      })
+
+      await vi.waitFor(() => expect(result.current.swcLoading).toBe(false), { timeout: 2000 })
+
+      const swcCalls = calls.filter(u => u.includes('swc_timeseries'))
+      expect(swcCalls.length).toBe(2)
+
+      const sensorCalls = swcCalls.filter(u => u.includes('sensor='))
+      expect(sensorCalls.length).toBe(1)
+      expect(sensorCalls[0]).toContain('sensor=cap1')
+      expect(sensorCalls[0]).toContain('device_address=dev1')
+    })
+
+    it('all sensors mode sends no sensor param for water_calibration and drying_rate', async () => {
+      const plantSensors = [
+        { plant_name: 'plant1', device_address: 'dev1', sensor: 'cap1' },
+      ]
+
+      const calls = []
+      mockApiJson.mockImplementation((url) => {
+        calls.push(url)
+        return defaultApiResponses()(url)
+      })
+
+      const { result } = renderHook(() => useCalibrator())
+
+      await act(async () => {
+        result.current.calculate({ plantFilter: 'plant1', sensorFilter: '_all_', rangeHours: 48, plantSensors })
+      })
+
+      await vi.waitFor(() => expect(result.current.calibLoading).toBe(false), { timeout: 2000 })
+
+      const waterCalls = calls.filter(u => u.includes('water_calibration'))
+      const dryingCalls = calls.filter(u => u.includes('drying_rate'))
+      expect(waterCalls.length).toBe(1)
+      expect(waterCalls[0]).not.toContain('sensor=')
+      expect(dryingCalls.length).toBe(1)
+    })
+
+    it('all sensors mode with no matching plantSensors still makes combined call', async () => {
+      const calls = []
+      mockApiJson.mockImplementation((url) => {
+        calls.push(url)
+        return defaultApiResponses()(url)
+      })
+
+      const { result } = renderHook(() => useCalibrator())
+
+      await act(async () => {
+        result.current.calculate({ plantFilter: 'plant1', sensorFilter: '_all_', rangeHours: 48, plantSensors: [] })
+      })
+
+      await vi.waitFor(() => expect(result.current.swcLoading).toBe(false), { timeout: 2000 })
+
+      const swcCalls = calls.filter(u => u.includes('swc_timeseries'))
+      expect(swcCalls.length).toBe(1)
+      expect(swcCalls[0]).not.toContain('sensor=')
+    })
+
+    it('all sensors mode: per-sensor failure does not lose combined data', async () => {
+      const plantSensors = [
+        { plant_name: 'plant1', device_address: 'dev1', sensor: 'cap1' },
+      ]
+
+      const calls = []
+      mockApiJson.mockImplementation((url) => {
+        calls.push(url)
+        if (url.includes('water_calibration')) return Promise.resolve({ chords_x: [], mean: [] })
+        if (url.includes('drying_rate')) return Promise.resolve({ times_ms: [], rate_ml_per_day: [], valid: [], scale: 1 })
+        if (url.includes('swc_timeseries')) {
+          if (url.includes('sensor=cap1')) return Promise.reject(new Error('sensor unavailable'))
+          return Promise.resolve(swcResponse())
+        }
+        return Promise.resolve({})
+      })
+
+      const { result } = renderHook(() => useCalibrator())
+
+      await act(async () => {
+        result.current.calculate({ plantFilter: 'plant1', sensorFilter: '_all_', rangeHours: 48, plantSensors })
+      })
+
+      await vi.waitFor(() => expect(result.current.swcLoading).toBe(false), { timeout: 2000 })
+
+      const combinedEntries = result.current.mappedSeries.filter(s => s.label === 'Combined SWC')
+      expect(combinedEntries.length).toBe(1)
+      expect(combinedEntries[0].points.length).toBe(3)
+    })
   })
 })

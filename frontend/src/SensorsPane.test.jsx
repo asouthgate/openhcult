@@ -20,10 +20,16 @@ const defaultCalibrator = {
   calculate: vi.fn(),
 }
 
+const defaultPlantSensors = [
+  { plant_name: 'plant1', device_address: 'dev1', sensor: 'cap1' },
+  { plant_name: 'plant1', device_address: 'dev2', sensor: 'cap2' },
+]
+
 const defaultProps = {
   plantFilter: 'plant1',
-  sensorFilter: 'abc123:temperature',
+  sensorFilter: 'dev1:cap1',
   calibrator: defaultCalibrator,
+  plantSensors: defaultPlantSensors,
 }
 
 vi.mock('./api', () => ({
@@ -78,5 +84,33 @@ describe('SensorsPane error handling', () => {
     })
     fireEvent.click(screen.getByText('Water (ml)'))
     expect(screen.getByText(/Computing calibration/)).toBeTruthy()
+  })
+})
+
+describe('SensorsPane auto-recalculate', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('calls calculate on mount when plantFilter is set', () => {
+    renderWithProps()
+    expect(defaultCalibrator.calculate).toHaveBeenCalledTimes(1)
+    expect(defaultCalibrator.calculate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        plantFilter: 'plant1',
+        sensorFilter: 'dev1:cap1',
+        rangeHours: 48,
+        plantSensors: defaultPlantSensors,
+      })
+    )
+  })
+
+  it('does not call calculate on mount when plantFilter is empty', () => {
+    renderWithProps({ plantFilter: '' })
+    expect(defaultCalibrator.calculate).not.toHaveBeenCalled()
+  })
+
+  it('passes plantSensors to calculate', () => {
+    renderWithProps()
+    const callArgs = defaultCalibrator.calculate.mock.calls[0][0]
+    expect(callArgs.plantSensors).toBe(defaultPlantSensors)
   })
 })

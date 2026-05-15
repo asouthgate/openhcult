@@ -14,7 +14,7 @@ const TIME_RANGES = [
 
 const Y_LABELS = { raw: 'Raw', voltage: 'Voltage (mV)', water: 'Water (ml)', fractional: 'Fractional content', rate: 'Rate (ml/day)' }
 
-export default function SensorsPane({ plantFilter, sensorFilter, calibrator }) {
+export default function SensorsPane({ plantFilter, sensorFilter, calibrator, plantSensors }) {
   const [measureMode, setMeasureMode] = useState('voltage')
   const [showFractional, setShowFractional] = useState(false)
   const [rangeHours, setRangeHours] = useState(48)
@@ -58,12 +58,12 @@ export default function SensorsPane({ plantFilter, sensorFilter, calibrator }) {
   showFractionalRef.current = showFractional
 
   const handleRecalculate = () => {
-    calibrator.calculate({ plantFilter, sensorFilter, rangeHours, returnFractional: showFractionalRef.current })
+    calibrator.calculate({ plantFilter, sensorFilter, rangeHours, returnFractional: showFractionalRef.current, plantSensors })
   }
 
   useEffect(() => {
     if (!plantFilter) return
-    calibrator.calculate({ plantFilter, sensorFilter, rangeHours, returnFractional: showFractionalRef.current })
+    calibrator.calculate({ plantFilter, sensorFilter, rangeHours, returnFractional: showFractionalRef.current, plantSensors })
   }, [plantFilter, sensorFilter, rangeHours])
 
   return (

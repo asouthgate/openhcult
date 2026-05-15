@@ -11,6 +11,11 @@ const DEFAULT_CALIB_PARAMS = {
   systemCapacityMean: '', systemCapacityStd: '',
 }
 
+function parseSensorKey(key) {
+  const sep = key.lastIndexOf(':')
+  return { deviceAddress: key.slice(0, sep), sensor: key.slice(sep + 1) }
+}
+
 export function useCalibrator() {
   const [params, setParams] = useState(DEFAULT_CALIB_PARAMS)
   const [calibration, setCalibration] = useState(null)
@@ -28,8 +33,9 @@ export function useCalibrator() {
     setParams(p => ({ ...p, [key]: val }))
   }, [])
 
-  const calculate = useCallback(({ plantFilter, sensorFilter, rangeHours, returnFractional = false }) => {
-    const isCombined = sensorFilter === '__combined__'
+  const calculate = useCallback(({ plantFilter, sensorFilter, rangeHours, returnFractional = false, plantSensors = [] }) => {
+    const isAll = sensorFilter === '_all_'
+    const isSingle = !isAll && !!sensorFilter
 
     if (!plantFilter) {
       setCalibration(null)
@@ -56,56 +62,151 @@ export function useCalibrator() {
     const endMs = Date.now()
     const startMs = endMs - rangeHours * 3600 * 1000
 
-    const swcParams = buildSwcTimeseriesParams(plantFilter, params, rangeHours, returnFractional)
-    if (!isCombined && sensorFilter) {
-      const sep = sensorFilter.lastIndexOf(':')
-      swcParams.set('sensor', sensorFilter.slice(sep + 1))
-      swcParams.set('device_address', sensorFilter.slice(0, sep))
+    function swcUrlForSensor(sensorSpec) {
+      const swcParams = buildSwcTimeseriesParams(plantFilter, params, rangeHours, returnFractional)
+      if (sensorSpec) {
+        swcParams.set('sensor', sensorSpec.sensor)
+        swcParams.set('device_address', sensorSpec.deviceAddress)
+      }
+      swcParams.set('start_ms', String(startMs))
+      swcParams.set('end_ms', String(endMs))
+      return `/swc_timeseries?${swcParams}`
     }
-    swcParams.set('start_ms', String(startMs))
-    swcParams.set('end_ms', String(endMs))
 
-    const swcController = new AbortController()
-
-    apiJson(`/swc_timeseries?${swcParams}`, { signal: swcController.signal })
-      .then(swc => {
-        if (!swc.times_ms?.length) {
-          if (DEBUG) console.log('[swc_timeseries] empty times_ms')
-          setMappedSeries([])
-          setMappedBands([])
-          return
-        }
-
+    function toSwcSeries(swc, label, color) {
+      if (!swc.times_ms?.length) return null
+      const points = swc.times_ms.map((t, i) => ({ t, v: swc.mean_swc[i], raw: swc.mean_swc[i] })).filter(p => p.v != null)
+      const bandPoints = swc.times_ms.map((t, i) => ({ t, lo: swc.ci_low[i], hi: swc.ci_high[i] })).filter(p => p.lo != null && p.hi != null)
+      if (DEBUG) {
         const nTotal = swc.times_ms.length
         const nValid = swc.mean_swc?.filter(v => v != null).length ?? 0
-        if (DEBUG) {
-          console.log(
-            `[swc_timeseries] n_times=${nTotal} n_valid_swc=${nValid} n_null_swc=${nTotal - nValid}`,
-            'first_values:', swc.mean_swc?.slice(0, 5),
-            'last_values:', swc.mean_swc?.slice(-5),
-          )
-        }
+        console.log(`[swc_timeseries] label=${label} n_times=${nTotal} n_valid=${nValid} points=${points.length}`)
+      }
+      return {
+        series: points.length ? [{ label, points, color }] : [],
+        bands: bandPoints.length ? [{ color, points: bandPoints }] : [],
+      }
+    }
 
-        const label = isCombined ? 'Combined SWC' : `${plantFilter} / water`
-        const color = PALETTE[0]
-        const points = swc.times_ms.map((t, i) => ({ t, v: swc.mean_swc[i], raw: swc.mean_swc[i] })).filter(p => p.v != null)
-        const bandPoints = swc.times_ms.map((t, i) => ({ t, lo: swc.ci_low[i], hi: swc.ci_high[i] })).filter(p => p.lo != null && p.hi != null)
+    if (isAll) {
+      const sensorSpecs = plantSensors
+        .filter(ps => ps.plant_name === plantFilter)
+        .map(ps => ({ deviceAddress: ps.device_address, sensor: ps.sensor }))
 
-        if (DEBUG) console.log(`[swc_timeseries] after filter: points=${points.length} bandPoints=${bandPoints.length}`)
-        setMappedSeries(points.length ? [{ label, points, color }] : [])
-        setMappedBands(bandPoints.length ? [{ color, points: bandPoints }] : [])
-      })
-      .catch(err => {
-        if (err.name !== 'AbortError') {
-          console.error('swc_timeseries error:', err)
-          setCalibError(err.message)
-        }
+      const swcController = new AbortController()
+      const allSeries = []
+      const allBands = []
+      let pendingSwc = sensorSpecs.length + 1
+
+      const combinedUrl = swcUrlForSensor(null)
+      apiJson(combinedUrl, { signal: swcController.signal })
+        .then(swc => {
+          const result = toSwcSeries(swc, 'Combined SWC', PALETTE[0])
+          if (result) {
+            allSeries.push(...result.series)
+            allBands.push(...result.bands)
+          }
+        })
+        .catch(err => {
+          if (err.name !== 'AbortError') {
+            console.error('swc_timeseries (combined) error:', err)
+            setCalibError(err.message)
+          }
+        })
+        .finally(() => {
+          pendingSwc--
+          if (pendingSwc === 0) {
+            setMappedSeries(allSeries)
+            setMappedBands(allBands)
+            setSwcLoading(false)
+          }
+        })
+
+      for (let i = 0; i < sensorSpecs.length; i++) {
+        const spec = sensorSpecs[i]
+        const label = `${spec.deviceAddress} / ${spec.sensor}`
+        const color = PALETTE[(i + 1) % PALETTE.length]
+        apiJson(swcUrlForSensor(spec), { signal: swcController.signal })
+          .then(swc => {
+            const result = toSwcSeries(swc, label, color)
+            if (result) {
+              allSeries.push(...result.series)
+              allBands.push(...result.bands)
+            }
+          })
+          .catch(err => {
+            if (err.name !== 'AbortError') {
+              console.error(`swc_timeseries (${label}) error:`, err)
+            }
+          })
+          .finally(() => {
+            pendingSwc--
+            if (pendingSwc === 0) {
+              setMappedSeries([...allSeries])
+              setMappedBands([...allBands])
+              setSwcLoading(false)
+            }
+          })
+      }
+
+      if (sensorSpecs.length === 0) {
         setMappedSeries([])
         setMappedBands([])
-      })
-      .finally(() => setSwcLoading(false))
+        setSwcLoading(false)
+      }
+    } else {
+      const swcParams = buildSwcTimeseriesParams(plantFilter, params, rangeHours, returnFractional)
+      if (isSingle) {
+        const { deviceAddress, sensor } = parseSensorKey(sensorFilter)
+        swcParams.set('sensor', sensor)
+        swcParams.set('device_address', deviceAddress)
+      }
+      swcParams.set('start_ms', String(startMs))
+      swcParams.set('end_ms', String(endMs))
 
-    const waterParams = buildWaterCalibrationParams(plantFilter, sensorFilter, params, returnFractional)
+      const swcController = new AbortController()
+
+      apiJson(`/swc_timeseries?${swcParams}`, { signal: swcController.signal })
+        .then(swc => {
+          if (!swc.times_ms?.length) {
+            if (DEBUG) console.log('[swc_timeseries] empty times_ms')
+            setMappedSeries([])
+            setMappedBands([])
+            return
+          }
+
+          const nTotal = swc.times_ms.length
+          const nValid = swc.mean_swc?.filter(v => v != null).length ?? 0
+          if (DEBUG) {
+            console.log(
+              `[swc_timeseries] n_times=${nTotal} n_valid_swc=${nValid} n_null_swc=${nTotal - nValid}`,
+              'first_values:', swc.mean_swc?.slice(0, 5),
+              'last_values:', swc.mean_swc?.slice(-5),
+            )
+          }
+
+          const label = isSingle ? `${plantFilter} / ${parseSensorKey(sensorFilter).sensor}` : 'Combined SWC'
+          const color = PALETTE[0]
+          const points = swc.times_ms.map((t, i) => ({ t, v: swc.mean_swc[i], raw: swc.mean_swc[i] })).filter(p => p.v != null)
+          const bandPoints = swc.times_ms.map((t, i) => ({ t, lo: swc.ci_low[i], hi: swc.ci_high[i] })).filter(p => p.lo != null && p.hi != null)
+
+          if (DEBUG) console.log(`[swc_timeseries] after filter: points=${points.length} bandPoints=${bandPoints.length}`)
+          setMappedSeries(points.length ? [{ label, points, color }] : [])
+          setMappedBands(bandPoints.length ? [{ color, points: bandPoints }] : [])
+        })
+        .catch(err => {
+          if (err.name !== 'AbortError') {
+            console.error('swc_timeseries error:', err)
+            setCalibError(err.message)
+          }
+          setMappedSeries([])
+          setMappedBands([])
+        })
+        .finally(() => setSwcLoading(false))
+    }
+
+    const effectiveSensor = isAll ? '' : sensorFilter
+    const waterParams = buildWaterCalibrationParams(plantFilter, effectiveSensor, params, returnFractional)
     const waterController = new AbortController()
 
     apiJson(`/water_calibration?${waterParams}`, { signal: waterController.signal })
@@ -129,13 +230,13 @@ export function useCalibrator() {
       })
       .finally(() => setCalibLoading(false))
 
-    const drParams = buildDryingRateParams(plantFilter, sensorFilter, params, rangeHours, isCombined, returnFractional)
+    const drParams = buildDryingRateParams(plantFilter, effectiveSensor, params, rangeHours, isAll, returnFractional)
     apiJson(`/drying_rate?${drParams}`, { signal: drController.signal })
       .then(dr => setDryingRate(dr))
       .catch(() => setDryingRate(null))
       .finally(() => setDryingRateLoading(false))
 
-    return () => { swcController.abort(); drController.abort(); waterController.abort() }
+    return () => { drController.abort() }
   }, [params])
 
   return {

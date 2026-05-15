@@ -14,8 +14,7 @@ export function useSensorData({ plantFilter, sensorFilter, rangeHours }) {
     const start = new Date(end - rangeHours * 3600 * 1000)
     const params = new URLSearchParams({ start_utc: start.toISOString(), end_utc: end.toISOString(), limit: '50000' })
     if (plantFilter) params.set('plant', plantFilter)
-    const isCombined = sensorFilter === '__combined__'
-    if (sensorFilter && !isCombined) {
+    if (sensorFilter && sensorFilter !== '_all_') {
       const { deviceAddress, sensor } = parseSensorKey(sensorFilter)
       params.set('sensor', sensor)
       params.set('device_address', deviceAddress)
@@ -29,7 +28,7 @@ export function useSensorData({ plantFilter, sensorFilter, rangeHours }) {
         const grouped = {}
         for (const row of ts.data ?? []) {
           const key = sensorKey(row.device_address, row.sensor)
-          if (sensorFilter && !isCombined && key !== sensorFilter) continue
+          if (sensorFilter && sensorFilter !== '_all_' && key !== sensorFilter) continue
           const label = plantFilter
             ? `${plantFilter} / ${row.device_address} / ${row.sensor}`
             : key
