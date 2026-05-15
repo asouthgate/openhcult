@@ -60,4 +60,12 @@ describe('SensorsPane error handling', () => {
     fireEvent.click(screen.getByText('Water (ml)'))
     expect(screen.getByText(/Click Recalculate/)).toBeTruthy()
   })
+
+  it('does NOT block mV mode when calibError is set', () => {
+    renderWithProps({
+      calibrator: { ...defaultCalibrator, calibError: 'Calibration failed' },
+    })
+    expect(screen.queryByText(/Calibration failed/)).toBeNull()
+    expect(screen.getByText(/No data in range/)).toBeTruthy()
+  })
 })
