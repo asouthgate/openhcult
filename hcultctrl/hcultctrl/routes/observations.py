@@ -74,15 +74,17 @@ def list_observations(
     end_ms: Optional[int] = Query(default=None, ge=0),
     start_utc: Optional[str] = None,
     end_utc: Optional[str] = None,
+    plant: Optional[str] = None,
     limit: int = Query(default=1000, ge=1, le=100000),
     conn=Depends(get_db_conn),
 ):
     logger.info(
-        "GET /observations start_ms=%s end_ms=%s start_utc=%s end_utc=%s limit=%s",
+        "GET /observations start_ms=%s end_ms=%s start_utc=%s end_utc=%s plant=%s limit=%s",
         start_ms,
         end_ms,
         start_utc,
         end_utc,
+        plant,
         limit,
     )
     if start_utc and start_ms is not None:
@@ -101,7 +103,7 @@ def list_observations(
         raise HTTPException(status_code=400, detail="start_ms must be <= end_ms")
 
     rows = database.fetch_observations(
-        conn, start_ms=start_ms, end_ms=end_ms, limit=limit
+        conn, start_ms=start_ms, end_ms=end_ms, plant_name=plant, limit=limit
     )
     data = [
         {

@@ -7,6 +7,7 @@ import numpy as np
 import emcee
 from .calibrator import CordCalibrator
 from .exp import ExponentialCordCalibrator, exponential_target_u
+from .logging import timed
 from .plot_style import apply_dark_theme, CLOUD_BLUE, ORANGE
 from .prior import (
     MCMCPriors,
@@ -167,7 +168,7 @@ def samples_swc_at(x, scale_s, k_s, f_int_s, data_xmin, xmax):
     f_exp = f_int_s[:, None, :]
     u_b = u[None, :, :]
 
-    g_mean = np.mean(_compute_g(k_exp, f_exp, u_b), axis=2)
+    g_mean = np.nanmean(_compute_g(k_exp, f_exp, u_b), axis=2)
     return scale_s[:, None] * g_mean
 
 
@@ -265,16 +266,20 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         self._data_xmin = None
 
     def _reshape_x(self, x):
-        x = np.atleast_1d(np.asarray(x))
+        x = np.atleast_1d(np.asarray(x, dtype=float))
         if x.ndim == 1:
-            x = (
-                np.column_stack([x] * self.n_sensors)
-                if self.n_sensors > 1
-                else x[:, None]
+            if self.n_sensors == 1:
+                x = x[:, None]
+            else:
+                x = np.column_stack([x] * self.n_sensors)
+        if x.shape[1] < self.n_sensors:
+            pad = np.full((x.shape[0], self.n_sensors - x.shape[1]), np.nan)
+            x = np.column_stack([x, pad])
+        if x.shape[1] > self.n_sensors:
+            raise ValueError(
+                f"x has {x.shape[1]} columns but model expects {self.n_sensors}; "
+                f"provide x as (n_points, {self.n_sensors}) array"
             )
-        assert (
-            x.ndim == 2 and x.shape[1] == self.n_sensors
-        ), f"x must have shape (n_points, {self.n_sensors}), got {x.shape}"
         return x
 
     def _compute_mean(self, x):
@@ -292,6 +297,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             x, self._scale_s, self._k_s, self._f_int_s, self._data_xmin, self._xmax
         )
 
+    @timed
     def _prepare_fit_data(
         self,
         x_anchors,
@@ -417,6 +423,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             ]
         )
 
+    @timed
     def _run_sampler(self, pos, posterior_kwargs):
         sampler = emcee.EnsembleSampler(
             self._n_walkers,
@@ -430,6 +437,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         self._log_prob = sampler.get_log_prob()
         return sampler
 
+    @timed
     def _postprocess(self, sampler, data):
         chain = self._chain
         log_probs = sampler.get_log_prob()
@@ -462,6 +470,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         self._ci_low = self._compute_ci_low
         self._ci_high = self._compute_ci_high
 
+    @timed
     def fit(
         self,
         x_anchors,
@@ -473,7 +482,6 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         prior_y=None,
         sensor_chord_labels=None,
     ):
-
         if sensor_chord_labels is None:
             assert (
                 self.n_sensors == 1
@@ -534,6 +542,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             )
         return self
 
+    @timed
     def predict(self, x):
         x = self._reshape_x(x)
         vals = self.posterior_samples_swc_at(x)
@@ -550,13 +559,15 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         with np.errstate(all="ignore"):
             return np.nanmean(vals, axis=0)
 
+    @timed
     def posterior_samples_swc_at(self, x, n=None):
         x = self._reshape_x(x)
         scale_s, k_s, f_int_s = self._scale_s, self._k_s, self._f_int_s
         if n is not None and n < len(scale_s):
             idx = np.random.choice(len(scale_s), n, replace=False)
             scale_s, k_s, f_int_s = scale_s[idx], k_s[idx], f_int_s[idx]
-        return samples_swc_at(x, scale_s, k_s, f_int_s, self._data_xmin, self._xmax)
+        samples = samples_swc_at(x, scale_s, k_s, f_int_s, self._data_xmin, self._xmax)
+        return samples
 
     def _capacity_lognorm_params(self):
         assert (
@@ -569,6 +580,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         sigma_log = np.sqrt(np.log(1.0 + var / mean_cap**2))
         return mu_log, sigma_log
 
+    @timed
     def fractional_water_content(self, x, n_samples=None, seed=None):
         """Return (mean, ci_low, ci_high) of SWC(x)/system_capacity.
 
@@ -587,6 +599,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
                 np.nanpercentile(frac_samples, 97.5, axis=0),
             )
 
+    @timed
     def fractional_water_content_samples(self, x, n_samples=None, seed=None):
         """Return raw (n_samples, n_times) array of fractional SWC samples."""
         mu_log, sigma_log = self._capacity_lognorm_params()
@@ -603,6 +616,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             ]
         )
 
+    @timed
     def estimate_velocity_samples(self, v_window, t_window):
         """Estimate velocity in a time window"""
 

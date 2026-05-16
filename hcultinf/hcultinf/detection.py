@@ -10,6 +10,7 @@ import pandas as pd
 from scipy.optimize import curve_fit
 from scipy.integrate import quad
 
+from hcultinf.logging import timed
 from hcultinf.plot_style import (
     apply_dark_theme,
     DARK_BLUE,
@@ -41,6 +42,7 @@ def _suppress_numerical_noise():
 
 
 class DynamicIntervalInfo:
+    @timed
     def __init__(self, t_values, x_values, vel, at_equilibrium):
         if len(t_values) == 0:
             raise ValueError("t_values must not be empty")
@@ -75,6 +77,7 @@ class DynamicIntervalInfo:
             except ValueError as e:
                 logger.warning(e)
 
+    @timed
     def _estimate_negative_lognormal(self, t, x):
         t_num = (t - t[0]).astype("timedelta64[ms]").astype(float) / 1000.0
 
@@ -173,6 +176,7 @@ class DynamicIntervalInfo:
 class SegmentDetector:
     """Takes sensor data and identifies regions in (dis)equilibrium."""
 
+    @timed
     def __init__(
         self,
         time_arr,
@@ -420,6 +424,7 @@ def lerp_thresholds(
     return trigger_arr, release_arr
 
 
+@timed
 def find_regions_with_hysteresis_adaptive_thresh(
     times, val, trigger_arr, release_arr, direction=-1
 ):
@@ -449,6 +454,7 @@ def find_regions_with_hysteresis_adaptive_thresh(
     return regions
 
 
+@timed
 def compute_time_weighted_ewma(times, values, tau_minutes=30.0):
     t_min = times.astype("datetime64[m]").astype(float)
     n = len(values)

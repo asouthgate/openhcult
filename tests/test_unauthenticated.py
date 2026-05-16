@@ -12,6 +12,8 @@ _PROTECTED = [
     ("GET", "/timeseries"),
     ("GET", "/plant_sensors"),
     ("GET", "/water_calibration"),
+    ("GET", "/chords"),
+    ("GET", "/prior"),
 ]
 
 

@@ -1,5 +1,5 @@
 export function buildSwcTimeseriesParams(plantFilter, calibParams, rangeHours, returnFractional = false) {
-  const { offsetMin, widthMin, prior, priorMin, priorMax, priorWeight, nBurn, nSteps, systemCapacityMean, systemCapacityStd } = calibParams
+  const { offsetMin, widthMin, priorWeight, nBurn, nSteps, systemCapacityMean, systemCapacityStd } = calibParams
   const endMs = Date.now()
   const params = new URLSearchParams({
     plant: plantFilter,
@@ -8,9 +8,6 @@ export function buildSwcTimeseriesParams(plantFilter, calibParams, rangeHours, r
     start_ms: endMs - rangeHours * 3600 * 1000,
     end_ms: endMs,
   })
-  if (priorMin !== '') params.set('prior_min', priorMin)
-  if (priorMax !== '') params.set('prior_max', priorMax)
-  if (prior !== 'calibrated') params.set('prior', prior)
   if (priorWeight !== '') params.set('prior_weight', priorWeight)
   if (nBurn !== '') params.set('n_burn', nBurn)
   if (nSteps !== '') params.set('n_steps', nSteps)
@@ -21,7 +18,7 @@ export function buildSwcTimeseriesParams(plantFilter, calibParams, rangeHours, r
 }
 
 export function buildDryingRateParams(plantFilter, sensorFilter, calibParams, rangeHours, combined = false, returnFractional = false) {
-  const { offsetMin, widthMin, prior, priorMin, priorMax, estimator, priorWeight, nBurn, nSteps, emaTauMin, systemCapacityMean, systemCapacityStd } = calibParams
+  const { offsetMin, widthMin, estimator, priorWeight, nBurn, nSteps, emaTauMin, systemCapacityMean, systemCapacityStd } = calibParams
   const endMs = Date.now()
   const params = new URLSearchParams({
     plant: plantFilter,
@@ -36,9 +33,6 @@ export function buildDryingRateParams(plantFilter, sensorFilter, calibParams, ra
     params.set('sensor', sensorFilter.slice(sep + 1))
     params.set('device_address', sensorFilter.slice(0, sep))
   }
-  if (priorMin !== '') params.set('prior_min', priorMin)
-  if (priorMax !== '') params.set('prior_max', priorMax)
-  if (prior !== 'calibrated') params.set('prior', prior)
   if (estimator !== 'exp_mcmc') params.set('estimator', estimator)
   if (priorWeight !== '') params.set('prior_weight', priorWeight)
   if (estimator === 'exp_mcmc') {
@@ -53,7 +47,7 @@ export function buildDryingRateParams(plantFilter, sensorFilter, calibParams, ra
 }
 
 export function buildWaterCalibrationParams(plantFilter, sensorFilter, calibParams, returnFractional = false) {
-  const { offsetMin, widthMin, prior, priorMin, priorMax, estimator, priorWeight, nBurn, nSteps, systemCapacityMean, systemCapacityStd } = calibParams
+  const { offsetMin, widthMin, estimator, priorWeight, nBurn, nSteps, systemCapacityMean, systemCapacityStd } = calibParams
   const params = new URLSearchParams({
     plant: plantFilter,
     offset_ms: Number(offsetMin) * 60 * 1000,
@@ -73,15 +67,6 @@ export function buildWaterCalibrationParams(plantFilter, sensorFilter, calibPara
     if (systemCapacityMean !== '') params.set('system_capacity_mean', systemCapacityMean)
     if (systemCapacityStd !== '') params.set('system_capacity_std', systemCapacityStd)
     if (returnFractional) params.set('return_fractional', 'true')
-  }
-  if (prior !== 'calibrated') params.set('prior', prior)
-  if (prior === 'linear') {
-    if (priorMin !== '') params.set('prior_min', priorMin)
-    if (priorMax !== '') params.set('prior_max', priorMax)
-  }
-  if (estimator === 'exponential' || estimator === 'exp_mcmc') {
-    if (priorMin !== '' && !params.has('prior_min')) params.set('prior_min', priorMin)
-    if (priorMax !== '' && !params.has('prior_max')) params.set('prior_max', priorMax)
   }
   return params
 }

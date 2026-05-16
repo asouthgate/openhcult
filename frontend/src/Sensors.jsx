@@ -1,15 +1,8 @@
 import { useState, useEffect } from 'react'
 import { apiJson, clearToken } from './api'
-import { sensorKey } from './utils'
 import SensorsPane from './SensorsPane'
 import CalibrationPane from './CalibrationPane'
-import { useCalibrationData } from './useCalibrationData'
-
-const DEFAULT_CALIB_PARAMS = {
-  offsetMin: '5', widthMin: '50', prior: 'calibrated', priorMin: '867', priorMax: '2009',
-  estimator: 'exp_mcmc', priorWeight: '1.0', nBurn: '10', nSteps: '30', emaTauMin: '60',
-  systemCapacityMean: '', systemCapacityStd: '',
-}
+import { useCalibrator } from './useCalibrator'
 
 export default function Sensors() {
   const [view, setView] = useState('sensors')
@@ -17,31 +10,13 @@ export default function Sensors() {
   const [plants, setPlants] = useState([])
   const [plantSensors, setPlantSensors] = useState([])
   const [sensorFilter, setSensorFilter] = useState('')
-  const [calibParams, setCalibParams] = useState(DEFAULT_CALIB_PARAMS)
-  const [rangeHours, setRangeHours] = useState(48)
 
-  const setCalibParam = (key, val) => setCalibParams(p => ({ ...p, [key]: val }))
-
-  const mlData = useCalibrationData({
-    plantFilter, sensorFilter, calibParams, rangeHours, setCalibParam, returnFractional: false,
-  })
-  const fracData = useCalibrationData({
-    plantFilter, sensorFilter, calibParams, rangeHours, setCalibParam, returnFractional: true,
-  })
+  const calibrator = useCalibrator()
 
   useEffect(() => {
     apiJson('/plants?limit=1000').then(d => setPlants(d.data ?? []))
     apiJson('/plant_sensors').then(d => setPlantSensors(d.data ?? []))
   }, [])
-
-  const sensorsForPlant = plantFilter
-    ? plantSensors.filter(ps => ps.plant_name === plantFilter).map(ps => ({
-        key: sensorKey(ps.device_address, ps.sensor),
-        label: `${ps.device_address} / ${ps.sensor}`,
-        sensor: ps.sensor,
-        assignedAt: ps.assigned_at ?? 0,
-      }))
-    : []
 
   function handlePlantChange(plant) {
     setPlantFilter(plant)
@@ -50,17 +25,16 @@ export default function Sensors() {
       const p = plants.find(p => p.plant_name === plant)
       if (p?.soil_volume != null) {
         const mean = Math.round(p.soil_volume)
-        setCalibParams(cp => ({ ...cp, systemCapacityMean: String(mean), systemCapacityStd: String(Math.round(mean * 0.1)) }))
+        calibrator.setParam('systemCapacityMean', String(mean))
+        calibrator.setParam('systemCapacityStd', String(Math.round(mean * 0.1)))
       } else {
-        setCalibParams(cp => ({ ...cp, systemCapacityMean: '', systemCapacityStd: '' }))
+        calibrator.setParam('systemCapacityMean', '')
+        calibrator.setParam('systemCapacityStd', '')
       }
     } else {
-      setCalibParams(cp => ({ ...cp, systemCapacityMean: '', systemCapacityStd: '' }))
+      calibrator.setParam('systemCapacityMean', '')
+      calibrator.setParam('systemCapacityStd', '')
     }
-  }
-
-  const handleSensorChange = sensor => {
-    setSensorFilter(sensor)
   }
 
   return (
@@ -76,11 +50,15 @@ export default function Sensors() {
             <option value="">All plants</option>
             {plants.map(p => <option key={p.plant_name} value={p.plant_name}>{p.plant_name}</option>)}
           </select>
-          {sensorsForPlant.length > 0 && (
-            <select value={sensorFilter} onChange={e => handleSensorChange(e.target.value)}>
-              <option value="">All sensors</option>
-              <option value="__combined__">Combined</option>
-              {sensorsForPlant.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
+          {plantSensors.filter(ps => ps.plant_name === plantFilter).length > 0 && (
+            <select value={sensorFilter} onChange={e => setSensorFilter(e.target.value)}>
+              <option value="">Combined</option>
+              <option value="_all_">All sensors</option>
+              {plantSensors.filter(ps => ps.plant_name === plantFilter).map(ps => (
+                <option key={`${ps.device_address}:${ps.sensor}`} value={`${ps.device_address}:${ps.sensor}`}>
+                  {ps.device_address} / {ps.sensor}
+                </option>
+              ))}
             </select>
           )}
           <button className="logout-btn" onClick={() => { clearToken(); window.location.reload() }}>Logout</button>
@@ -88,26 +66,8 @@ export default function Sensors() {
       </div>
 
       {view === 'sensors'
-        ? <SensorsPane
-            plantFilter={plantFilter} sensorFilter={sensorFilter}
-            calibrationMl={mlData.calibration} calibrationFrac={fracData.calibration}
-            sensorAssignedAt={sensorsForPlant.find(s => s.key === sensorFilter)?.assignedAt ?? null}
-            calibParams={calibParams} setCalibParam={setCalibParam} plantSensors={plantSensors}
-            combinedSwcMl={mlData.combinedSwc} combinedSwcFrac={fracData.combinedSwc}
-            calibLoadingMl={mlData.calibLoading} calibLoadingFrac={fracData.calibLoading}
-            calibErrorMl={mlData.calibError} calibErrorFrac={fracData.calibError}
-            dryingRate={mlData.dryingRate} dryingRateLoading={mlData.dryingRateLoading}
-            rangeHours={rangeHours} setRangeHours={setRangeHours}
-            recalculateMl={mlData.recalculate} recalculateFrac={fracData.recalculate}
-          />
-        : <CalibrationPane
-            plantFilter={plantFilter} sensorFilter={sensorFilter}
-            calibrationMl={mlData.calibration} calibrationFrac={fracData.calibration}
-            calibErrorMl={mlData.calibError} calibErrorFrac={fracData.calibError}
-            calibLoadingMl={mlData.calibLoading} calibLoadingFrac={fracData.calibLoading}
-            calibParams={calibParams} setCalibParam={setCalibParam}
-            recalculateMl={mlData.recalculate} recalculateFrac={fracData.recalculate}
-          />
+        ? <SensorsPane plantFilter={plantFilter} sensorFilter={sensorFilter} calibrator={calibrator} plantSensors={plantSensors} />
+        : <CalibrationPane plantFilter={plantFilter} sensorFilter={sensorFilter} calibrator={calibrator} plantSensors={plantSensors} />
       }
     </div>
   )

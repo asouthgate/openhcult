@@ -71,9 +71,7 @@ def fetch_series_from_ctrl(
         if time_ms is None:
             continue
         timestamp = np.datetime64(int(time_ms), "ms")
-        device_name = row.get("device_name") or row.get("device_address") or "unknown"
-        sensor_name = row.get("sensor") or "sensor"
-        key = f"{device_name}:{sensor_name}"
+        key = f"{row['device_address']}:{row['sensor']}"
         voltage_mv = row.get("voltage_mv")
         series.setdefault(key, []).append(
             (
@@ -85,17 +83,21 @@ def fetch_series_from_ctrl(
     return series
 
 
-def _fetch_observations_from_ctrl(
+def fetch_observations(
     ctrl_url: str,
-    start_utc: str | None,
-    end_utc: str | None,
-    limit: int,
+    *,
+    start_utc: str | None = None,
+    end_utc: str | None = None,
+    plant_name: str | None = None,
+    limit: int = 1000,
 ) -> List[Tuple[int, np.datetime64, str]]:
     params: Dict[str, str] = {"limit": str(limit)}
     if start_utc:
         params["start_utc"] = start_utc
     if end_utc:
         params["end_utc"] = end_utc
+    if plant_name:
+        params["plant"] = plant_name
 
     base_url = ctrl_url.rstrip("/")
     url = f"{base_url}/observations?{urllib.parse.urlencode(params)}"
@@ -113,6 +115,27 @@ def _fetch_observations_from_ctrl(
     return observations
 
 
+def fetch_sensor_data(
+    ctrl_url: str,
+    *,
+    sensor: str | None = None,
+    device: str | None = None,
+    plant_name: str | None = None,
+    start_utc: str | None = None,
+    end_utc: str | None = None,
+    limit: int = 1000,
+) -> Dict[str, List[Tuple[np.datetime64, int, int | None]]]:
+    return fetch_series_from_ctrl(
+        ctrl_url,
+        sensor=sensor,
+        device=device,
+        plant_name=plant_name,
+        start_utc=start_utc,
+        end_utc=end_utc,
+        limit=limit,
+    )
+
+
 def fetch_data(
     ctrl_url,
     start_utc,
@@ -123,7 +146,7 @@ def fetch_data(
     plant_name=None,
     limit=1000,
 ):
-    series = fetch_series_from_ctrl(
+    series = fetch_sensor_data(
         ctrl_url,
         sensor=sensor,
         device=device,
@@ -132,10 +155,11 @@ def fetch_data(
         end_utc=end_utc,
         limit=limit,
     )
-    observations = _fetch_observations_from_ctrl(
+    observations = fetch_observations(
         ctrl_url,
         start_utc=start_utc,
         end_utc=end_utc,
+        plant_name=plant_name,
         limit=limit,
     )
     if not series:
@@ -159,3 +183,112 @@ def main(args) -> int:
     )
     with open(f"sensor-data-{args.start_utc}_{args.end_utc}.pkl", "wb") as f:
         pickle.dump(fetched, f)
+
+
+def fetch_observations_main(args) -> int:
+    observations = fetch_observations(
+        ctrl_url=args.ctrl_url,
+        start_utc=args.start_utc,
+        end_utc=args.end_utc,
+        plant_name=args.plant_name,
+        limit=args.limit,
+    )
+    if not observations:
+        print("No observations found.")
+        return 1
+    with open(f"observations-{args.start_utc}_{args.end_utc}.pkl", "wb") as f:
+        pickle.dump(observations, f)
+    print(f"Saved {len(observations)} observations to observations-{args.start_utc}_{args.end_utc}.pkl")
+    return 0
+
+
+def fetch_chords(
+    ctrl_url: str,
+    *,
+    plant_name: str,
+    offset_ms: int = 600_000,
+    width_ms: int = 3_000_000,
+    sensor: str | None = None,
+    device_address: str | None = None,
+) -> dict:
+    params: Dict[str, str] = {
+        "plant": plant_name,
+        "offset_ms": str(offset_ms),
+        "width_ms": str(width_ms),
+    }
+    if sensor:
+        params["sensor"] = sensor
+    if device_address:
+        params["device_address"] = device_address
+
+    base_url = ctrl_url.rstrip("/")
+    url = f"{base_url}/chords?{urllib.parse.urlencode(params)}"
+    return request_ctrl("GET", url)
+
+
+def fetch_chords_main(args) -> int:
+    result = fetch_chords(
+        ctrl_url=args.ctrl_url,
+        plant_name=args.plant_name,
+        offset_ms=args.offset_ms,
+        width_ms=args.width_ms,
+        sensor=args.sensor,
+        device_address=args.device_address,
+    )
+    n = len(result.get("chord_times", []))
+    if not n:
+        print("No chords found.")
+        return 1
+    start = args.start_utc or "unknown"
+    end = args.end_utc or "unknown"
+    out_path = f"chords-{args.plant_name}-{start}_{end}.pkl"
+    with open(out_path, "wb") as f:
+        pickle.dump(result, f)
+    print(f"Saved {n} chords to {out_path}")
+    return 0
+
+
+def fetch_prior(
+    ctrl_url: str,
+) -> dict:
+    base_url = ctrl_url.rstrip("/")
+    url = f"{base_url}/prior"
+    return request_ctrl("GET", url)
+
+
+def fetch_prior_main(args) -> int:
+    from datetime import datetime, timezone
+
+    result = fetch_prior(ctrl_url=args.ctrl_url)
+    if not result.get("prior_x"):
+        print("No prior data found.")
+        return 1
+    ts = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    result["downloaded_at"] = ts
+    out_path = f"prior-{ts}.pkl"
+    with open(out_path, "wb") as f:
+        pickle.dump(result, f)
+    print(f"Saved prior data ({len(result['prior_x'])} points) to {out_path}")
+    return 0
+
+
+def fetch_sensor_data_main(args) -> int:
+    series = fetch_sensor_data(
+        ctrl_url=args.ctrl_url,
+        sensor=args.sensor,
+        device=args.device,
+        plant_name=args.plant_name,
+        start_utc=args.start_utc,
+        end_utc=args.end_utc,
+        limit=args.limit,
+    )
+    if not series:
+        print("No sensor data found.")
+        return 1
+    plant = f"{args.plant_name}-" if args.plant_name else ""
+    out_path = f"sensor-data-{plant}{args.start_utc}_{args.end_utc}.pkl"
+    with open(out_path, "wb") as f:
+        pickle.dump(series, f)
+    total = sum(len(v) for v in series.values())
+    print(f"Saved {total} readings across {len(series)} series to {out_path}")
+    return 0

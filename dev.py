@@ -47,6 +47,7 @@ def gray(text):
 
 DEFAULT_TESTS = [
     "tests/test_api.py",
+    "tests/test_observations.py",
     "tests/test_seed_visualisation.py",
     "tests/test_water_calibration.py",
 ]

@@ -146,9 +146,8 @@ def assign_plant_sensor(
     return {
         "plant_id": plant["id"],
         "plant_name": plant["plant_name"],
-        "device_id": device["id"],
+        "device_address": device["address"],
         "device_name": device.get("name"),
-        "device_address": device.get("address"),
         "sensor": sensor,
     }
 

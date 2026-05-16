@@ -236,6 +236,7 @@ def fetch_observations(
     *,
     start_ms: Optional[int] = None,
     end_ms: Optional[int] = None,
+    plant_name: Optional[str] = None,
     limit: int = 1000,
 ) -> Iterable[dict]:
     """Return observations ordered by observed_at."""
@@ -243,11 +244,14 @@ def fetch_observations(
     params = []
     placeholder = placeholder_for(conn)
     if start_ms is not None:
-        clauses.append(f"observed_at >= {placeholder}")
+        clauses.append(f"o.observed_at >= {placeholder}")
         params.append(start_ms)
     if end_ms is not None:
-        clauses.append(f"observed_at <= {placeholder}")
+        clauses.append(f"o.observed_at <= {placeholder}")
         params.append(end_ms)
+    if plant_name is not None:
+        clauses.append(f"p.plant_name = {placeholder}")
+        params.append(plant_name)
     where = ""
     if clauses:
         where = "WHERE " + " AND ".join(clauses)

@@ -2,25 +2,19 @@ import { describe, it, expect } from 'vitest'
 import { buildSwcTimeseriesParams, buildDryingRateParams, buildWaterCalibrationParams } from './paramsBuilder'
 
 const defaultCalibParams = {
-  offsetMin: '5', widthMin: '50', prior: 'calibrated', priorMin: '867', priorMax: '2009',
-  estimator: 'exp_mcmc', priorWeight: '1.0', nBurn: '10', nSteps: '30',
+  offsetMin: '5', widthMin: '50', estimator: 'exp_mcmc', priorWeight: '1.0', nBurn: '10', nSteps: '30',
   systemCapacityMean: '', systemCapacityStd: '', emaTauMin: '60',
 }
 
 describe('buildSwcTimeseriesParams', () => {
-  it('excludes prior param when calibrated', () => {
+  it('builds basic params', () => {
     const params = buildSwcTimeseriesParams('plant1', defaultCalibParams, 48)
-    expect(params.has('prior')).toBe(false)
-  })
-
-  it('includes prior param when not calibrated', () => {
-    const params = buildSwcTimeseriesParams('plant1', { ...defaultCalibParams, prior: 'linear' }, 48)
-    expect(params.get('prior')).toBe('linear')
+    expect(params.get('plant')).toBe('plant1')
   })
 
   it('excludes empty optional params', () => {
-    const params = buildSwcTimeseriesParams('plant1', { ...defaultCalibParams, priorMin: '', priorMax: '' }, 48)
-    expect(params.has('prior_min')).toBe(false)
+    const params = buildSwcTimeseriesParams('plant1', { ...defaultCalibParams, systemCapacityMean: '', systemCapacityStd: '' }, 48)
+    expect(params.has('system_capacity_mean')).toBe(false)
   })
 })
 
@@ -73,19 +67,34 @@ describe('buildWaterCalibrationParams', () => {
     expect(params.has('return_fractional')).toBe(false)
   })
 
-  it('includes prior_min/max for linear prior', () => {
-    const params = buildWaterCalibrationParams('plant1', '', { ...defaultCalibParams, prior: 'linear' })
-    expect(params.get('prior')).toBe('linear')
-    expect(params.get('prior_min')).toBe('867')
-  })
-
-  it('includes prior_min/max for exp_mcmc even when prior is calibrated', () => {
-    const params = buildWaterCalibrationParams('plant1', '', { ...defaultCalibParams, prior: 'calibrated' })
-    expect(params.get('prior_min')).toBe('867')
-  })
-
   it('excludes empty optional params', () => {
     const params = buildWaterCalibrationParams('plant1', '', { ...defaultCalibParams, nBurn: '', nSteps: '' })
     expect(params.has('n_burn')).toBe(false)
+  })
+
+  describe('sensor filter handling', () => {
+    it('buildWaterCalibrationParams omits sensor params when sensorFilter is empty', () => {
+      const params = buildWaterCalibrationParams('plant1', '', defaultCalibParams)
+      expect(params.has('sensor')).toBe(false)
+      expect(params.has('device_address')).toBe(false)
+    })
+
+    it('buildWaterCalibrationParams parses sensor key when provided', () => {
+      const params = buildWaterCalibrationParams('plant1', 'AA:BB:CC:cap1', defaultCalibParams)
+      expect(params.get('sensor')).toBe('cap1')
+      expect(params.get('device_address')).toBe('AA:BB:CC')
+    })
+
+    it('buildDryingRateParams omits sensor params when sensorFilter is empty', () => {
+      const params = buildDryingRateParams('plant1', '', defaultCalibParams, 48)
+      expect(params.has('sensor')).toBe(false)
+      expect(params.has('device_address')).toBe(false)
+    })
+
+    it('buildDryingRateParams parses sensor key when provided', () => {
+      const params = buildDryingRateParams('plant1', 'AA:BB:CC:cap1', defaultCalibParams, 48)
+      expect(params.get('sensor')).toBe('cap1')
+      expect(params.get('device_address')).toBe('AA:BB:CC')
+    })
   })
 })
