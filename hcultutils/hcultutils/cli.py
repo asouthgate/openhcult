@@ -130,6 +130,42 @@ def _add_fetch_data_command(subparsers):
     )
 
 
+def _add_fetch_observations_command(subparsers):
+    parser = subparsers.add_parser(
+        "fetch_observations",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        help="Fetch observations from hcultctrl and save to pickle",
+    )
+    _add_base_args(parser)
+    parser.add_argument(
+        "--plant-name",
+        default=None,
+        help="Filter to a plant name (requires hcultctrl)",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=100000,
+        help="Limit number of rows when querying hcultctrl",
+    )
+
+
+def _add_fetch_sensor_data_command(subparsers):
+    parser = subparsers.add_parser(
+        "fetch_sensor_data",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        help="Fetch sensor time series from hcultctrl and save to pickle",
+    )
+    _add_base_args(parser)
+    _add_plotter_args(parser)
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=100000,
+        help="Limit number of rows when querying hcultctrl",
+    )
+
+
 def _add_plot_timeseries_command(subparsers):
     plot_timeseries_parser = subparsers.add_parser(
         "plot_timeseries",
@@ -352,6 +388,8 @@ def _build_parser() -> HcultArgumentParser:
     _add_setup_command(subparsers)
     _add_login_command(subparsers)
     _add_fetch_data_command(subparsers)
+    _add_fetch_observations_command(subparsers)
+    _add_fetch_sensor_data_command(subparsers)
     _add_plot_timeseries_command(subparsers)
     _add_infer_events_command(subparsers)
     _add_species_command(subparsers)
@@ -436,6 +474,10 @@ def _dispatch_command(args) -> int:
     if args.command == "fetch_data":
         fetch_data.main(args)
         return 0
+    if args.command == "fetch_observations":
+        return fetch_data.fetch_observations_main(args)
+    if args.command == "fetch_sensor_data":
+        return fetch_data.fetch_sensor_data_main(args)
     if args.command == "infer_events":
         return infer_events.run(args)
     if args.command == "species":
