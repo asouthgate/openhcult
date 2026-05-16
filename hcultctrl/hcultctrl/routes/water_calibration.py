@@ -371,6 +371,8 @@ def prior(conn=Depends(get_db_conn)):
 def chords(p: CordDataParams = Depends(), conn=Depends(get_db_conn)):
     sensor_specs = _resolve_sensors(conn, p)
     all_x, all_dx, all_dy, all_chord_times = [], [], [], []
+    sensor_chord_labels = []
+    active_sensors = []
     for ps in sensor_specs:
         chords, chord_times = database.fetch_chords(
             conn,
@@ -383,11 +385,14 @@ def chords(p: CordDataParams = Depends(), conn=Depends(get_db_conn)):
         if not chords:
             logger.warning("No chords for %s/%s, skipping", ps["device_address"], ps["sensor"])
             continue
+        sensor_idx = len(active_sensors)
+        active_sensors.append(ps)
         for (x, dx, dy), t in zip(chords, chord_times):
             all_x.append(x)
             all_dx.append(dx)
             all_dy.append(dy)
             all_chord_times.append(t)
+            sensor_chord_labels.append(sensor_idx)
     return {
         "chords_x": all_x,
         "chords_dx": all_dx,
@@ -395,6 +400,8 @@ def chords(p: CordDataParams = Depends(), conn=Depends(get_db_conn)):
         "chord_times": all_chord_times,
         "offset_ms": p.offset_ms,
         "width_ms": p.width_ms,
+        "sensor_chord_labels": sensor_chord_labels,
+        "active_sensors": active_sensors,
     }
 
 
