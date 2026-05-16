@@ -5,6 +5,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
+from hcultinf.detection import smooth_and_downsample
 from hcultinf.exp_mcmc import ExponentialCordCalibratorMCMC
 from hcultinf.plot_style import apply_dark_theme, PALETTE
 
@@ -14,8 +15,12 @@ _NO_PLOTS = os.environ.get("HCULT_NO_PLOT", "0") == "1"
 
 _DATA_DIR = Path(__file__).parent / "data"
 
-SENSORS_PKL = _DATA_DIR / "sensor-data-LIMETREE001-2026-04-21T00:00:00Z_2026-04-28T00:00:00Z.pkl"
-CHORDS_PKL = _DATA_DIR / "chords-LIMETREE001-2025-04-21T00:00:00Z_2026-04-28T00:00:00Z.pkl"
+SENSORS_PKL = (
+    _DATA_DIR / "sensor-data-LIMETREE001-2026-04-21T00:00:00Z_2026-04-28T00:00:00Z.pkl"
+)
+CHORDS_PKL = (
+    _DATA_DIR / "chords-LIMETREE001-2025-04-21T00:00:00Z_2026-04-28T00:00:00Z.pkl"
+)
 PRIOR_PKL = _DATA_DIR / "prior-2026-05-16T13:56:42.635558Z.pkl"
 
 N_BURN = 250
@@ -23,8 +28,18 @@ N_STEPS = 500
 MIN_CHORDS_PER_SENSOR = 5
 
 
-def _fit(x_anchors, swc_anchors, x_starts, delta_x, delta_swc,
-         prior_x, prior_y, xmax, n_sensors=1, sensor_chord_labels=None):
+def _fit(
+    x_anchors,
+    swc_anchors,
+    x_starts,
+    delta_x,
+    delta_swc,
+    prior_x,
+    prior_y,
+    xmax,
+    n_sensors=1,
+    sensor_chord_labels=None,
+):
     cal = ExponentialCordCalibratorMCMC(
         xmax=xmax,
         prior_weight=1.0,
@@ -61,7 +76,7 @@ def _load_sensor_timeseries():
     keys = sorted(sensor_data.keys())
     series = []
     for k in keys:
-        ts = np.array([int(v[0].astype("datetime64[ms]").astype("int64")) for v in sensor_data[k]])
+        ts = np.array([v[0].astype("datetime64[ms]") for v in sensor_data[k]])
         volts = np.array([float(v[2]) for v in sensor_data[k]], dtype=float)
         series.append((ts, volts))
     common_ts = series[0][0]
@@ -103,16 +118,26 @@ def test_real_data():
     for s in range(n_sensors):
         mask = labels == s
         cal = _fit(
-            anchor_x, anchor_swc,
-            chords_x[mask], chords_dx[mask], chords_dy[mask],
-            prior_x, prior_y, xmax,
+            anchor_x,
+            anchor_swc,
+            chords_x[mask],
+            chords_dx[mask],
+            chords_dy[mask],
+            prior_x,
+            prior_y,
+            xmax,
         )
         single_cals.append(cal)
 
     joint_cal = _fit(
-        anchor_x, anchor_swc,
-        chords_x, chords_dx, chords_dy,
-        prior_x, prior_y, xmax,
+        anchor_x,
+        anchor_swc,
+        chords_x,
+        chords_dx,
+        chords_dy,
+        prior_x,
+        prior_y,
+        xmax,
         n_sensors=n_sensors,
         sensor_chord_labels=labels,
     )
@@ -123,16 +148,26 @@ def test_real_data():
     x_grid_2d = np.column_stack([x_grid] * n_sensors)
     mean_joint, ci_lo_joint, ci_hi_joint = joint_cal.predict(x_grid_2d)
 
-    _assert_sandwiched(single_means[0], single_means[1], mean_joint,
-                       min_fraction=0.35, label="calibration curve")
+    _assert_sandwiched(
+        single_means[0],
+        single_means[1],
+        mean_joint,
+        min_fraction=0.35,
+        label="calibration curve",
+    )
 
     ts, volts = _load_sensor_timeseries()
 
     single_ts_means = [single_cals[i].predict(volts[:, i])[0] for i in range(n_sensors)]
     mean_ts_joint, ci_lo_ts_joint, ci_hi_ts_joint = joint_cal.predict(volts)
 
-    _assert_sandwiched(single_ts_means[0], single_ts_means[1], mean_ts_joint,
-                       min_fraction=0.7, label="timeseries")
+    _assert_sandwiched(
+        single_ts_means[0],
+        single_ts_means[1],
+        mean_ts_joint,
+        min_fraction=0.7,
+        label="timeseries",
+    )
 
     if _NO_PLOTS:
         return
@@ -158,20 +193,45 @@ def test_real_data():
         plt.show()
     plt.close(fig)
 
-    ts_hours = (ts - ts[0]) / 3_600_000.0
+    ts_hours = (ts - ts[0]) / np.timedelta64(1, "h")
 
     fig, ax = plt.subplots(figsize=(12, 5))
     for i in range(n_sensors):
         _, ci_lo, ci_hi = single_cals[i].predict(volts[:, i])
-        ax.plot(ts_hours, single_ts_means[i], color=colors[i], label=names[i], linewidth=0.8)
+        ax.plot(
+            ts_hours, single_ts_means[i], color=colors[i], label=names[i], linewidth=0.8
+        )
         ax.fill_between(ts_hours, ci_lo, ci_hi, color=colors[i], alpha=0.15)
     ax.plot(ts_hours, mean_ts_joint, color=colors[-1], label=names[-1], linewidth=0.8)
-    ax.fill_between(ts_hours, ci_lo_ts_joint, ci_hi_ts_joint, color=colors[-1], alpha=0.15)
+    ax.fill_between(
+        ts_hours, ci_lo_ts_joint, ci_hi_ts_joint, color=colors[-1], alpha=0.15
+    )
     ax.set_xlabel("time (hours)")
     ax.set_ylabel("SWC")
     ax.legend()
     fig.tight_layout()
     fig.savefig("artifacts/real_data_timeseries.png")
+    if os.environ.get("HCULT_TEST_DEBUG_PLOT", "0") == "1":
+        plt.show()
+    plt.close(fig)
+
+    fig, ax = plt.subplots(figsize=(12, 5))
+    for i in range(n_sensors):
+        ax.scatter(ts_hours, volts[:, i], color=colors[i], alpha=0.3, s=4, marker="x")
+        ds_ts, ds_vals = smooth_and_downsample(ts, volts[:, i])
+        ds_hours = (ds_ts - ds_ts[0]) / np.timedelta64(1, "h")
+        ax.plot(
+            ds_hours,
+            ds_vals,
+            color=colors[i],
+            label=f"Sensor {i+1} (smoothed)",
+            linewidth=1.2,
+        )
+    ax.set_xlabel("time (hours)")
+    ax.set_ylabel("sensor reading (mV)")
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig("artifacts/real_data_smoothed.png")
     if os.environ.get("HCULT_TEST_DEBUG_PLOT", "0") == "1":
         plt.show()
     plt.close(fig)

@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from hcultctrl.utils import get_db_conn
 from hcultdb import queries as database
 from hcultinf.exp_mcmc import ExponentialCordCalibratorMCMC
+from hcultinf.detection import smooth_and_downsample
 from hcultinf.drying import drying_rate as compute_drying_rate
 
 logger = logging.getLogger(__name__)
@@ -45,6 +46,7 @@ class CordDataParams(WindowParams):
 
 class CalibrationParams(CordDataParams, TuningParams):
     estimator: str = "exp_mcmc"
+    smoothed: bool = True
 
 
 def _load_calibration(csv_path: str) -> tuple[np.ndarray, np.ndarray]:
@@ -514,6 +516,16 @@ def swc_timeseries(
         cal._data_xmin.tolist() if cal._data_xmin is not None else "none",
         cal._xmax,
     )
+
+    if p.smoothed:
+        ts_dt = times_ms.astype("datetime64[ms]")
+        ds_ts, ds_mean = smooth_and_downsample(ts_dt, mean_swc)
+        _, ds_lo = smooth_and_downsample(ts_dt, ci_low)
+        _, ds_hi = smooth_and_downsample(ts_dt, ci_high)
+        times_ms = ds_ts.astype("datetime64[ms]").astype("int64")
+        mean_swc = ds_mean
+        ci_low = ds_lo
+        ci_high = ds_hi
 
     return {
         "times_ms": [int(v) for v in times_ms],
