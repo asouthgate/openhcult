@@ -122,6 +122,12 @@ def _add_fetch_data_command(subparsers):
     )
     _add_base_args(fetch_data_parsers)
     _add_plotter_args(fetch_data_parsers)
+    fetch_data_parsers.add_argument(
+        "--limit",
+        type=int,
+        default=100000,
+        help="Limit number of rows when querying hcultctrl",
+    )
 
 
 def _add_plot_timeseries_command(subparsers):
