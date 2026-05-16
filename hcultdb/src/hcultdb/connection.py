@@ -19,7 +19,7 @@ def placeholder(conn) -> str:
 def connect(db_url: str):
     parsed = urlparse(db_url)
     if parsed.scheme.startswith("postgres"):
-        return psycopg.connect(db_url)
+        return psycopg.connect(db_url, connect_timeout=10)
     raise ValueError(f"Unsupported database URL: {db_url}")
 
 

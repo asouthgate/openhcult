@@ -71,9 +71,9 @@ def fetch_series_from_ctrl(
         if time_ms is None:
             continue
         timestamp = np.datetime64(int(time_ms), "ms")
-        device_name = row.get("device_name") or row.get("device_address") or "unknown"
+        device_id = row.get("device_id") or row.get("device_name") or row.get("device_address") or "unknown"
         sensor_name = row.get("sensor") or "sensor"
-        key = f"{device_name}:{sensor_name}"
+        key = f"{device_id}:{sensor_name}"
         voltage_mv = row.get("voltage_mv")
         series.setdefault(key, []).append(
             (
