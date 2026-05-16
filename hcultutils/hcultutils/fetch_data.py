@@ -239,7 +239,9 @@ def fetch_chords_main(args) -> int:
     if not n:
         print("No chords found.")
         return 1
-    out_path = f"chords-{args.plant_name}.pkl"
+    start = args.start_utc or "unknown"
+    end = args.end_utc or "unknown"
+    out_path = f"chords-{args.plant_name}-{start}_{end}.pkl"
     with open(out_path, "wb") as f:
         pickle.dump(result, f)
     print(f"Saved {n} chords to {out_path}")
@@ -255,11 +257,15 @@ def fetch_prior(
 
 
 def fetch_prior_main(args) -> int:
+    from datetime import datetime, timezone
+
     result = fetch_prior(ctrl_url=args.ctrl_url)
     if not result.get("prior_x"):
         print("No prior data found.")
         return 1
-    out_path = "prior.pkl"
+    ts = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    result["downloaded_at"] = ts
+    out_path = f"prior-{ts}.pkl"
     with open(out_path, "wb") as f:
         pickle.dump(result, f)
     print(f"Saved prior data ({len(result['prior_x'])} points) to {out_path}")
@@ -279,7 +285,8 @@ def fetch_sensor_data_main(args) -> int:
     if not series:
         print("No sensor data found.")
         return 1
-    out_path = f"sensor-data-{args.start_utc}_{args.end_utc}.pkl"
+    plant = f"{args.plant_name}-" if args.plant_name else ""
+    out_path = f"sensor-data-{plant}{args.start_utc}_{args.end_utc}.pkl"
     with open(out_path, "wb") as f:
         pickle.dump(series, f)
     total = sum(len(v) for v in series.values())
