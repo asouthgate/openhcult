@@ -105,7 +105,7 @@ def test_water_calibration_with_waterings(db_conn):
         )
 
     result = request_json(
-        f"/water_calibration?plant={plant_name}&prior_max={SENSOR_DRY_MV}"
+        f"/water_calibration?plant={plant_name}"
     )
     assert "prior_x" in result
     assert "mean" in result
@@ -137,7 +137,7 @@ def test_combined_water_between_individual_sensors(seeded_db):
     start_ms = now_ms - 7 * 24 * 3600 * 1000
 
     result = request_json(
-        f"/swc_timeseries?plant={_FIDDLE_LEAF}&prior=calibrated"
+        f"/swc_timeseries?plant={_FIDDLE_LEAF}"
         f"&start_ms={start_ms}&end_ms={now_ms}"
     )
 
@@ -178,7 +178,7 @@ def test_swc_timeseries_with_empty_sensor(seeded_db):
     start_ms = now_ms - 7 * 24 * 3600 * 1000
 
     result = request_json(
-        f"/swc_timeseries?plant={plant_name}&prior=calibrated"
+        f"/swc_timeseries?plant={plant_name}"
         f"&start_ms={start_ms}&end_ms={now_ms}"
     )
 

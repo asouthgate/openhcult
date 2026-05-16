@@ -150,6 +150,55 @@ def _add_fetch_observations_command(subparsers):
     )
 
 
+def _add_fetch_chords_command(subparsers):
+    parser = subparsers.add_parser(
+        "fetch_chords",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        help="Fetch chord data from hcultctrl and save to pickle",
+    )
+    _add_base_args(parser)
+    parser.add_argument(
+        "--plant-name",
+        required=True,
+        help="Plant name to fetch chords for",
+    )
+    parser.add_argument(
+        "--offset-ms",
+        type=int,
+        default=600000,
+        help="Milliseconds before/after watering to skip (default: 600000)",
+    )
+    parser.add_argument(
+        "--width-ms",
+        type=int,
+        default=3000000,
+        help="Milliseconds width of measurement windows (default: 3000000)",
+    )
+    parser.add_argument(
+        "--sensor",
+        default=None,
+        help="Sensor name filter",
+    )
+    parser.add_argument(
+        "--device-address",
+        default=None,
+        help="Device address filter",
+    )
+
+
+def _add_fetch_prior_command(subparsers):
+    parser = subparsers.add_parser(
+        "fetch_prior",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        help="Fetch calibrated prior data from hcultctrl and save to pickle",
+    )
+    parser.add_argument(
+        "--ctrl-url",
+        default=os.environ.get("HCULT_CTRL_URL"),
+        help="URL of hcultctrl server (default: $HCULT_CTRL_URL)",
+    )
+
+
 def _add_fetch_sensor_data_command(subparsers):
     parser = subparsers.add_parser(
         "fetch_sensor_data",
@@ -389,6 +438,8 @@ def _build_parser() -> HcultArgumentParser:
     _add_login_command(subparsers)
     _add_fetch_data_command(subparsers)
     _add_fetch_observations_command(subparsers)
+    _add_fetch_chords_command(subparsers)
+    _add_fetch_prior_command(subparsers)
     _add_fetch_sensor_data_command(subparsers)
     _add_plot_timeseries_command(subparsers)
     _add_infer_events_command(subparsers)
@@ -476,6 +527,10 @@ def _dispatch_command(args) -> int:
         return 0
     if args.command == "fetch_observations":
         return fetch_data.fetch_observations_main(args)
+    if args.command == "fetch_chords":
+        return fetch_data.fetch_chords_main(args)
+    if args.command == "fetch_prior":
+        return fetch_data.fetch_prior_main(args)
     if args.command == "fetch_sensor_data":
         return fetch_data.fetch_sensor_data_main(args)
     if args.command == "infer_events":

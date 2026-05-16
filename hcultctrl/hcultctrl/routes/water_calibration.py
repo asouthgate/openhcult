@@ -26,9 +26,6 @@ class WindowParams(BaseModel):
     plant: str
     offset_ms: int = _DEFAULT_OFFSET_MS
     width_ms: int = _DEFAULT_WIDTH_MS
-    prior: str = "calibrated"
-    prior_min: float | None = None
-    prior_max: float | None = None
 
 
 class TuningParams(BaseModel):
@@ -77,7 +74,7 @@ def _load_calibration(csv_path: str) -> tuple[np.ndarray, np.ndarray]:
     return np.array(sensor_vals)[order], np.array(swc_vals)[order]
 
 
-def _resolve_sensors(conn, p: CalibrationParams):
+def _resolve_sensors(conn, p: CordDataParams):
     if p.sensor and not p.device_address:
         raise HTTPException(
             status_code=400,
@@ -93,11 +90,6 @@ def _resolve_sensors(conn, p: CalibrationParams):
 
 
 def _fetch_cord_data(conn, plant_name, sensor_specs, p):
-    if p.prior not in ("calibrated", "linear"):
-        raise HTTPException(
-            status_code=400, detail="prior must be 'calibrated' or 'linear'"
-        )
-
     all_x, all_dx, all_dy = [], [], []
     all_chord_times = []
     sensor_labels = []
@@ -134,21 +126,15 @@ def _fetch_cord_data(conn, plant_name, sensor_specs, p):
             detail=f"No sensor data found in windows around waterings (offset={p.offset_ms//60000}min, width={p.width_ms//60000}min)",
         )
 
-    if p.prior == "linear":
-        prior_x = np.linspace(p.prior_min, p.prior_max, 500)
-        t = (prior_x - p.prior_min) / (prior_x.max() - prior_x.min())
-        prior_y = 1.0 - t
-        x_anchor = np.array([p.prior_max])
-    else:
-        csv_path = os.environ.get("HCULT_CALIBRATION_CSV")
-        if not csv_path:
-            logger.error("HCULT_CALIBRATION_CSV is not configured")
-            raise HTTPException(status_code=500, detail="Calibration data unavailable")
-        sensor_vals, swc_vals = _load_calibration(csv_path)
-        swc_min, swc_max = swc_vals.min(), swc_vals.max()
-        prior_x = sensor_vals
-        prior_y = (swc_vals - swc_min) / (swc_max - swc_min)
-        x_anchor = np.array([sensor_vals.max()])
+    csv_path = os.environ.get("HCULT_CALIBRATION_CSV")
+    if not csv_path:
+        logger.error("HCULT_CALIBRATION_CSV is not configured")
+        raise HTTPException(status_code=500, detail="Calibration data unavailable")
+    sensor_vals, swc_vals = _load_calibration(csv_path)
+    swc_min, swc_max = swc_vals.min(), swc_vals.max()
+    prior_x = sensor_vals
+    prior_y = (swc_vals - swc_min) / (swc_max - swc_min)
+    x_anchor = np.array([sensor_vals.max()])
 
     swc_anchor = np.array([0.0])
 
@@ -179,19 +165,11 @@ def _validate_estimator(estimator):
         )
 
 
-def _validate_linear_prior(prior, prior_min, prior_max):
-    if prior == "linear" and (prior_min is None or prior_max is None):
-        raise HTTPException(
-            status_code=400,
-            detail="prior_min and prior_max are required for linear prior",
-        )
-
-
 def _calibrate(d, p: CalibrationParams):
     active_sensors = d["active_sensors"]
     n_sensors = len(active_sensors)
     exp_xmax = max(
-        p.prior_max if p.prior_max is not None else float(d["prior_x"].max()),
+        float(d["prior_x"].max()),
         float(d["x_arr"].max()),
     )
     logger.info(
@@ -377,30 +355,52 @@ def _predict_swc_timeseries(
     return times_ms, mean_swc, ci_low, ci_high
 
 
-@router.get("/water_cord_data")
-def water_cord_data(
-    p: CordDataParams = Depends(),
-    prior_alpha: float = 0.5,
-    conn=Depends(get_db_conn),
-):
+@router.get("/prior")
+def prior(conn=Depends(get_db_conn)):
+    csv_path = os.environ.get("HCULT_CALIBRATION_CSV")
+    if not csv_path:
+        raise HTTPException(status_code=500, detail="Calibration data unavailable")
+    sensor_vals, swc_vals = _load_calibration(csv_path)
+    swc_min, swc_max = swc_vals.min(), swc_vals.max()
+    prior_x = sensor_vals.tolist()
+    prior_y = ((swc_vals - swc_min) / (swc_max - swc_min)).tolist()
+    return {"prior_x": prior_x, "prior_y": prior_y}
+
+
+@router.get("/chords")
+def chords(p: CordDataParams = Depends(), conn=Depends(get_db_conn)):
     sensor_specs = _resolve_sensors(conn, p)
-    d = _fetch_cord_data(conn, p.plant, sensor_specs, p)
+    all_x, all_dx, all_dy, all_chord_times = [], [], [], []
+    for ps in sensor_specs:
+        chords, chord_times = database.fetch_chords(
+            conn,
+            offset_ms=p.offset_ms,
+            width_ms=p.width_ms,
+            plant_name=p.plant,
+            sensor=ps["sensor"],
+            device_address=ps["device_address"],
+        )
+        if not chords:
+            logger.warning("No chords for %s/%s, skipping", ps["device_address"], ps["sensor"])
+            continue
+        for (x, dx, dy), t in zip(chords, chord_times):
+            all_x.append(x)
+            all_dx.append(dx)
+            all_dy.append(dy)
+            all_chord_times.append(t)
     return {
-        "chords_x": d["x_arr"].tolist(),
-        "chords_dx": d["dx_arr"].tolist(),
-        "chords_dy": d["dy_arr"].tolist(),
-        "chord_times": d["chord_times"],
-        "prior_x": d["prior_x"].tolist(),
-        "prior_y": d["prior_y"].tolist(),
-        "offset_ms": d["offset_ms"],
-        "width_ms": d["width_ms"],
+        "chords_x": all_x,
+        "chords_dx": all_dx,
+        "chords_dy": all_dy,
+        "chord_times": all_chord_times,
+        "offset_ms": p.offset_ms,
+        "width_ms": p.width_ms,
     }
 
 
 @router.get("/water_calibration")
 def water_calibration(p: CalibrationParams = Depends(), conn=Depends(get_db_conn)):
     _validate_estimator(p.estimator)
-    _validate_linear_prior(p.prior, p.prior_min, p.prior_max)
 
     logger.info(
         "GET /water_calibration plant=%s sensor=%s device_address=%s offset_ms=%d width_ms=%d estimator=%s",
@@ -465,7 +465,6 @@ def swc_timeseries(
     conn=Depends(get_db_conn),
 ):
     _validate_estimator(p.estimator)
-    _validate_linear_prior(p.prior, p.prior_min, p.prior_max)
 
     end_time = end_ms if end_ms is not None else int(time.time() * 1000)
     start_time = start_ms if start_ms is not None else (end_time - 48 * 3600 * 1000)

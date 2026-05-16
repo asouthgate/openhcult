@@ -202,6 +202,70 @@ def fetch_observations_main(args) -> int:
     return 0
 
 
+def fetch_chords(
+    ctrl_url: str,
+    *,
+    plant_name: str,
+    offset_ms: int = 600_000,
+    width_ms: int = 3_000_000,
+    sensor: str | None = None,
+    device_address: str | None = None,
+) -> dict:
+    params: Dict[str, str] = {
+        "plant": plant_name,
+        "offset_ms": str(offset_ms),
+        "width_ms": str(width_ms),
+    }
+    if sensor:
+        params["sensor"] = sensor
+    if device_address:
+        params["device_address"] = device_address
+
+    base_url = ctrl_url.rstrip("/")
+    url = f"{base_url}/chords?{urllib.parse.urlencode(params)}"
+    return request_ctrl("GET", url)
+
+
+def fetch_chords_main(args) -> int:
+    result = fetch_chords(
+        ctrl_url=args.ctrl_url,
+        plant_name=args.plant_name,
+        offset_ms=args.offset_ms,
+        width_ms=args.width_ms,
+        sensor=args.sensor,
+        device_address=args.device_address,
+    )
+    n = len(result.get("chord_times", []))
+    if not n:
+        print("No chords found.")
+        return 1
+    out_path = f"chords-{args.plant_name}.pkl"
+    with open(out_path, "wb") as f:
+        pickle.dump(result, f)
+    print(f"Saved {n} chords to {out_path}")
+    return 0
+
+
+def fetch_prior(
+    ctrl_url: str,
+) -> dict:
+    base_url = ctrl_url.rstrip("/")
+    url = f"{base_url}/prior"
+    return request_ctrl("GET", url)
+
+
+def fetch_prior_main(args) -> int:
+    result = fetch_prior(ctrl_url=args.ctrl_url)
+    if not result.get("prior_x"):
+        print("No prior data found.")
+        return 1
+    out_path = "prior.pkl"
+    with open(out_path, "wb") as f:
+        pickle.dump(result, f)
+    print(f"Saved prior data ({len(result['prior_x'])} points) to {out_path}")
+    return 0
+
+
 def fetch_sensor_data_main(args) -> int:
     series = fetch_sensor_data(
         ctrl_url=args.ctrl_url,

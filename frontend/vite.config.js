@@ -19,7 +19,8 @@ export default defineConfig({
       '/water_calibration': 'http://localhost:8000',
       '/drying_rate': 'http://localhost:8000',
       '/swc_timeseries': 'http://localhost:8000',
-      '/water_cord_data': 'http://localhost:8000',
+      '/chords': 'http://localhost:8000',
+      '/prior': 'http://localhost:8000',
     },
   },
   test: {

@@ -6,8 +6,7 @@ import { PALETTE } from './theme'
 const DEBUG = true
 
 const DEFAULT_CALIB_PARAMS = {
-  offsetMin: '5', widthMin: '50', prior: 'calibrated', priorMin: '867', priorMax: '2009',
-  estimator: 'exp_mcmc', priorWeight: '1.0', nBurn: '10', nSteps: '30', emaTauMin: '60',
+  offsetMin: '5', widthMin: '50', estimator: 'exp_mcmc', priorWeight: '1.0', nBurn: '10', nSteps: '30', emaTauMin: '60',
   systemCapacityMean: '', systemCapacityStd: '',
 }
 
@@ -212,15 +211,6 @@ export function useCalibrator() {
     apiJson(`/water_calibration?${waterParams}`, { signal: waterController.signal })
       .then(d => {
         setCalibration(d)
-
-        if (!autoStdSet.current && d.chords_x?.length > 0) {
-          const endpoints = d.chords_x.map((x, i) => x + (d.chords_dx?.[i] ?? 0))
-          const newMin = String(Math.round(Math.min(...d.chords_x, ...endpoints)))
-          if (newMin !== params.priorMin) {
-            setParams(p => ({ ...p, priorMin: newMin }))
-          }
-          autoStdSet.current = true
-        }
       })
       .catch(err => {
         if (err.name !== 'AbortError') {

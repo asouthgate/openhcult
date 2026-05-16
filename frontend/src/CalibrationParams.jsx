@@ -1,5 +1,5 @@
 export default function CalibrationParams({ calibParams, setCalibParam }) {
-  const { offsetMin, widthMin, prior, priorMin, priorMax, estimator, priorWeight, nBurn, nSteps, emaTauMin, systemCapacityMean, systemCapacityStd } = calibParams
+  const { offsetMin, widthMin, estimator, priorWeight, nBurn, nSteps, emaTauMin, systemCapacityMean, systemCapacityStd } = calibParams
   return (
     <table className="param-table">
       <tbody>
@@ -54,27 +54,6 @@ export default function CalibrationParams({ calibParams, setCalibParam }) {
             <td>sys capacity std</td>
             <td><input type="number" step="1" className="param-input" value={systemCapacityStd} onChange={e => setCalibParam('systemCapacityStd', e.target.value)} /></td>
             <td>ml</td>
-          </tr>
-        </>}
-        <tr>
-          <td>prior</td>
-          <td colSpan={2}>
-            <div className="range-btns">
-              <button className={prior === 'calibrated' ? 'active' : ''} onClick={() => setCalibParam('prior', 'calibrated')}>calibrated</button>
-              <button className={prior === 'linear' ? 'active' : ''} onClick={() => setCalibParam('prior', 'linear')}>linear</button>
-            </div>
-          </td>
-        </tr>
-        {prior === 'linear' && <>
-          <tr>
-            <td>prior min</td>
-            <td><input type="number" className="param-input" value={priorMin} onChange={e => setCalibParam('priorMin', e.target.value)} placeholder="mV" /></td>
-            <td>mV</td>
-          </tr>
-          <tr>
-            <td>prior max</td>
-            <td><input type="number" className="param-input" value={priorMax} onChange={e => setCalibParam('priorMax', e.target.value)} placeholder="mV" /></td>
-            <td>mV</td>
           </tr>
         </>}
       </tbody>
