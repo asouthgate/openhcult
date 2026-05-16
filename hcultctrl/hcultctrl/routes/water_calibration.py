@@ -311,8 +311,19 @@ def _compute_drying_result(times_ms_arr, swc_samples, scale, lambda_tv=None):
     }
 
 
+def _smooth_voltage_matrix(times_ms, X):
+    ts_dt = times_ms.astype("datetime64[ms]")
+    smoothed_cols = []
+    for i in range(X.shape[1]):
+        _, col_smooth = smooth_and_downsample(ts_dt, X[:, i])
+        smoothed_cols.append(col_smooth)
+    ds_ts, _ = smooth_and_downsample(ts_dt, X[:, 0])
+    X_smooth = np.column_stack(smoothed_cols)
+    return ds_ts.astype("datetime64[ms]").astype("int64"), X_smooth
+
+
 def _predict_swc_timeseries(
-    conn, cal, sensor_keys, plant, start_time, end_time, fractional=False
+    conn, cal, sensor_keys, plant, start_time, end_time, fractional=False, smoothed=True
 ):
     all_readings = list(
         database.fetch_timeseries(
@@ -338,12 +349,17 @@ def _predict_swc_timeseries(
             detail="Not enough sensor readings in the specified time range",
         )
 
+    times_ms = np.array(all_times)
+
+    if smoothed:
+        times_ms, X = _smooth_voltage_matrix(times_ms, X)
+
     logger.info(
         "_predict_swc_timeseries: n_readings=%d n_times=%d n_active_sensors=%d "
         "voltage_min=%s voltage_max=%s n_nan_in_X=%s "
         "cal_data_xmin=%s cal_xmax=%s",
         len(all_readings),
-        len(all_times),
+        len(times_ms),
         n_active_sensors,
         float(np.nanmin(X)),
         float(np.nanmax(X)),
@@ -356,7 +372,6 @@ def _predict_swc_timeseries(
         mean_swc, ci_low, ci_high = cal.fractional_water_content(X)
     else:
         mean_swc, ci_low, ci_high = cal.predict(X)
-    times_ms = np.array(all_times)
     return times_ms, mean_swc, ci_low, ci_high
 
 
@@ -502,6 +517,7 @@ def swc_timeseries(
         fractional=p.return_fractional
         and p.system_capacity_mean is not None
         and p.system_capacity_std is not None,
+        smoothed=p.smoothed,
     )
 
     logger.info(
@@ -516,16 +532,6 @@ def swc_timeseries(
         cal._data_xmin.tolist() if cal._data_xmin is not None else "none",
         cal._xmax,
     )
-
-    if p.smoothed:
-        ts_dt = times_ms.astype("datetime64[ms]")
-        ds_ts, ds_mean = smooth_and_downsample(ts_dt, mean_swc)
-        _, ds_lo = smooth_and_downsample(ts_dt, ci_low)
-        _, ds_hi = smooth_and_downsample(ts_dt, ci_high)
-        times_ms = ds_ts.astype("datetime64[ms]").astype("int64")
-        mean_swc = ds_mean
-        ci_low = ds_lo
-        ci_high = ds_hi
 
     return {
         "times_ms": [int(v) for v in times_ms],
@@ -588,6 +594,9 @@ def drying_rate(
             detail="No sensor data available in the specified time range",
         )
     times_ms = np.array(all_times)
+
+    if p.smoothed:
+        times_ms, X = _smooth_voltage_matrix(times_ms, X)
 
     use_fractional = (
         p.return_fractional
