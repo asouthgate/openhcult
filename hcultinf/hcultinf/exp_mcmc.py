@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import datetime
 import logging
 import os
 
@@ -8,6 +7,7 @@ import numpy as np
 import emcee
 from .calibrator import CordCalibrator
 from .exp import ExponentialCordCalibrator, exponential_target_u
+from .logging import timed
 from .plot_style import apply_dark_theme, CLOUD_BLUE, ORANGE
 from .prior import (
     MCMCPriors,
@@ -15,16 +15,6 @@ from .prior import (
 )
 
 _logger = logging.getLogger(__name__)
-
-def timed_logging_decorator(func):
-    def wrapper(*args, **kwargs):
-        start_time = datetime.datetime.now()
-        result = func(*args, **kwargs)
-        end_time = datetime.datetime.now()
-        duration = (end_time - start_time).total_seconds()
-        _logger.info(f"{func.__name__} completed in {duration:.2f} seconds")
-        return result
-    return wrapper
 
 _LOG_2PI = np.log(2 * np.pi)
 
@@ -307,6 +297,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             x, self._scale_s, self._k_s, self._f_int_s, self._data_xmin, self._xmax
         )
 
+    @timed
     def _prepare_fit_data(
         self,
         x_anchors,
@@ -432,6 +423,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             ]
         )
 
+    @timed
     def _run_sampler(self, pos, posterior_kwargs):
         sampler = emcee.EnsembleSampler(
             self._n_walkers,
@@ -445,6 +437,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         self._log_prob = sampler.get_log_prob()
         return sampler
 
+    @timed
     def _postprocess(self, sampler, data):
         chain = self._chain
         log_probs = sampler.get_log_prob()
@@ -477,7 +470,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         self._ci_low = self._compute_ci_low
         self._ci_high = self._compute_ci_high
 
-    @timed_logging_decorator
+    @timed
     def fit(
         self,
         x_anchors,
@@ -549,7 +542,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             )
         return self
 
-    @timed_logging_decorator
+    @timed
     def predict(self, x):
         x = self._reshape_x(x)
         vals = self.posterior_samples_swc_at(x)
@@ -566,7 +559,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         with np.errstate(all="ignore"):
             return np.nanmean(vals, axis=0)
 
-    @timed_logging_decorator
+    @timed
     def posterior_samples_swc_at(self, x, n=None):
         x = self._reshape_x(x)
         scale_s, k_s, f_int_s = self._scale_s, self._k_s, self._f_int_s
@@ -587,7 +580,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         sigma_log = np.sqrt(np.log(1.0 + var / mean_cap**2))
         return mu_log, sigma_log
 
-    @timed_logging_decorator
+    @timed
     def fractional_water_content(self, x, n_samples=None, seed=None):
         """Return (mean, ci_low, ci_high) of SWC(x)/system_capacity.
 
@@ -606,7 +599,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
                 np.nanpercentile(frac_samples, 97.5, axis=0),
             )
 
-    @timed_logging_decorator
+    @timed
     def fractional_water_content_samples(self, x, n_samples=None, seed=None):
         """Return raw (n_samples, n_times) array of fractional SWC samples."""
         mu_log, sigma_log = self._capacity_lognorm_params()
@@ -623,7 +616,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             ]
         )
 
-    @timed_logging_decorator
+    @timed
     def estimate_velocity_samples(self, v_window, t_window):
         """Estimate velocity in a time window"""
 
