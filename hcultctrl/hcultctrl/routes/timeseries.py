@@ -69,7 +69,6 @@ def timeseries(
         writer = csv.writer(output)
         writer.writerow(
             [
-                "device_id",
                 "device_name",
                 "device_address",
                 "sensor",
@@ -83,7 +82,6 @@ def timeseries(
         for row in rows:
             writer.writerow(
                 [
-                    row["device_id"],
                     row["device_name"],
                     row["device_address"],
                     row["sensor"],
@@ -98,7 +96,6 @@ def timeseries(
 
     data = [
         {
-            "device_id": row["device_id"],
             "device_name": row["device_name"],
             "device_address": row["device_address"],
             "sensor": row["sensor"],

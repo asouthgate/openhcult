@@ -190,7 +190,6 @@ def fetch_timeseries(
 
     query = f"""
         SELECT
-            devices.id AS device_id,
             devices.name AS device_name,
             devices.address AS device_address,
             sensor_readings.sensor,

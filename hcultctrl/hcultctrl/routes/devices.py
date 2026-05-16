@@ -26,7 +26,6 @@ def list_devices(
     rows = database.fetch_devices(conn, limit=limit)
     data = [
         {
-            "id": row["id"],
             "name": row["name"],
             "tag": row["tag"],
             "address": row["address"],
