@@ -20,6 +20,7 @@ router = APIRouter()
 
 _DEFAULT_OFFSET_MS = 10 * 60 * 1000
 _DEFAULT_WIDTH_MS = 50 * 60 * 1000
+_MIN_CHORDS = 5
 
 
 class WindowParams(BaseModel):
@@ -104,11 +105,13 @@ def _fetch_cord_data(conn, plant_name, sensor_specs, p):
             sensor=ps["sensor"],
             device_address=ps["device_address"],
         )
-        if not chords:
+        if len(chords) < _MIN_CHORDS:
             logger.warning(
-                "No chords for %s/%s, skipping",
+                "Sensor %s/%s has %d chords (minimum %d), discarding from calibration",
                 ps["device_address"],
                 ps["sensor"],
+                len(chords),
+                _MIN_CHORDS,
             )
             continue
         sensor_idx = len(active_sensors)
@@ -382,8 +385,14 @@ def chords(p: CordDataParams = Depends(), conn=Depends(get_db_conn)):
             sensor=ps["sensor"],
             device_address=ps["device_address"],
         )
-        if not chords:
-            logger.warning("No chords for %s/%s, skipping", ps["device_address"], ps["sensor"])
+        if len(chords) < _MIN_CHORDS:
+            logger.warning(
+                "Sensor %s/%s has %d chords (minimum %d), discarding",
+                ps["device_address"],
+                ps["sensor"],
+                len(chords),
+                _MIN_CHORDS,
+            )
             continue
         sensor_idx = len(active_sensors)
         active_sensors.append(ps)
