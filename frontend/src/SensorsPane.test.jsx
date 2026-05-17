@@ -4,7 +4,7 @@ import SensorsPane from './SensorsPane'
 
 const defaultCalibrator = {
   params: {
-    offsetMin: '5', widthMin: '50', estimator: 'exp_mcmc', priorWeight: '1.0', nBurn: '10', nSteps: '30',
+    offsetMin: '5', widthMin: '50', estimator: 'exp_mcmc', priorWeight: '1.0', nBurn: '250', nSteps: '500',
     systemCapacityMean: '', systemCapacityStd: '', emaTauMin: '60',
   },
   setParam: vi.fn(),
