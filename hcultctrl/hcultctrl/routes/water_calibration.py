@@ -289,7 +289,6 @@ def _compute_drying_result(times_ms_arr, swc_samples, scale, lambda_tv=None):
     n_samples = swc_samples.shape[0]
     n_times = swc_samples.shape[1]
     rates_per_sample = np.empty((n_samples, n_times))
-    valid_per_sample = np.empty((n_samples, n_times), dtype=bool)
 
     logger.info(
         "Beginning drying rate computation for n_samples=%d n_times=%d",
@@ -303,23 +302,20 @@ def _compute_drying_result(times_ms_arr, swc_samples, scale, lambda_tv=None):
             lambda_tv=lambda_tv,
         )
         rates_per_sample[i] = result["rate"]
-        valid_per_sample[i] = result["valid"]
         logger.info(
             "Completed drying rate computation for sample %d of %d", i + 1, n_samples
         )
 
-    rate_ml_per_day = rates_per_sample * 1440.0
+    rate_ml_per_day = rates_per_sample * (24 * 60 * 60 * 1000)
     mean_rate = np.nanmean(rate_ml_per_day, axis=0)
     ci_low = np.nanpercentile(rate_ml_per_day, 2.5, axis=0)
     ci_high = np.nanpercentile(rate_ml_per_day, 97.5, axis=0)
-    valid = valid_per_sample.sum(axis=0) > n_samples // 2
 
     return {
         "times_ms": [int(v) for v in times_ms_arr],
         "rate_ml_per_day": _to_json_safe(mean_rate),
         "rate_ml_per_day_ci_low": _to_json_safe(ci_low),
         "rate_ml_per_day_ci_high": _to_json_safe(ci_high),
-        "valid": valid.tolist(),
         "scale": scale,
     }
 

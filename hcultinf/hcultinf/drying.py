@@ -44,6 +44,4 @@ def compute_drying_rate(times, values, lambda_tv=None):
     rate = np.diff(smoothed) / dt
     rate = np.concatenate([rate, rate[-1:]])
 
-    valid = rate < 0
-
-    return dict(times=times, rate=rate, valid=valid)
+    return dict(times=times, rate=rate)
