@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import csv
-import logging
+from datetime import datetime, timezone, timedelta
 import math
 import os
 import time
@@ -15,8 +15,14 @@ from hcultdb import queries as database
 from hcultinf.exp_mcmc import ExponentialCordCalibratorMCMC
 from hcultinf.detection import smooth_and_downsample
 from hcultinf.drying import drying_rate as compute_drying_rate
+from hcultctrl.logging import (
+    get_logger,
+    timed_func,
+    timed_api_route,
+    logged_timed_func_call,
+)
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 router = APIRouter()
 
 _DEFAULT_OFFSET_MS = 10 * 60 * 1000
@@ -311,6 +317,7 @@ def _compute_drying_result(times_ms_arr, swc_samples, scale, lambda_tv=None):
     }
 
 
+@timed_func
 def _smooth_voltage_matrix(times_ms, X):
     ts_dt = times_ms.astype("datetime64[ms]")
     smoothed_cols = []
@@ -545,6 +552,7 @@ def swc_timeseries(
     }
 
 
+@timed_api_route
 @router.get("/drying_rate")
 def drying_rate(
     p: CalibrationParams = Depends(),
@@ -553,7 +561,6 @@ def drying_rate(
     lambda_tv: float | None = None,
     conn=Depends(get_db_conn),
 ):
-    from datetime import datetime, timezone, timedelta
 
     _validate_estimator(p.estimator)
 
@@ -575,15 +582,25 @@ def drying_rate(
     cal = _calibrate(d, p)
 
     sensor_keys = [(ps["device_address"], ps["sensor"]) for ps in d["active_sensors"]]
-    all_readings = list(
-        database.fetch_timeseries(
-            conn,
-            plant=p.plant,
-            start_ms=start_ms_time,
-            end_ms=end_ms_time,
-            limit=50000,
-        )
+    # all_readings = list(
+    #     database.fetch_timeseries(
+    #         conn,
+    #         plant=p.plant,
+    #         start_ms=start_ms_time,
+    #         end_ms=end_ms_time,
+    #         limit=50000,
+    #     )
+    # )
+    all_readings = logged_timed_func_call(
+        logger,
+        database.fetch_timeseries,
+        conn,
+        plant=p.plant,
+        start_ms=start_ms_time,
+        end_ms=end_ms_time,
+        limit=50000,
     )
+
     all_times, X, sensors_with_data = _readings_to_input_data_array(
         all_readings, sensor_keys
     )
@@ -595,8 +612,13 @@ def drying_rate(
         )
     times_ms = np.array(all_times)
 
+    logger.info(f"Retrieved n_times_ms={len(times_ms)} for drying_rate calculation")
+
     if p.smoothed:
         times_ms, X = _smooth_voltage_matrix(times_ms, X)
+        logger.info(
+            f"Smoothed and resampled to to n_times_ms={len(times_ms)} for drying_rate calculation"
+        )
 
     use_fractional = (
         p.return_fractional
