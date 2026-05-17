@@ -285,25 +285,32 @@ def _readings_to_input_data_array(all_readings, sensor_keys):
     return all_times, X, sensors_with_data
 
 
-def _compute_drying_result(times_ms_arr, swc_samples, scale, lambda_tv=None):
+def _compute_drying_result(
+    times_ms_arr, swc_samples, scale, lambda_tv=None, max_samples=100
+):
     n_samples = swc_samples.shape[0]
     n_times = swc_samples.shape[1]
-    rates_per_sample = np.empty((n_samples, n_times))
+
+    n_result_samples = min(n_samples, max_samples)
+    rates_per_sample = np.empty((n_result_samples, n_times))
 
     logger.info(
         "Beginning drying rate computation for n_samples=%d n_times=%d",
         n_samples,
         n_times,
     )
-    for i in range(n_samples):
+    for j in range(n_result_samples):
+        i = np.random.randint(n_samples)
         result = compute_drying_rate(
             times_ms_arr,
             swc_samples[i],
             lambda_tv=lambda_tv,
         )
-        rates_per_sample[i] = result["rate"]
+        rates_per_sample[j] = result["rate"]
         logger.info(
-            "Completed drying rate computation for sample %d of %d", i + 1, n_samples
+            "Completed drying rate computation for sample %d of %d",
+            j + 1,
+            n_result_samples,
         )
 
     rate_ml_per_day = rates_per_sample * (24 * 60 * 60 * 1000)
