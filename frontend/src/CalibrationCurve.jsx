@@ -4,7 +4,7 @@ import { OBS_COLOR } from './theme'
 export default function CalibrationCurve({ calibration, showFractional = false }) {
   if (!calibration) return null
 
-  const { prior_x, prior_y, mean, ci_low, ci_high, anchors_x, anchors_y, chords_x, chords_dx, chords_dy, mean_at_chord_starts, scale } = calibration
+  const { prior_x, prior_y, mean, ci_low, ci_high, chords_x, chords_dx, chords_dy, mean_at_chord_starts, scale } = calibration
 
   const ref = showFractional ? 0 : mean[mean.length - 1]
   const meanNorm = mean.map(v => v - ref)
@@ -70,10 +70,6 @@ export default function CalibrationCurve({ calibration, showFractional = false }
           )
         })}
 
-        {anchors_x.map((xi, i) => (
-          <circle key={i} cx={scx(xi)} cy={scy(anchors_y[i])} r="5" fill="#ffc61c" />
-        ))}
-
         <SvgAxes
           xTicks={xTicks} yTicks={yTicks}
           x={scx} y={scy}
@@ -89,7 +85,6 @@ export default function CalibrationCurve({ calibration, showFractional = false }
         <span className="legend-item"><span className="legend-dot" style={{ background: OBS_COLOR, opacity: 0.3 }} />95% CI</span>
         <span className="legend-item"><span className="legend-dot" style={{ background: '#ffc61c' }} />prior</span>
         <span className="legend-item"><span className="legend-dot" style={{ background: OBS_COLOR }} />chords</span>
-        <span className="legend-item"><span className="legend-dot" style={{ background: '#ffc61c' }} />anchor</span>
       </div>
     </div>
   )

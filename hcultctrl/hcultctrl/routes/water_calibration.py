@@ -144,9 +144,8 @@ def _fetch_cord_data(conn, plant_name, sensor_specs, p):
     swc_min, swc_max = swc_vals.min(), swc_vals.max()
     prior_x = sensor_vals
     prior_y = (swc_vals - swc_min) / (swc_max - swc_min)
-    x_anchor = np.array([sensor_vals.max()])
-
-    swc_anchor = np.array([0.0])
+    x_anchors = np.array([sensor_vals.max()])
+    swc_anchors = np.array([0.0])
 
     return dict(
         x_arr=np.array(all_x),
@@ -155,8 +154,8 @@ def _fetch_cord_data(conn, plant_name, sensor_specs, p):
         chord_times=all_chord_times,
         prior_x=prior_x,
         prior_y=prior_y,
-        x_anchor=x_anchor,
-        swc_anchor=swc_anchor,
+        x_anchors=x_anchors,
+        swc_anchors=swc_anchors,
         offset_ms=p.offset_ms,
         width_ms=p.width_ms,
         sensor_chord_labels=np.array(sensor_labels),
@@ -191,14 +190,14 @@ def _calibrate(d, p: CalibrationParams):
         cal = ExponentialCordCalibratorMCMC(
             n_sensors=n_sensors,
             xmax=exp_xmax,
-            prior_weight=p.prior_weight,
+            sigma_prior=p.prior_weight,
             n_burn=p.n_burn,
             n_steps=p.n_steps,
             system_capacity_mean=p.system_capacity_mean,
             system_capacity_std=p.system_capacity_std,
         ).fit(
-            d["x_anchor"],
-            d["swc_anchor"],
+            d["x_anchors"],
+            d["swc_anchors"],
             d["x_arr"],
             d["dx_arr"],
             d["dy_arr"],
@@ -494,8 +493,6 @@ def water_calibration(p: CalibrationParams = Depends(), conn=Depends(get_db_conn
         "scale": float(cal.scale),
         "nlml": float(cal.nlml),
         "fractional": fractional,
-        "anchors_x": d["x_anchor"].tolist(),
-        "anchors_y": d["swc_anchor"].tolist(),
         "chords_x": d["x_arr"].tolist(),
         "chords_dx": d["dx_arr"].tolist(),
         "chords_dy": d["dy_arr"].tolist(),
