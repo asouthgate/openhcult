@@ -432,7 +432,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             kwargs=posterior_kwargs,
             vectorize=True,
         )
-        sampler.run_mcmc(pos, self._n_burn + self._n_steps, progress=False)
+        sampler.run_mcmc(pos, self._n_steps, progress=False)
         self._chain = sampler.get_chain()
         self._log_prob = sampler.get_log_prob()
         return sampler
@@ -459,6 +459,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         thin = max(1, len(post_flat) // self._n_thin_target)
         idx = np.arange(0, len(post_flat), thin)
         thinned = post_flat[idx]
+
         self._scale_s = np.exp(thinned[:, layout.log_scale_idx])
         self._k_s = thinned[:, layout.k_slice]
         self._f_int_s = thinned[:, layout.f_int_slice]
@@ -560,13 +561,9 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             return np.nanmean(vals, axis=0)
 
     @timed
-    def posterior_samples_swc_at(self, x, n=None, exclude_burnin=True):
+    def posterior_samples_swc_at(self, x, n=None):
         x = self._reshape_x(x)
         scale_s, k_s, f_int_s = self._scale_s, self._k_s, self._f_int_s
-        if exclude_burnin:
-            scale_s = scale_s[self._n_burn :]
-            k_s = k_s[self._n_burn :]
-            f_int_s = f_int_s[self._n_burn :]
         if n is not None and n < len(scale_s):
             idx = np.random.choice(len(scale_s), n, replace=False)
             scale_s, k_s, f_int_s = scale_s[idx], k_s[idx], f_int_s[idx]
