@@ -56,7 +56,6 @@ TEST_EXPONENTIAL_FUNCTION = lambda x: 10.0 * exponential_target(
         (
             ExponentialCordCalibratorMCMC(
                 xmax=TEST_XMAX,
-                prior_weight=1.0,
                 n_burn=30,
                 n_steps=60,
             ),
@@ -272,7 +271,6 @@ def _fit_mcmc(n=30, seed=None):
     )
     cal = ExponentialCordCalibratorMCMC(
         xmax=TEST_XMAX,
-        prior_weight=1.0,
         n_burn=30,
         n_steps=60,
     ).fit(
@@ -295,7 +293,6 @@ def test_postprocess_discards_burnin_correctly():
     n_steps = 5
     cal = ExponentialCordCalibratorMCMC(
         xmax=TEST_XMAX,
-        prior_weight=1.0,
         n_walkers=n_walkers,
         n_burn=n_burn,
         n_steps=n_steps,
@@ -400,7 +397,6 @@ def test_multi_sensor_happy_path():
     print(TEST_XMAX)
     estimator_multi = ExponentialCordCalibratorMCMC(
         xmax=TEST_XMAX,
-        prior_weight=1.0,
         n_burn=burnin,
         n_steps=samples,
         n_sensors=2,
@@ -418,9 +414,7 @@ def test_multi_sensor_happy_path():
     )
 
     print("Joint scale MAP:", np.mean(cal_multi.posterior_params()["scale"], axis=0))
-    est_kw = dict(
-        xmax=TEST_XMAX, prior_weight=1.0, n_burn=burnin, n_steps=samples, n_sensors=1
-    )
+    est_kw = dict(xmax=TEST_XMAX, n_burn=burnin, n_steps=samples, n_sensors=1)
     cal_s0 = ExponentialCordCalibratorMCMC(**est_kw).fit(
         np.array([TEST_XMAX]),
         np.array([0.0]),
