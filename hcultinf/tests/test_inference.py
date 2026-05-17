@@ -16,7 +16,7 @@ import numpy as np
 import pytest
 
 from hcultinf.exp import ExponentialCordCalibrator, exponential_target
-from hcultinf.exp_mcmc import ExponentialCordCalibratorMCMC, plot_corner
+from hcultinf.exp_mcmc import ExponentialCordCalibratorMCMC, plot_corner, _ParamLayout
 
 from hcultinf.simulation import (
     simulate_calibration_data_samples,
@@ -287,6 +287,53 @@ def _fit_mcmc(n=30, seed=None):
     assert np.all(np.isfinite(cal(np.linspace(TEST_XMIN, TEST_XMAX, 10))))
     assert np.all(cal(np.linspace(TEST_XMIN, TEST_XMAX, 10)) >= 0)
     return cal
+
+
+def test_postprocess_discards_burnin_correctly():
+    n_walkers = 10
+    n_burn = 2
+    n_steps = 5
+    cal = ExponentialCordCalibratorMCMC(
+        xmax=TEST_XMAX,
+        prior_weight=1.0,
+        n_walkers=n_walkers,
+        n_burn=n_burn,
+        n_steps=n_steps,
+    )
+    x, dx, dy = simulate_calibration_data_samples(
+        TEST_XMIN,
+        TEST_XMAX,
+        TEST_DXMAX,
+        TEST_DXMAX,
+        TEST_NOISE_LEVEL / 2,
+        10,
+        TEST_EXPONENTIAL_FUNCTION,
+        uniform=True,
+    )
+    cal.fit(
+        np.array([TEST_XMAX]),
+        np.array([0.0]),
+        x,
+        dx,
+        dy,
+        np.array([TEST_XMIN, TEST_XMAX]),
+        np.array([1.0, 0.0]),
+    )
+    layout_dim = _ParamLayout(1).dim
+    assert (
+        cal._chain.shape[0] == n_steps
+    ), f"chain has {cal._chain.shape[0]} steps, expected n_steps={n_steps}"
+    assert (
+        cal._chain.shape[1] == n_walkers
+    ), f"chain has {cal._chain.shape[1]} walkers, expected {n_walkers}"
+    expected_post_samples = (n_steps - n_burn) * n_walkers
+    assert len(cal._fit_samples) == expected_post_samples, (
+        f"expected {expected_post_samples} post-burnin samples "
+        f"({n_steps}-{n_burn})*{n_walkers}, got {len(cal._fit_samples)}"
+    )
+    assert (
+        cal._fit_samples.shape[1] == layout_dim
+    ), f"expected {layout_dim} params, got {cal._fit_samples.shape[1]}"
 
 
 def test_std_consistent_with_ci():
