@@ -1,10 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
-
 import cvxpy as cp
-
-from hcultinf.logging import timed
 
 
 def _trend_filter(y, lam):
@@ -27,10 +24,15 @@ def _auto_lambda(values):
     return sigma * np.sqrt(n * np.log(n))
 
 
-@timed
-def drying_rate(times, values, lambda_tv=None):
+def compute_drying_rate(times, values, lambda_tv=None):
+    """Compute drying rate unit-agnostic"""
     times = np.asarray(times)
     values = np.asarray(values, dtype=float)
+    dt = np.diff(times).astype("float64")
+
+    if any(dt == 0):
+        raise ValueError("Times must be strictly increasing")
+
     if len(times) < 2:
         raise ValueError("Need at least 2 data points")
 
@@ -39,13 +41,7 @@ def drying_rate(times, values, lambda_tv=None):
 
     smoothed = _trend_filter(values, lambda_tv)
 
-    if times.dtype.kind in ("i", "u"):
-        dt_minutes = np.diff(times) / (60 * 1000)
-    else:
-        dt_minutes = np.diff(times).astype("timedelta64[m]").astype(float)
-    dt_minutes[dt_minutes == 0] = 1e-9
-
-    rate = np.diff(smoothed) / dt_minutes
+    rate = np.diff(smoothed) / dt
     rate = np.concatenate([rate, rate[-1:]])
 
     valid = rate < 0

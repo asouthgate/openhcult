@@ -14,11 +14,10 @@ from hcultctrl.utils import get_db_conn
 from hcultdb import queries as database
 from hcultinf.exp_mcmc import ExponentialCordCalibratorMCMC
 from hcultinf.detection import smooth_and_downsample
-from hcultinf.drying import drying_rate as compute_drying_rate
+from hcultinf.drying import compute_drying_rate
 from hcultctrl.logging import (
     get_logger,
     timed_func,
-    timed_api_route,
     logged_timed_func_call,
 )
 
@@ -292,6 +291,11 @@ def _compute_drying_result(times_ms_arr, swc_samples, scale, lambda_tv=None):
     rates_per_sample = np.empty((n_samples, n_times))
     valid_per_sample = np.empty((n_samples, n_times), dtype=bool)
 
+    logger.info(
+        "Beginning drying rate computation for n_samples=%d n_times=%d",
+        n_samples,
+        n_times,
+    )
     for i in range(n_samples):
         result = compute_drying_rate(
             times_ms_arr,
@@ -300,6 +304,9 @@ def _compute_drying_result(times_ms_arr, swc_samples, scale, lambda_tv=None):
         )
         rates_per_sample[i] = result["rate"]
         valid_per_sample[i] = result["valid"]
+        logger.info(
+            "Completed drying rate computation for sample %d of %d", i + 1, n_samples
+        )
 
     rate_ml_per_day = rates_per_sample * 1440.0
     mean_rate = np.nanmean(rate_ml_per_day, axis=0)
@@ -552,7 +559,6 @@ def swc_timeseries(
     }
 
 
-@timed_api_route
 @router.get("/drying_rate")
 def drying_rate(
     p: CalibrationParams = Depends(),
@@ -582,15 +588,6 @@ def drying_rate(
     cal = _calibrate(d, p)
 
     sensor_keys = [(ps["device_address"], ps["sensor"]) for ps in d["active_sensors"]]
-    # all_readings = list(
-    #     database.fetch_timeseries(
-    #         conn,
-    #         plant=p.plant,
-    #         start_ms=start_ms_time,
-    #         end_ms=end_ms_time,
-    #         limit=50000,
-    #     )
-    # )
     all_readings = logged_timed_func_call(
         logger,
         database.fetch_timeseries,

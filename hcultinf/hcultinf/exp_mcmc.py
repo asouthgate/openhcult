@@ -560,9 +560,13 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             return np.nanmean(vals, axis=0)
 
     @timed
-    def posterior_samples_swc_at(self, x, n=None):
+    def posterior_samples_swc_at(self, x, n=None, exclude_burnin=True):
         x = self._reshape_x(x)
         scale_s, k_s, f_int_s = self._scale_s, self._k_s, self._f_int_s
+        if exclude_burnin:
+            scale_s = scale_s[self._n_burn :]
+            k_s = k_s[self._n_burn :]
+            f_int_s = f_int_s[self._n_burn :]
         if n is not None and n < len(scale_s):
             idx = np.random.choice(len(scale_s), n, replace=False)
             scale_s, k_s, f_int_s = scale_s[idx], k_s[idx], f_int_s[idx]

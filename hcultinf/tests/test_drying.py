@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from hcultinf.drying import drying_rate
+from hcultinf.drying import compute_drying_rate
 from hcultinf.simulation import simulate_plant_moisture
 
 
@@ -35,7 +35,7 @@ def _simulate_drying_data(n_days=60):
 def test_drying_rate_detects_events_and_drying():
     times, values, watering_times = _simulate_drying_data()
 
-    result = drying_rate(times, values)
+    result = compute_drying_rate(times, values)
 
     resampled_times = result["times"]
     rate = result["rate"]
@@ -55,7 +55,7 @@ def test_drying_rate_detects_events_and_drying():
 def test_drying_rate_event_regions_track_waterings():
     times, values, watering_times = _simulate_drying_data()
 
-    result = drying_rate(times, values)
+    result = compute_drying_rate(times, values)
 
     resampled_times = result["times"]
     valid = result["valid"]
@@ -73,7 +73,7 @@ def test_drying_rate_event_regions_track_waterings():
 def test_drying_rate_consistent_sign_in_valid_regions():
     times, values, _ = _simulate_drying_data()
 
-    result = drying_rate(times, values)
+    result = compute_drying_rate(times, values)
 
     valid_rate = result["rate"][result["valid"]]
     negative_frac = np.mean(valid_rate < 0)
@@ -86,14 +86,14 @@ def test_drying_rate_too_few_points_raises():
     t = pd.date_range("2026-03-17", periods=1, freq="1min").values
     v = np.array([2000.0])
     with pytest.raises(ValueError, match="at least 2"):
-        drying_rate(t, v)
+        compute_drying_rate(t, v)
 
 
 def test_drying_rate_custom_lambda():
     times, values, _ = _simulate_drying_data(n_days=10)
 
-    result_small = drying_rate(times, values, lambda_tv=0.1)
-    result_large = drying_rate(times, values, lambda_tv=1000.0)
+    result_small = compute_drying_rate(times, values, lambda_tv=0.1)
+    result_large = compute_drying_rate(times, values, lambda_tv=1000.0)
 
     small_var = np.var(result_small["rate"])
     large_var = np.var(result_large["rate"])
@@ -105,7 +105,7 @@ def test_drying_rate_custom_lambda():
 def test_drying_rate_plot():
     times, values, watering_times = _simulate_drying_data(n_days=30)
 
-    result = drying_rate(times, values)
+    result = compute_drying_rate(times, values)
 
     import matplotlib.pyplot as plt
     from hcultinf.plot_style import apply_dark_theme, CLOUD_BLUE, ORANGE, YELLOW, MUTED
