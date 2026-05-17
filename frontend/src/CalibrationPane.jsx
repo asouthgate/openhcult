@@ -24,7 +24,8 @@ export default function CalibrationPane({ plantFilter, sensorFilter, calibrator,
   if (sensorFilter === '_all_') return <div className="empty">Select Combined or a specific sensor to view calibration.</div>
 
   const { chords_dx, chords_dy, chord_times, scale, nlml, fractional: isFractional } = calibration ?? {}
-  const swcStats = hasSystemCapacity ? computeSwcStats(calibration, showFractional) : null
+  const showFrac = showFractional && isFractional
+  const swcStats = calibration ? computeSwcStats(calibration, showFrac) : null
   const unitLabel = isFractional ? '' : ' ml'
 
   const sensorLabel = sensorFilter === '_all_' ? ' / All sensors' : (sensorFilter ? ` / ${sensorPart(sensorFilter)}` : '')
@@ -37,7 +38,7 @@ export default function CalibrationPane({ plantFilter, sensorFilter, calibrator,
     <section className="pane-grid">
       <div className="full" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <h3 style={{ margin: 0 }}>Calibration: {plantFilter}{sensorLabel}</h3>
-        {!calibLoading && calibration && hasSystemCapacity && (
+        {!calibLoading && calibration && isFractional && (
           <div className="range-btns">
             <button className={!showFractional ? 'active' : ''} onClick={() => setShowFractional(false)}>ml</button>
             <button className={showFractional ? 'active' : ''} onClick={() => setShowFractional(true)}>Fractional</button>
@@ -49,10 +50,10 @@ export default function CalibrationPane({ plantFilter, sensorFilter, calibrator,
       </div>
       {calibLoading && <div className="full loading"><span className="spinner" />Computing…</div>}
       {calibError && !calibration && <div className="full error">{calibError}</div>}
-      {!hasSystemCapacity && calibration && (
-        <div className="empty">Enter system capacity params and recalculate to view water calibration</div>
+      {!calibLoading && !calibError && !calibration && (
+        <div className="empty">{hasSystemCapacity ? 'Click Recalculate to run calibration' : 'Enter system capacity params and recalculate to view water calibration'}</div>
       )}
-      {hasSystemCapacity && calibration && <>
+      {calibration && <>
         <div className="full">
           <CalibrationCurve calibration={calibration} showFractional={showFractional} />
         </div>

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { buildSwcTimeseriesParams, buildDryingRateParams, buildWaterCalibrationParams } from './paramsBuilder'
 
 const defaultCalibParams = {
-  offsetMin: '5', widthMin: '50', estimator: 'exp_mcmc', priorWeight: '1.0', nBurn: '10', nSteps: '30',
+  offsetMin: '5', widthMin: '50', estimator: 'exp_mcmc', priorWeight: '1.0', nBurn: '100', nSteps: '200',
   systemCapacityMean: '', systemCapacityStd: '', emaTauMin: '60',
 }
 
@@ -42,7 +42,8 @@ describe('buildDryingRateParams', () => {
 describe('buildWaterCalibrationParams', () => {
   it('includes mcmc params for exp_mcmc estimator', () => {
     const params = buildWaterCalibrationParams('plant1', '', defaultCalibParams)
-    expect(params.get('n_burn')).toBe('10')
+    expect(params.get('n_burn')).toBe('100')
+    expect(params.get('n_steps')).toBe('200')
   })
 
   it('includes system_capacity params when provided', () => {

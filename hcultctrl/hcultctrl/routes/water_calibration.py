@@ -37,8 +37,8 @@ class WindowParams(BaseModel):
 
 class TuningParams(BaseModel):
     prior_weight: float = 1.0
-    n_burn: int = 10
-    n_steps: int = 30
+    n_burn: int = 100
+    n_steps: int = 200
     system_capacity_mean: float | None = None
     system_capacity_std: float | None = None
     return_fractional: bool = False
@@ -464,7 +464,13 @@ def water_calibration(p: CalibrationParams = Depends(), conn=Depends(get_db_conn
     sensor_specs = _resolve_sensors(conn, p)
     d = _fetch_cord_data(conn, p.plant, sensor_specs, p)
     cal = _calibrate(d, p)
-    plot_x = np.linspace(d["x_arr"].min(), d["x_arr"].max(), 500)
+    domain_min = min(
+        d["x_arr"].min(), (d["x_arr"] + d["dx_arr"]).min(), d["prior_x"].min()
+    )
+    domain_max = max(
+        d["x_arr"].max(), (d["x_arr"] + d["dx_arr"]).max(), d["prior_x"].max()
+    )
+    plot_x = np.linspace(domain_min, domain_max, 500)
     plot_prior_y = np.interp(plot_x, d["prior_x"], d["prior_y"])
 
     if (
