@@ -7,7 +7,6 @@ import cvxpy as cp
 from hcultinf.logging import timed
 
 
-@timed
 def _trend_filter(y, lam):
     n = len(y)
     x = cp.Variable(n)
