@@ -47,6 +47,8 @@ class TuningParams(BaseModel):
 class CordDataParams(WindowParams):
     sensor: str | None = None
     device_address: str | None = None
+    n_recent: int | None = None
+    within_ms: int | None = None
 
 
 class CalibrationParams(CordDataParams, TuningParams):
@@ -103,6 +105,10 @@ def _fetch_cord_data(conn, plant_name, sensor_specs, p):
     sensor_labels = []
     active_sensors = []
 
+    chord_start_ms = (
+        int(time.time() * 1000) - p.within_ms if p.within_ms is not None else None
+    )
+
     for ps in sensor_specs:
         chords, chord_times = database.fetch_chords(
             conn,
@@ -111,6 +117,8 @@ def _fetch_cord_data(conn, plant_name, sensor_specs, p):
             plant_name=plant_name,
             sensor=ps["sensor"],
             device_address=ps["device_address"],
+            limit=p.n_recent if p.n_recent is not None else 1000,
+            start_ms=chord_start_ms,
         )
         if len(chords) < _MIN_CHORDS:
             logger.warning(
@@ -409,6 +417,10 @@ def chords(p: CordDataParams = Depends(), conn=Depends(get_db_conn)):
     all_x, all_dx, all_dy, all_chord_times = [], [], [], []
     sensor_chord_labels = []
     active_sensors = []
+    chord_start_ms = (
+        int(time.time() * 1000) - p.within_ms if p.within_ms is not None else None
+    )
+
     for ps in sensor_specs:
         chords, chord_times = database.fetch_chords(
             conn,
@@ -417,6 +429,8 @@ def chords(p: CordDataParams = Depends(), conn=Depends(get_db_conn)):
             plant_name=p.plant,
             sensor=ps["sensor"],
             device_address=ps["device_address"],
+            limit=p.n_recent if p.n_recent is not None else 1000,
+            start_ms=chord_start_ms,
         )
         if len(chords) < _MIN_CHORDS:
             logger.warning(
@@ -492,16 +506,16 @@ def water_calibration(p: CalibrationParams = Depends(), conn=Depends(get_db_conn
 
     return {
         "prior_x": _to_json_safe(plot_x),
-        "prior_y": plot_prior_y.tolist(),
+        "prior_y": _to_json_safe(plot_prior_y),
         "mean": _to_json_safe(mean),
         "ci_low": _to_json_safe(ci_low),
         "ci_high": _to_json_safe(ci_high),
-        "scale": float(cal.scale),
-        "nlml": float(cal.nlml),
+        "scale": float(cal.scale) if math.isfinite(cal.scale) else None,
+        "nlml": float(cal.nlml) if math.isfinite(cal.nlml) else None,
         "fractional": fractional,
-        "chords_x": d["x_arr"].tolist(),
-        "chords_dx": d["dx_arr"].tolist(),
-        "chords_dy": d["dy_arr"].tolist(),
+        "chords_x": _to_json_safe(d["x_arr"]),
+        "chords_dx": _to_json_safe(d["dx_arr"]),
+        "chords_dy": _to_json_safe(d["dy_arr"]),
         "mean_at_chord_starts": _to_json_safe(mean_at_chord_starts),
         "estimated_chords_dx": _to_json_safe(estimated_dx_arr),
         "chord_times": d["chord_times"],

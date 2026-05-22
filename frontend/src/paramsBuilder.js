@@ -1,5 +1,5 @@
 export function buildSwcTimeseriesParams(plantFilter, calibParams, rangeHours, returnFractional = false) {
-  const { offsetMin, widthMin, priorWeight, nBurn, nSteps, systemCapacityMean, systemCapacityStd } = calibParams
+  const { offsetMin, widthMin, priorWeight, nBurn, nSteps, systemCapacityMean, systemCapacityStd, nRecent, withinDays } = calibParams
   const endMs = Date.now()
   const params = new URLSearchParams({
     plant: plantFilter,
@@ -14,6 +14,8 @@ export function buildSwcTimeseriesParams(plantFilter, calibParams, rangeHours, r
   if (systemCapacityMean !== '') params.set('system_capacity_mean', systemCapacityMean)
   if (systemCapacityStd !== '') params.set('system_capacity_std', systemCapacityStd)
   if (returnFractional) params.set('return_fractional', 'true')
+  if (nRecent !== '') params.set('n_recent', nRecent)
+  if (withinDays !== '') params.set('within_ms', String(Number(withinDays) * 24 * 3600 * 1000))
   return params
 }
 
@@ -47,7 +49,7 @@ export function buildDryingRateParams(plantFilter, sensorFilter, calibParams, ra
 }
 
 export function buildWaterCalibrationParams(plantFilter, sensorFilter, calibParams, returnFractional = false) {
-  const { offsetMin, widthMin, estimator, priorWeight, nBurn, nSteps, systemCapacityMean, systemCapacityStd } = calibParams
+  const { offsetMin, widthMin, estimator, priorWeight, nBurn, nSteps, systemCapacityMean, systemCapacityStd, nRecent, withinDays } = calibParams
   const params = new URLSearchParams({
     plant: plantFilter,
     offset_ms: Number(offsetMin) * 60 * 1000,
@@ -68,5 +70,7 @@ export function buildWaterCalibrationParams(plantFilter, sensorFilter, calibPara
     if (systemCapacityStd !== '') params.set('system_capacity_std', systemCapacityStd)
     if (returnFractional) params.set('return_fractional', 'true')
   }
+  if (nRecent !== '') params.set('n_recent', nRecent)
+  if (withinDays !== '') params.set('within_ms', String(Number(withinDays) * 24 * 3600 * 1000))
   return params
 }
