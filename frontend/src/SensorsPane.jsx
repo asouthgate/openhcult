@@ -19,7 +19,7 @@ export default function SensorsPane({ plantFilter, sensorFilter, calibrator, pla
   const [showFractional, setShowFractional] = useState(false)
   const [rangeHours, setRangeHours] = useState(48)
 
-  const { series, observations, loading: sensorLoading, error: sensorError } = useSensorData({
+  const { series, observations, setObservations, loading: sensorLoading, error: sensorError } = useSensorData({
     plantFilter, sensorFilter, rangeHours,
   })
 
@@ -114,6 +114,12 @@ export default function SensorsPane({ plantFilter, sensorFilter, calibrator, pla
         <ObservationsPanel
           observations={observations}
           calibration={calibrator.calibration}
+          setObservations={setObservations}
+          pendingTime={pendingTime}
+          pendingPlant={pendingPlant}
+          pendingMl={pendingMl}
+          onMlChange={setPendingMl}
+          onCancel={cancelPending}
         />
       </div>
     </div>

@@ -29,7 +29,6 @@ export default function AuthForm({ endpoint, submitLabel, withConfirm, subtitle 
   return (
     <div className="login">
       <div className="login-logo"><img src={`${import.meta.env.BASE_URL}teal-no-bg.png`} alt="HCult" /></div>
-      <h1>HCult</h1>
       {subtitle && <p>{subtitle}</p>}
       <form onSubmit={submit}>
         <input type="text" placeholder="Username" value={username} onChange={e => setUsername(e.target.value)} required autoFocus />
