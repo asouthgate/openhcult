@@ -54,7 +54,13 @@ export default function ObservationsPanel({ observations, calibration, setObserv
         onDelete={deleteObservation}
       />
 
-      {pendingTime && (
+      {pendingTime && !pendingPlant && (
+        <div className="full event-panel">
+          <span>Select a plant to record a watering event</span>
+        </div>
+      )}
+
+      {pendingTime && pendingPlant && (
         <div className="full event-panel">
           <span>Watering at {new Date(pendingTime).toLocaleString()}</span>
           <input type="number" placeholder="ml" value={pendingMl} onChange={e => onMlChange(e.target.value)} />
