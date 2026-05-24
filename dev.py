@@ -211,6 +211,12 @@ def cmd_start(ctx, args):
 
     setup.setup_db(ctx.db_url)
 
+    frontend_dir = REPO / "frontend"
+    print(gray("Building frontend..."))
+    subprocess.run(["npm", "install"], cwd=str(frontend_dir), check=True)
+    subprocess.run(["npm", "run", "build"], cwd=str(frontend_dir), check=True)
+    print(green("Frontend built"))
+
     global _proc_ctrl, _proc_frontend
     env = {
         **os.environ,
@@ -238,7 +244,6 @@ def cmd_start(ctx, args):
     _wait_for_ctrl(ctx)
     _setup_auth(ctx, password)
 
-    frontend_dir = REPO / "frontend"
     vite = frontend_dir / "node_modules" / ".bin" / "vite"
     _proc_frontend = subprocess.Popen(
         [str(vite), "dev"] if vite.exists() else ["npx", "vite", "dev"],

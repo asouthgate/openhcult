@@ -67,19 +67,15 @@ def _compute_g(k, f_int, u):
 
 def mcmc_log_joint(
     theta,
-    u_anchors_m1,
-    swc_anchors,
     u_starts_m1,
     u_ends_m1,
     log_delta_swc_all,
     sensor_idx_per_chord,
     u_prior_m1,
     prior_y,
-    sigma_anchor,
     sigma_prior,
     n_sensors,
     priors,
-    log_const_anchor,
     log_const_prior,
 ):
     squeeze = False
@@ -101,17 +97,7 @@ def mcmc_log_joint(
         + priors.log_sigma_log_prior(log_sigma)
     )
 
-    g_a = np.mean(
-        (1.0 - f_int_all[:, :, None])
-        * np.exp(k_all[:, :, None] * u_anchors_m1[None, :, :])
-        + f_int_all[:, :, None],
-        axis=1,
-    )
-    pred_a = scale[:, None] * g_a
-    ll = -0.5 * np.sum(
-        ((swc_anchors - pred_a) / sigma_anchor) ** 2 + log_const_anchor, axis=1
-    )
-
+    ll = 0.0
     if u_prior_m1 is not None:
         g_p = np.mean(
             (1.0 - f_int_all[:, :, None])
@@ -152,10 +138,11 @@ def samples_swc_at(x, scale_s, k_s, f_int_s, data_xmin, xmax):
     data_xmin = np.atleast_1d(data_xmin)
     x = np.asarray(x)
     if x.ndim == 1:
-        assert n_sensors == 1, (
-            f"x is 1D but n_sensors={n_sensors}; "
-            f"provide x as (n_points, n_sensors) array"
-        )
+        if n_sensors > 1:
+            raise ValueError(
+                f"Multi-sensor model (n_sensors={n_sensors}) requires "
+                f"2D input of shape (n_points, {n_sensors})"
+            )
         x = x[:, None]
 
     n_samples = len(scale_s)
@@ -210,19 +197,17 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
     def __init__(
         self,
         xmax,
-        prior_weight=1.0,
+        sigma_prior=0.1,
         n_walkers=32,
         n_burn=500,
         n_steps=1000,
-        sigma_anchor=0.1,
-        sigma_prior_floor=0.001,
         sigma_init=0.3,
         init_spread=1.0,
         n_thin_target=2000,
         f_int_max=0.2,
         f_int_min=0.0,
         f_int_beta_a=1.0,
-        f_int_beta_b=30.0,
+        f_int_beta_b=3.0,
         debug=True,
         n_sensors=1,
         priors=None,
@@ -232,12 +217,10 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         super().__init__()
         self._debug = debug
         self._xmax = xmax
-        self._prior_weight = prior_weight
+        self._sigma_prior = sigma_prior
         self._n_walkers = n_walkers
         self._n_burn = n_burn
         self._n_steps = n_steps
-        self._sigma_anchor = sigma_anchor
-        self._sigma_prior_floor = sigma_prior_floor
         self._sigma_init = sigma_init
         self._init_spread = init_spread
         self._n_thin_target = n_thin_target
@@ -265,13 +248,25 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         self._f_int_s = None
         self._data_xmin = None
 
+    @property
+    def xmax(self):
+        return self._xmax
+
+    @property
+    def data_xmin(self):
+        return self._data_xmin
+
     def _reshape_x(self, x):
         x = np.atleast_1d(np.asarray(x, dtype=float))
         if x.ndim == 1:
             if self.n_sensors == 1:
                 x = x[:, None]
             else:
-                x = np.column_stack([x] * self.n_sensors)
+                raise ValueError(
+                    f"Multi-sensor model (n_sensors={self.n_sensors}) requires "
+                    f"2D input of shape (n_points, {self.n_sensors}); "
+                    f"to exclude a sensor, set its column to NaN"
+                )
         if x.shape[1] < self.n_sensors:
             pad = np.full((x.shape[0], self.n_sensors - x.shape[1]), np.nan)
             x = np.column_stack([x, pad])
@@ -333,8 +328,6 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         data_xmin_arr = np.minimum(data_xmin_arr, global_anchor_min)
 
         inv_denom = xmax - data_xmin_arr
-        u_anchors = (xmax - x_anchors) / inv_denom[:, None]
-        u_anchors_m1 = u_anchors - 1.0
         u_prior = None if len(prior_x) == 0 else (xmax - prior_x) / inv_denom[:, None]
         u_prior_m1 = None if u_prior is None else u_prior - 1.0
 
@@ -343,15 +336,13 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         u_ends_m1 = (xmax - x_ends) / inv_denom_per_chord - 1.0
         log_delta_swc_all = np.log(delta_swc)
 
-        sigma_anchor = self._sigma_anchor
-        sigma_prior = 1.0 / max(np.sqrt(self._prior_weight), self._sigma_prior_floor)
-        log_const_anchor = np.log(2 * np.pi * sigma_anchor**2)
+        sigma_prior = self._sigma_prior
         log_const_prior = np.log(2 * np.pi * sigma_prior**2)
 
         quick_fits = []
         for sj in range(self.n_sensors):
             m = sensor_chord_labels == sj
-            q = ExponentialCordCalibrator(xmax, self._prior_weight)
+            q = ExponentialCordCalibrator(xmax)
             q.fit(
                 x_anchors,
                 swc_anchors,
@@ -370,15 +361,12 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             f_int0=np.array([q.f_int for q in quick_fits]),
             data_xmin=data_xmin_arr,
             xmax=xmax,
-            sigma_anchor=sigma_anchor,
             sigma_prior=sigma_prior,
-            u_anchors_m1=u_anchors_m1,
             u_prior_m1=u_prior_m1,
             u_starts_m1=u_starts_m1,
             u_ends_m1=u_ends_m1,
             log_delta_swc_all=log_delta_swc_all,
             sensor_idx_per_chord=sensor_idx_per_chord,
-            log_const_anchor=log_const_anchor,
             log_const_prior=log_const_prior,
         )
 
@@ -432,7 +420,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             kwargs=posterior_kwargs,
             vectorize=True,
         )
-        sampler.run_mcmc(pos, self._n_burn + self._n_steps, progress=False)
+        sampler.run_mcmc(pos, self._n_steps, progress=False)
         self._chain = sampler.get_chain()
         self._log_prob = sampler.get_log_prob()
         return sampler
@@ -459,6 +447,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         thin = max(1, len(post_flat) // self._n_thin_target)
         idx = np.arange(0, len(post_flat), thin)
         thinned = post_flat[idx]
+
         self._scale_s = np.exp(thinned[:, layout.log_scale_idx])
         self._k_s = thinned[:, layout.k_slice]
         self._f_int_s = thinned[:, layout.f_int_slice]
@@ -513,19 +502,15 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         )
         walker_pos = self._init_walker_pos(initial_estimate)
         posterior_kwargs = dict(
-            u_anchors_m1=initial_estimate["u_anchors_m1"],
-            swc_anchors=swc_anchors,
             u_starts_m1=initial_estimate["u_starts_m1"],
             u_ends_m1=initial_estimate["u_ends_m1"],
             log_delta_swc_all=initial_estimate["log_delta_swc_all"],
             sensor_idx_per_chord=initial_estimate["sensor_idx_per_chord"],
             u_prior_m1=initial_estimate["u_prior_m1"],
             prior_y=prior_y,
-            sigma_anchor=initial_estimate["sigma_anchor"],
             sigma_prior=initial_estimate["sigma_prior"],
             n_sensors=self.n_sensors,
             priors=self._priors,
-            log_const_anchor=initial_estimate["log_const_anchor"],
             log_const_prior=initial_estimate["log_const_prior"],
         )
         try:
@@ -568,6 +553,91 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             scale_s, k_s, f_int_s = scale_s[idx], k_s[idx], f_int_s[idx]
         samples = samples_swc_at(x, scale_s, k_s, f_int_s, self._data_xmin, self._xmax)
         return samples
+
+    def plot(
+        self,
+        priorx,
+        priory,
+        anchors_x,
+        anchors_y,
+        x,
+        dx,
+        dy,
+        pwlprevs=None,
+        true_y=None,
+        out=None,
+        title=None,
+        show_chords_pane=True,
+    ):
+        import matplotlib.pyplot as plt
+        from .plot_style import apply_dark_theme, CLOUD_BLUE, YELLOW, ORANGE
+        from .calibrator import plot_response_curve
+
+        apply_dark_theme()
+        priorx = np.asarray(priorx)
+        x = np.asarray(x)
+        dx = np.asarray(dx)
+        dy = np.asarray(dy)
+        domain_min_x = min(
+            [
+                priorx.min(),
+                anchors_x.min() if len(anchors_x) > 0 else np.inf,
+                x.min() if len(x) > 0 else np.inf,
+                (x + dx).min() if len(dx) > 0 else np.inf,
+            ]
+        )
+        plot_x = np.linspace(domain_min_x, priorx.max(), 500)
+        plot_prior_y = np.interp(plot_x, priorx, priory)
+        plot_true_y = (
+            np.interp(plot_x, priorx, np.asarray(true_y))
+            if true_y is not None
+            else None
+        )
+        if self.n_sensors > 1:
+            X_plot = np.column_stack([plot_x] * self.n_sensors)
+            X_chords = np.column_stack([x] * self.n_sensors)
+        else:
+            X_plot = plot_x
+            X_chords = x
+        mean_at_x = self(X_chords)
+        mean, ci_low, ci_high = self.predict(X_plot)
+        fig = plot_response_curve(
+            plot_x,
+            plot_prior_y,
+            mean,
+            ci_low,
+            ci_high,
+            anchors_x,
+            anchors_y,
+            x,
+            dx,
+            dy,
+            mean_at_x,
+            true_y=plot_true_y,
+            show_chords_pane=show_chords_pane,
+        )
+        if pwlprevs is not None:
+            ax = fig.axes[0]
+            for i, pwlprev in enumerate(pwlprevs):
+                prev_vals = pwlprev(plot_x)
+                ax.plot(
+                    plot_x,
+                    prev_vals - prev_vals.min(),
+                    label=f"prev{i}",
+                    alpha=(i + 1) / (1 + len(pwlprevs)),
+                    color="brown",
+                    linestyle="--",
+                )
+            ax.legend()
+        if out is not None:
+            os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+            fig.savefig(out)
+        if title is not None:
+            fig.suptitle(title)
+        if os.environ.get("HCULT_TEST_DEBUG_PLOT", "0") == "1":
+            plt.show()
+        plt.close(fig)
+        return fig
 
     def _capacity_lognorm_params(self):
         assert (
@@ -660,7 +730,6 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         u_starts_m1 = data["u_starts_m1"]
         u_ends_m1 = data["u_ends_m1"]
         log_delta_swc_all = data["log_delta_swc_all"]
-        u_anc_m1 = data["u_anchors_m1"]
         u_prior_m1 = data["u_prior_m1"]
         prior_minmax = (
             (float(u_prior_m1.min()), float(u_prior_m1.max()))
@@ -672,7 +741,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             f"MCMC diagnostic: {exc}\n"
             f"  Input params: xmax={self._xmax} n_walkers={self._n_walkers}"
             f" n_burn={self._n_burn} n_steps={self._n_steps}"
-            f" prior_weight={self._prior_weight}\n"
+            f" sigma_prior={self._sigma_prior}\n"
             f"  Data summary: N_chords={n_chords} data_min_x={float(data['data_xmin'].min()):.1f}\n"
             f"    u_starts_m1:  min={u_starts_m1.min():.4f}"
             f" max={u_starts_m1.max():.4f}\n"
@@ -680,7 +749,6 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             f" max={u_ends_m1.max():.4f}\n"
             f"    log_delta_swc: min={log_delta_swc_all.min():.4f}"
             f" max={log_delta_swc_all.max():.4f}\n"
-            f"    u_anchors_m1: min={u_anc_m1.min():.4f} max={u_anc_m1.max():.4f}\n"
             f"    u_prior_m1:   min={prior_minmax[0]} max={prior_minmax[1]}\n"
             f"  Walker init: cond={np.linalg.cond(pos):.2e}\n"
             f"    per-col min: {pos.min(axis=0).tolist()}\n"

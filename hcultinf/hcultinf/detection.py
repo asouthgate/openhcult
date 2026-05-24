@@ -455,6 +455,22 @@ def find_regions_with_hysteresis_adaptive_thresh(
 
 
 @timed
+def smooth_and_downsample(
+    time_arr, values_arr, ewma_tau_minutes=30, resample_minutes=30
+):
+    values_arr = np.asarray(values_arr, dtype=float)
+    nan_mask = np.isnan(values_arr)
+    if nan_mask.any() and not nan_mask.all():
+        values_arr = values_arr.copy()
+        values_arr[nan_mask] = np.interp(
+            np.flatnonzero(nan_mask), np.flatnonzero(~nan_mask), values_arr[~nan_mask]
+        )
+    smoothed = compute_time_weighted_ewma(time_arr, values_arr, ewma_tau_minutes)
+    s = pd.Series(smoothed, index=pd.to_datetime(time_arr))
+    resampled = s.resample(f"{resample_minutes}min").mean().interpolate(method="linear")
+    return resampled.index.to_numpy(), resampled.values
+
+
 def compute_time_weighted_ewma(times, values, tau_minutes=30.0):
     t_min = times.astype("datetime64[m]").astype(float)
     n = len(values)

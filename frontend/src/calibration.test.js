@@ -13,10 +13,10 @@ describe('computeSwcStats', () => {
       ci_high: [15, 25, 35],
     }
     const stats = computeSwcStats(calib)
-    expect(stats.estMin).toBe(-20)
-    expect(stats.estMax).toBe(0)
-    expect(stats.lo).toBe(-25)
-    expect(stats.hi).toBe(5)
+    expect(stats.estMin).toBe(10)
+    expect(stats.estMax).toBe(30)
+    expect(stats.lo).toBe(5)
+    expect(stats.hi).toBe(35)
   })
 
   it('computes stats without CI bounds', () => {
@@ -26,11 +26,11 @@ describe('computeSwcStats', () => {
       ci_high: null,
     }
     const stats = computeSwcStats(calib)
-    expect(stats.estMin).toBe(-100)
-    expect(stats.estMax).toBe(0)
+    expect(stats.estMin).toBe(0)
+    expect(stats.estMax).toBe(100)
   })
 
-  it('skips ref subtraction in fractional mode', () => {
+  it('returns absolute values in fractional mode', () => {
     const calib = {
       mean: [0.1, 0.5, 1.0],
       ci_low: [0.05, 0.45, 0.95],

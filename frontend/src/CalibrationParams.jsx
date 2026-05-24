@@ -1,5 +1,5 @@
 export default function CalibrationParams({ calibParams, setCalibParam }) {
-  const { offsetMin, widthMin, estimator, priorWeight, nBurn, nSteps, emaTauMin, systemCapacityMean, systemCapacityStd } = calibParams
+  const { offsetMin, widthMin, estimator, priorWeight, nBurn, nSteps, emaTauMin, systemCapacityMean, systemCapacityStd, nRecent, withinDays } = calibParams
   return (
     <table className="param-table">
       <tbody>
@@ -17,6 +17,16 @@ export default function CalibrationParams({ calibParams, setCalibParam }) {
           <td>EMA tau</td>
           <td><input type="number" min="1" step="1" className="param-input" value={emaTauMin} onChange={e => setCalibParam('emaTauMin', e.target.value)} /></td>
           <td>min</td>
+        </tr>
+        <tr>
+          <td>n per sensor (most recent)</td>
+          <td><input type="number" min="1" step="1" className="param-input" value={nRecent} onChange={e => setCalibParam('nRecent', e.target.value)} /></td>
+          <td></td>
+        </tr>
+        <tr>
+          <td>within</td>
+          <td><input type="number" min="0" className="param-input" value={withinDays} onChange={e => setCalibParam('withinDays', e.target.value)} /></td>
+          <td>days <span className="param-hint">(empty&nbsp;=&nbsp;all)</span></td>
         </tr>
         <tr>
           <td>estimator</td>

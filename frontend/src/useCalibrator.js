@@ -6,8 +6,9 @@ import { PALETTE } from './theme'
 const DEBUG = true
 
 const DEFAULT_CALIB_PARAMS = {
-  offsetMin: '5', widthMin: '50', estimator: 'exp_mcmc', priorWeight: '1.0', nBurn: '10', nSteps: '30', emaTauMin: '60',
+  offsetMin: '5', widthMin: '50', estimator: 'exp_mcmc', priorWeight: '1.0', nBurn: '100', nSteps: '200', emaTauMin: '60',
   systemCapacityMean: '', systemCapacityStd: '',
+  nRecent: '10', withinDays: '',
 }
 
 function parseSensorKey(key) {

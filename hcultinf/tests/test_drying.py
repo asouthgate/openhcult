@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from hcultinf.drying import drying_rate
+from hcultinf.drying import compute_drying_rate
 from hcultinf.simulation import simulate_plant_moisture
 
 
@@ -32,68 +32,33 @@ def _simulate_drying_data(n_days=60):
     return times, values, watering_times
 
 
-def test_drying_rate_detects_events_and_drying():
+def test_drying_rate_detects_drying():
     times, values, watering_times = _simulate_drying_data()
 
-    result = drying_rate(times, values)
+    result = compute_drying_rate(times, values)
 
     resampled_times = result["times"]
     rate = result["rate"]
-    valid = result["valid"]
 
     assert len(resampled_times) > 0
     assert len(rate) == len(resampled_times)
-    assert len(valid) == len(resampled_times)
-    assert valid.sum() > 0
-    assert (~valid).sum() > 0
 
-    valid_rate = rate[valid]
-    mean_valid_rate = np.mean(valid_rate)
-    assert mean_valid_rate < 0, f"Expected negative drying rate, got {mean_valid_rate}"
-
-
-def test_drying_rate_event_regions_track_waterings():
-    times, values, watering_times = _simulate_drying_data()
-
-    result = drying_rate(times, values)
-
-    resampled_times = result["times"]
-    valid = result["valid"]
-
-    watering_dt = _ms_to_datetime64(np.array(watering_times))
-
-    near_watering = np.zeros(len(resampled_times), dtype=bool)
-    for wt in watering_dt[:5]:
-        near_watering |= np.abs(resampled_times - wt) < np.timedelta64(30, "m")
-
-    invalid_near_watering = (~valid) & near_watering
-    assert invalid_near_watering.sum() > 0
-
-
-def test_drying_rate_consistent_sign_in_valid_regions():
-    times, values, _ = _simulate_drying_data()
-
-    result = drying_rate(times, values)
-
-    valid_rate = result["rate"][result["valid"]]
-    negative_frac = np.mean(valid_rate < 0)
-    assert (
-        negative_frac > 0.7
-    ), f"Expected mostly negative rate during drying, got {negative_frac:.2f}"
+    mean_rate = np.mean(rate)
+    assert mean_rate < 0, f"Expected negative drying rate, got {mean_rate}"
 
 
 def test_drying_rate_too_few_points_raises():
     t = pd.date_range("2026-03-17", periods=1, freq="1min").values
     v = np.array([2000.0])
     with pytest.raises(ValueError, match="at least 2"):
-        drying_rate(t, v)
+        compute_drying_rate(t, v)
 
 
 def test_drying_rate_custom_lambda():
     times, values, _ = _simulate_drying_data(n_days=10)
 
-    result_small = drying_rate(times, values, lambda_tv=0.1)
-    result_large = drying_rate(times, values, lambda_tv=1000.0)
+    result_small = compute_drying_rate(times, values, lambda_tv=0.1)
+    result_large = compute_drying_rate(times, values, lambda_tv=1000.0)
 
     small_var = np.var(result_small["rate"])
     large_var = np.var(result_large["rate"])
@@ -105,16 +70,15 @@ def test_drying_rate_custom_lambda():
 def test_drying_rate_plot():
     times, values, watering_times = _simulate_drying_data(n_days=30)
 
-    result = drying_rate(times, values)
+    result = compute_drying_rate(times, values)
 
     import matplotlib.pyplot as plt
-    from hcultinf.plot_style import apply_dark_theme, CLOUD_BLUE, ORANGE, YELLOW, MUTED
+    from hcultinf.plot_style import apply_dark_theme, ORANGE, MUTED
 
     apply_dark_theme()
 
     rt = result["times"]
     rate = result["rate"]
-    valid = result["valid"]
 
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 8), sharex=True)
 
@@ -123,13 +87,11 @@ def test_drying_rate_plot():
     ax1.legend()
 
     ax2.plot(rt, rate, color=ORANGE, label="rate (trend filtered)")
-    ax2.scatter(rt[valid], rate[valid], s=4, color=CLOUD_BLUE, label="valid (drying)")
-    ax2.scatter(rt[~valid], rate[~valid], s=4, color=YELLOW, label="event")
     ax2.axhline(0, color=MUTED, linewidth=0.5)
     ax2.set_ylabel("rate")
     ax2.legend()
 
-    fig.suptitle("Drying rate: valid segments vs detected events")
+    fig.suptitle("Drying rate")
     fig.tight_layout()
 
     os.makedirs("artifacts", exist_ok=True)

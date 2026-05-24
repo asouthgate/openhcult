@@ -1,12 +1,12 @@
 import { valueTicks, SvgAxes, M } from './TimeseriesChart'
-import { OBS_COLOR } from './theme'
+import { OBS_COLOR, PALETTE } from './theme'
 
 const W = 340
 const H = 280
 const IW = W - M.left - M.right
 const IH = H - M.top - M.bottom
 
-export default function ScatterPlot({ dx, dy, xLabel, yLabel }) {
+export default function ScatterPlot({ dx, dy, sensorLabels, xLabel, yLabel }) {
   if (!dx?.length) return null
   const xMin = Math.min(...dx), xMax = Math.max(...dx)
   const yMin = Math.min(...dy), yMax = Math.max(...dy)
@@ -17,6 +17,7 @@ export default function ScatterPlot({ dx, dy, xLabel, yLabel }) {
   const yTicks = valueTicks(yMin, yMax, 4)
   const x0 = sx(Math.max(xMin, Math.min(xMax, 0)))
   const y0 = sy(Math.max(yMin, Math.min(yMax, 0)))
+  const color = i => sensorLabels ? PALETTE[sensorLabels[i] % PALETTE.length] : OBS_COLOR
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="chart-svg" style={{ maxWidth: W }}>
       <rect x={M.left} y={M.top} width={IW} height={IH} fill="#191e2b" />
@@ -26,8 +27,8 @@ export default function ScatterPlot({ dx, dy, xLabel, yLabel }) {
       <line x1={M.left} x2={W - M.right} y1={y0} y2={y0} className="grid-line" />
       {dx.map((dxi, i) => (
         <g key={i}>
-          <circle cx={sx(dxi)} cy={sy(dy[i])} r="4" fill={OBS_COLOR} opacity="0.7" />
-          <text x={sx(dxi) + 5} y={sy(dy[i]) - 4} fontSize="9" fill={OBS_COLOR} opacity="0.7">{i}</text>
+          <circle cx={sx(dxi)} cy={sy(dy[i])} r="4" fill={color(i)} opacity="0.7" />
+          <text x={sx(dxi) + 5} y={sy(dy[i]) - 4} fontSize="9" fill={color(i)} opacity="0.7">{i}</text>
         </g>
       ))}
       <SvgAxes

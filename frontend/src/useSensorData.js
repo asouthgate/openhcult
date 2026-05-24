@@ -67,5 +67,5 @@ export function useSensorData({ plantFilter, sensorFilter, rangeHours }) {
     fetchObservations()
   }, [fetchObservations])
 
-  return { series, observations, loading, error }
+  return { series, observations, setObservations, loading, error }
 }

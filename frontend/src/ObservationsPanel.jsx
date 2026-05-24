@@ -35,11 +35,7 @@ function ObservationsTable({ observations, calibration, onDelete }) {
   )
 }
 
-export default function ObservationsPanel({ observations, calibration }) {
-  const [pendingTime, setPendingTime] = useState(null)
-  const [pendingPlant, setPendingPlant] = useState('')
-  const [pendingMl, setPendingMl] = useState('')
-
+export default function ObservationsPanel({ observations, calibration, setObservations, pendingTime, pendingPlant, pendingMl, onMlChange, onCancel }) {
   const deleteObservation = id =>
     apiFetch(`/observations/${id}`, { method: 'DELETE' }).then(r => r.ok && setObservations(prev => prev.filter(o => o.id !== id)))
 
@@ -47,7 +43,7 @@ export default function ObservationsPanel({ observations, calibration }) {
     const payload = { note: `WATER manual ml=${pendingMl}`, observed_at: new Date(pendingTime).toISOString() }
     if (pendingPlant) payload.plant_name = pendingPlant
     apiJson('/observations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-      .then(created => { setObservations(prev => [...prev, created]); setPendingTime(null) })
+      .then(created => { setObservations(prev => [...prev, created]); onCancel() })
   }
 
   return (
@@ -58,12 +54,18 @@ export default function ObservationsPanel({ observations, calibration }) {
         onDelete={deleteObservation}
       />
 
-      {pendingTime && (
+      {pendingTime && !pendingPlant && (
+        <div className="full event-panel">
+          <span>Select a plant to record a watering event</span>
+        </div>
+      )}
+
+      {pendingTime && pendingPlant && (
         <div className="full event-panel">
           <span>Watering at {new Date(pendingTime).toLocaleString()}</span>
-          <input type="number" placeholder="ml" value={pendingMl} onChange={e => setPendingMl(e.target.value)} />
+          <input type="number" placeholder="ml" value={pendingMl} onChange={e => onMlChange(e.target.value)} />
           <button onClick={submitWatering} disabled={!pendingMl}>Record</button>
-          <button onClick={() => setPendingTime(null)}>Cancel</button>
+          <button onClick={onCancel}>Cancel</button>
         </div>
       )}
     </>
