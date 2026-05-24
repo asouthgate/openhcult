@@ -10,7 +10,7 @@
 \sethlcolor{yellow} % default is yellow
 
 
-\title{A Bayesian method for estimation of soil water content with low-cost capacitive moisture sensors.}
+\title{A software system for estimation of soil water content with low-cost capacitive moisture sensors}
 \author{Alex Southgate\\
 \texttt{alex.southgate@equalitylabs.cymru}
 }
@@ -22,7 +22,7 @@
 
 \begin{abstract}
 
-ESP32s are low-cost, low-energy microcontrollers with integrated bluetooth and WiFi, and have recently lowered the barrier for entry into prototyping smart devices. ESP32s equipped with capacitive moisture sensors have been suggested for low-cost smart plant watering systems. However, measuring moisture in soil is complex, potentially destructive, and requires careful calibration in order to characterise the response curve mapping soil water content to sensor measurements, which many users are unlikely to undertake. Even accurately measuring soil moisture content requires effort, with variability across soils and environmental conditions, and consumer-grade probes tending to offer coarse measurements only. In order for these low-cost smart sensor systems to be practically useful for this category of user, calibration must be easy, and uncertainty measures available. The objective of this work was to develop a near-automous, free and open source software (FOSS) system for monitoring, with continuously updating calibration and measures of uncertainty. \hl{With our method we jointly estimate scale and shape; using a prior calibration curve we can only achieve FC estimation (shape)} \hl{Could be of interest for scientific operations or others requiring low cost}. \hl{Each sensor has its own offsets/bias due to lolocal soil factors; our method allows calibration for each of them. Sensor heterogeneity is built into this.} \hl{The target tone of this paper should be like when someone creates a novel distributed system, database, etc. using a small test environment. It's not CONSUMER exactly, it's a tech that consumers or engineers could use or build up elsewhere}. \hl{The ESP32s maybe just a test system for the algorithm}.
+ESP32s are low-cost, low-energy microcontrollers with integrated bluetooth and WiFi, and have recently lowered the barrier for entry into prototyping smart devices. ESP32s equipped with capacitive moisture sensors have been suggested for low-cost smart plant watering systems. However, measuring moisture in soil is complex, potentially destructive, and requires careful calibration in order to characterise the response curve mapping soil water content to sensor measurements, which many users are unlikely to undertake. Even accurately measuring soil moisture content requires effort, with variability across soils and environmental conditions, and consumer-grade probes tending to offer coarse measurements only. In order for these low-cost smart sensor systems to be practically useful for this category of user, calibration must be easy, and uncertainty measures available. The objective of this work was to develop a near-automous, free and open source software (FOSS) system for monitoring, with continuously updating calibration and measures of uncertainty. \hl{With our method we jointly estimate scale and shape; using a prior calibration curve we can only achieve FC estimation (shape)} \hl{Could be of interest for scientific operations or others requiring low cost}. \hl{Each sensor has its own offsets/bias due to lolocal soil factors; our method allows calibration for each of them. Sensor heterogeneity is built into this.} \hl{The target tone of this paper should be like when someone creates a novel distributed system, database, etc. using a small test environment. It's not CONSUMER exactly, it's a tech that consumers or engineers could use or build up elsewhere}. \hl{The ESP32s maybe just a test system for the algorithm}. \hl{Pitch equitable science}
 
 \end{abstract}
 
@@ -51,46 +51,56 @@ The objective of this work was to introduce an automated system and statistical 
 
 \ref{fig:esp32system} gives an overview of the sensor system. In our test system, ESP32s were used with low-cost capacitive moisture sensors. \hl{TODO}: description of boards, sensor sampling frequency, polling, etc.
 
-\subsection{Segmentation}
+\subsection{Pre-processing}
 
-A hierarchical approach was taken to segmentation with coarse and fine steps. For the target system, three types of processes were defined at different time-scales: shocks caused by watering from above; smooth changes induced by watering from below; loss of moisture due to drying or uptake by a plant. All of these processes cause a response in sensor readings over a period of time. Given that the timescales of watering dynamics are much smaller than those of drying and uptake, we first defined coarse `high-velocity' and `low-velocity' states, with the latter approximately corresponding to equilibrium when drying and uptake is slow. Firstly, irregularly spaced sensor data was smoothed with an exponential moving average \cite{genccay2001introduction} (or exponentially weighted moving average (EWMA) \cite{zumbach2001operators}), a single-pole low-pass filter \cite{smith1997scientist} with time-weighted coefficients:
+Irregularly spaced sensor data gathered from sensors was smoothed with an exponential moving average \cite{genccay2001introduction} (or exponentially weighted moving average (EWMA) \cite{zumbach2001operators}), a single-pole low-pass filter \cite{smith1997scientist} with time-weighted coefficients:
 
 \[
 \tilde{X}_t = \exp^{-\Delta t/\tau} \tilde{X}_{i-1} + (1-\exp^{-\Delta t/\tau}) X_i
 \]
 
-After smoothing, the data was resampled and derivatives were approximated by finite differences (second order) \cite{griffiths2006numerical}. Two thresholds were defined for identification of high-velocity state regions: a trigger threshold $v_{trigger}$ and a release threshold $v_{release}$ (see relay with hysteresis \cite{khalil2002nonlinear}). Once the trigger is passed at a high instantaneous velocity, it must decrease beyond the release to return to the `low-velocity` state. Given that sensor data decreases with moisture content, only negative velocity regions were taken. Given that the sensor response curve has variable sensitivity to input, sensor values were used for adaptive filtering, with thresholds decreasing with sensor values:
-
-\[
-a_{trigger,j} = \frac{a_{high} - a_{low}}{x_{max}-x_{min}}(X_j-x_{min}) + a_{low}
-\]
-
-For extracted regions identified as `high-velocity', a log-normal was fit to the data by least squares and normalized root mean square error (RMSE) captured for downstream classification. Matched filtering \cite{smith1997scientist} is common for identifying signals. Log-normal fits were used for simplicity and flexibility. \hl{See theoretical justifications; hydraulic conductivity, multi-paths and Gibrat's law, Richards equation, find citations}.\\
-
-See Appendix \ref{fig:myfigure} for an example of segmentation for a single segment of raw sensor data.
+Smoothed data was used primarily for velocity calculations, as described below.
 
 \subsection{Calibration}
 
 \subsubsection{Integral data and the inverse response function}
 
-Let $Y_t$ be the absolute SWC at time $t$, $X_t = h(Y_t)$ the sensor response. We cannot directly measure $Y_t$ non-destructively for an arbitrary container pot. If the total wet soil mass or volume, excluding plant matter, was known, $Y_t$ could be deduced from a relative measurement, combined with a known field capacity of the soil, from a known small volume. These paramters may not be available for an arbitrary container. In the opposite direction, the sensor measurements $X_t$ are readily available, and if the inverse response function $h^{-1}$ is known, $Y_t = h^{-1}(X_t)$ could be computed. Unfortunately, the response function can depend on both soil parameters, environmental factors, and sensor paramters including placement (e.g. how densely packed soil is around the sensor). \\
+For sensor index $i$ and time $t$, let $T_t$ be the total water volume, $Y_{i,t}$ the relative (here volumetric) SWC local to sensor $i$, and $X_{i, t} = h(Y_{i,t})$ the sensor response. Let $V$ be the container volume, and therefore $T_t/V$ the average volumetric SWC. $Y_t$ and $T_t$ cannot be measured directly non-destructively. If the inverse response function $h^{-1}$ is known, $Y_{i,t} = h^{-1}(X_{i,t})$ could be computed. For multiple sensors, $T_t$ and average volumetric SWC can be computed by averaging over $N$ sensors, assuming sensors are uniformly distributed in the soil:
 
-Another quantity that is readily available is the applied water dosage given to a plant, $\Delta Y_i$, if it is recorded. Paired with sensor measurements $X_i$, in principle the response curve can be reconstructed by considering the integral or "cord" data $\Delta Y_i = Y_{after} - Y_{before} = X_{after} - X_{before}$. For example, if the inverse response was a linear function, assuming no noise, the slope could be reconstructed from $\Delta Y_i$ and $\Delta X_i$, and the intercept from a single measurement $X = h^{-1}(0)$. In practice, the response curve is non-linear, and plants are usually sensitive to water content, tolerating only a narrow range of saturation. As such, only a narrow section of the curve $h^{-1}$ can be sampled. \\
+\begin{equation}
+T_t = \int_{\Omega} Y(\omega) d\omega \approx V \sum_{i=1}^N Y_{i,t}
+\end{equation}
 
-In order to resolve these issues, cord data can be used to estimate absolute soil water content provided a sufficiently flexible parametric form. The sensor response has two plateaus, one at dry (low SWC) and one at wet (high SWC), which can be modelled with polynomials \hl{cite}. For a plant that does not tolerate dry conditions, it is not possible to characterise the dry part of this curve. In our case, this part of the curve was also not of interest, so a simpler function such as an exponential can be used with unknown scale and shape. Given that the response function becomes flat at saturation, the inverse response function becomes vertical at full saturation. In order to model this, the sensor value at full saturation $x_{wet}$ and zero saturation $x_{dry}$ is also a required parameter. In our framework, $x_{wet}$ is a free parameter, and $x_{dry}$ is assumed to be known. It is assumed that $x_{wet}$ is not measurable in general since sampling sufficient soil may be destructive, and $x_{wet}$ depends on sensor packing or placement in heterogeneous media.
+Since the response function can depend on both soil parameters, environmental factors, and sensor paramters including placement (e.g. how densely packed soil is around the sensor), we assume it is unknown and aim to estimate it. \\
+
+$\Delta T$, the change in total system water, is measurable for watering events that are recorded, which provides information on the response function. For example, if the inverse response was linenar, assuming no noise, the slope $T = Vh^{-1}(X)$ could be reconstructed from $(X_{i, start}, X_{i, end}, \Delta T)$, and the intercept from a single measurement $X_i = h^{-1}(0)$. In practice, the response curve is non-linear, and plants are usually sensitive to water content, tolerating only a narrow range of saturation, so the values $(X_{i,start}, X_{i,end}, \Delta Y_i)$ are drawn from a narrow range of the domain. As such, only a narrow section of the curve $h^{-1}$ can be sampled. \\
+
+\subsubsection{Combining sensor estimates}
+
+Each sensor has its own local saturation $g_j(x)$, determined by physical heterogeneity. At the same time, the total water content of the container is a global property of the system. Our method estimates, per sensor, the total water content. Given $N$ sensors with voltage measurement vector $\mathbf{x}$. Each inverse sensor response is itself a random variable. We refine our single-sensor model as:
+
+\begin{equation}
+SWC(\mathbf{x}) = S \cdot E[g(\mathbf{x})] \approx S \Big(\sum_{j=0}^N g_j(x_j) \Big)
+\end{equation}
+
+allowing $S$, a global quantity to be estimated jointly, with separate estimates for the local relative saturation functions $g$ per-sensor.
+
+\subsubsection{Model}
+
+In order to resolve these issues, a parametric form for $h^{-1}$ can be assumed. The sensor response has two plateaus, one at dry (low SWC) and one at wet (high SWC), which can be modelled with polynomials \hl{cite}. Different functions may perform better for different subsets of the domain. To model this, we consider two components: an exponential shape with a maximum of $1$, which may differ between sensors, and be informed by both a prior normalized calibration curve and $\Delta T$, and a joint scale, which is informed by $\Delta T$. We use an exponential shape and do not attempt to model the dry end shape, instead using an intercept term. Given that the response function becomes flat at saturation, the inverse response function becomes vertical at full saturation. We do not attempt to extrapolate beyond the measured sensor minimum because small errors in assumed $X_{min}$, which may vary between sensors, can result in large errors in estimated SWC where the curve is nearly vertical. 
 
 \begin{equation}
 h^{-1}(X_t) = S \cdot g(X_t) = S \cdot \Big((1-q_{dry})\exp\Big\{-k (1 - u(X_t; x_{wet}, x_{dry})\Big\} + q_{dry}\Big)
 \end{equation}
 
-Where $u(X_t)$ is a rescaling of $[x_{wet}, x_{dry}]$ to the interval $[0, 1]$. In principle, any function representing proportional SWC could be used for $g(X_t)$, the shape of the inverse response, and may perform better than an exponential curve. In order to accommodate an intercept at the dry end of the response function, the parameter $q_{dry}$ allows the normalized curve $g(x)$ to be squashed into the interval $[q_{dry}, 1.0]$ to accommodate the non-zero SWC in this part of the curve until the dry end. \\
+Where $u(X_t)$ is a rescaling of $[x_{wet}, x_{dry}]$ to the interval $[0, 1]$. The shape intercept parameter $q_{dry}$ allows the normalized curve $g(x)$ to be squashed into the interval $[q_{dry}, 1.0]$. \\
 
 \subsubsection{Bayesian estimation}
 
-To combine the cord data $(\Delta Y_i, \Delta X_i, X_i)$, dry anchor sample $X = h^{-1}(Y=0)$, prior assumptions on the parametric form of $h^{-1}$, optional prior calibration points, and the unknown scale parameter $S$, we adopt a Bayesian framework. We assume lognormal dosage samples:
+To combine the cord data $(X_{i, start}, X_{i, end}, \Delta T)$, dry anchor sample $X_i(0) = h^{-1}(T=0)$, prior assumptions on the parametric form of $h^{-1}$, optional prior calibration points, and the unknown scale parameter $S$, we adopt a Bayesian framework. We assume lognormal dosage samples:
 
 \begin{equation}
-\log(\Delta Y_i) \sim Normal(\log (h^{-1}(X_{end}; S, k, x_{wet}) - h^{-1}(X_{start}; S, k), \sigma^2)
+\log(\Delta T) \sim Normal(\log (h^{-1}(X_{i, end}; S, k) - h^{-1}(X_{i, start}; S, k)), \sigma^2)
 \end{equation}
 
 With the target parameters $\theta = (S, k, x_{wet}, \sigma^2)$. Priors on the lower bound $x_{wet}$ are taken as uniform on a user-specified interval. Priors on scale $S$ can be estimated from soil volume or total plant weight.
@@ -106,7 +116,7 @@ With the target parameters $\theta = (S, k, x_{wet}, \sigma^2)$. Priors on the l
         \textbf{Parameter} & \textbf{Prior Distribution} & \textbf{Description} \\
         \midrule
         $S$ (Scale) & Normal & Weakly informative; roughly estimated by user from e.g. container size \\
-        $k$ (Exp. shape) & Improper & Unconstrained shape \\
+        $k$ (Exp. shape) & Improper & Unconstrained shape, unintuitive for user \\
         $x_{wet}$ (Saturation) & Uniform & User-specified, upper bound from data, default chosen from experiment\\
         $q_{dry}$ (Intercept) & Uniform(0, 0.5) & User-specified, default chosen from experiment \\
         $\sigma^2$ (Variance) & Improper & Accommodates noise sources including error in water measurement \\
@@ -115,17 +125,6 @@ With the target parameters $\theta = (S, k, x_{wet}, \sigma^2)$. Priors on the l
 \end{table}
 
 For a given posterior calibration curve sample and input time interval, water consumption rate is approximated by a linear estimate. Current water consumption is calculated by computing the linear rate over a time period for each posterior sample of calibration curves, providing uncertainty over calibration curves.\\
-
-\subsubsection{Combining sensor estimates}
-
-Each sensor has its own local saturation $g_j(x)$, determined by physical heterogeneity. At the same time, the total water content of the container is a global property of the system. Our method estimates, per sensor, the total water content. Given $N$ sensors with voltage measurement vector $\mathbf{x}$. Each inverse sensor response is itself a random variable. We refine our single-sensor model as:
-
-\begin{equation}
-SWC(\mathbf{x}) = S \cdot E[g(\mathbf{x})] \approx S \Big(\sum_{j=0}^N g_j(x_j) \Big)
-\end{equation}
-
-allowing $S$, a global quantity to be estimated jointly, with separate estimates for the local relative saturation functions $g$ per-sensor.
-
 
 \section{Results}
 
@@ -137,17 +136,17 @@ allowing $S$, a global quantity to be estimated jointly, with separate estimates
 
 \subsection{Calibration}
 
+\subsubsection{Identifiability of xmin and scale under multiple sensors}
+
+\subsection{Combined estimate vs single-sensor}
+
 \section{Discussion}
 
+\hl{Why not a Kalman Filter?}
+
+\hl{Why not a drying model? Depends on temp, plant uptake, and therefore light levels}
+
 \section{Appendix}
-
-\begin{figure}[htb!]
-  \centering
-  \includegraphics[width=1.0\linewidth]{images/segmentation.png}
-  \caption{Graph showing segmentation methodology applied to raw data. Raw sensor values, which decrease with moisture content, are shown in blue. First and second derivatives of the resampled EWMA of sensor values (axis 2) are shown with max-normalized scale for clarity. Grey regions denote low-velocity, near-equilibrium intervals. Green regions denote high-velocity regions. Orange regions denote high-acceleration regions. Several events identified by high-acceleration can occur within a single low-velocity region in instances such as repeaated watering over short time-scales.}
-  \label{fig:myfigure}
-\end{figure} 
-
 
 \bibliographystyle{plain}
 \bibliography{references}
