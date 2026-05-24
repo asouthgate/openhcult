@@ -194,7 +194,7 @@ def _predict_per_sensor_curves(
     n_plot = 200
     curves = []
     for j in range(n_sensors):
-        x_grid = np.linspace(domain_min, domain_max, n_plot)
+        x_grid = np.linspace(float(cal.data_xmin[j]), domain_max, n_plot)
         X = np.full((n_plot, n_sensors), np.nan)
         X[:, j] = x_grid
         if return_fractional:
