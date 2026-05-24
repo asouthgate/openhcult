@@ -37,8 +37,8 @@ def plot_corner(cal, n_sensors=None, out=None, title=None):
         n_sensors = getattr(cal, "n_sensors", 1)
     params = cal.posterior_params()
     sensor_color = PAPER_COLORS[:n_sensors]
-    scale_color = PAPER_COLORS[0]
     sigma_color = PAPER_COLORS[2] if len(PAPER_COLORS) > 2 else PAPER_COLORS[-1]
+    scale_color = sigma_color
 
     if n_sensors == 1:
         param_arrays = [
