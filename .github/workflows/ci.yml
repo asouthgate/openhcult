@@ -77,3 +77,31 @@ jobs:
       - name: Cleanup on Failure
         if: failure()
         run: docker compose down -v --remove-orphans
+
+  paper-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install LaTeX
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y texlive-latex-base texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended
+
+      - name: Install Python dependencies
+        run: pip install ./hcultinf
+
+      - name: Build paper
+        run: bash docs/build.sh
+
+      - name: Upload PDF
+        uses: actions/upload-artifact@v4
+        with:
+          name: paper-pdf
+          path: docs/main.pdf

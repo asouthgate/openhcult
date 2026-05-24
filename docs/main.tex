@@ -4,18 +4,22 @@
 \usepackage{booktabs}
 \usepackage{hyperref}
 \usepackage{graphicx}
+\graphicspath{{images/}{../frontend/public/}}
 \usepackage{soul}
 \usepackage{tabularx}
 \usepackage{xcolor}
 \sethlcolor{yellow} % default is yellow
 
+\input{githash}
 
 \title{A software system for estimation of soil water content with low-cost capacitive moisture sensors}
-\author{Alex Southgate\\
+\author{%
+\includegraphics[height=1.5cm]{images/teal-no-bg-dark-256.png}\\[6pt]
+Alex Southgate\\
 \texttt{alex.southgate@biosystemau.cymru}
 }
 
-\date{\today}
+\date{\today \\ \small\texttt{rev:\,\githash}}
 
 \begin{document}
 \maketitle
@@ -39,17 +43,6 @@ Existing work has been undertaken on moisture sensor calibration and characteris
 The objective of this work was to introduce an automated system and statistical method for automated calibration of sensors with minimal user input. This aim was primarily motivated by the challenge end users may find with gravimetric calibration, as well as lack of generalisability of a given calibration curve. We aim to present a method providing automated measurements, calibration, and dashboards for visualisation and alerts.
 
 \section{Methods}
-
-\subsection{Software and hardware architecture}
-
-\begin{figure}[t]
-  \centering
-  \includegraphics[width=1.0\linewidth]{images/hcult.pdf}
-  \caption{Simplified software architecture. ESP32 devices repeat a cycle of deep-sleep, sample, advertise-only BLE. A monitor node continuously scans for advertising sensors, collects payloads, and writes them to the database. Occasionally, an inference daemon runs event detection and curve calibration. Finally, an API node allows users to run operations and retrieve data for dashboards. }
-  \label{fig:esp32system}
-\end{figure}
-
-\ref{fig:esp32system} gives an overview of the sensor system. In our test system, ESP32s were used with low-cost capacitive moisture sensors. \hl{TODO}: description of boards, sensor sampling frequency, polling, etc.
 
 \subsection{Pre-processing}
 
@@ -131,6 +124,26 @@ For a given posterior calibration curve sample and input time interval, water co
 
 \section{Results}
 
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=1.0\linewidth]{images/real_data_timeseries.png}
+  \caption{Estimated SWC over time from multi-sensor Bayesian calibration. Individual sensor posteriors (thin lines with shaded 95\% CI) and joint posterior (bold line with shaded CI).}
+  \label{fig:timeseries}
+\end{figure}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.85\linewidth]{images/real_data_calibration.png}
+  \caption{Calibration (response) curves per sensor and joint calibration, plotted parametrically against normalised sensor range $t \in [0,1]$. Chord segments show the observed watering events. Shading shows 95\% credible intervals.}
+  \label{fig:calibration}
+\end{figure}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.9\linewidth]{images/real_data_corner.png}
+  \caption{Posterior parameter correlations from joint MCMC calibration. Diagonal panels show marginal distributions; lower triangle shows pairwise scatter plots.}
+  \label{fig:corner}
+\end{figure}
 
 \section{Discussion}
 

@@ -757,45 +757,4 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         )
 
 
-def _sensor_col(param, sensor_idx):
-    """Extract a sensor's column from a (n_samples,) or (n_samples, n_sensors) array."""
-    if param.ndim == 1:
-        return param
-    return param[:, sensor_idx]
-
-
-def plot_corner(cal, out=None, title=None, sensor_idx=0):
-    import matplotlib.pyplot as plt
-
-    apply_dark_theme()
-    params = cal.posterior_params()
-    param_names = ["scale", "k", "f_int", "sigma2"]
-    n_params = len(param_names)
-    fig, axes = plt.subplots(n_params, n_params, figsize=(12, 12))
-    for i in range(n_params):
-        for j in range(n_params):
-            ax = axes[i][j]
-            pi = _sensor_col(params[param_names[i]], sensor_idx)
-            pj = _sensor_col(params[param_names[j]], sensor_idx)
-            if i == j:
-                ax.hist(pi, bins=50, density=True, color=CLOUD_BLUE, alpha=0.7)
-                ax.axvline(np.median(pi), color=ORANGE, linewidth=1)
-            elif i > j:
-                step = max(1, len(pj) // 500)
-                ax.scatter(pj[::step], pi[::step], s=1, alpha=0.3, color=CLOUD_BLUE)
-            else:
-                ax.set_visible(False)
-            if j == 0:
-                ax.set_ylabel(param_names[i])
-            if i == n_params - 1:
-                ax.set_xlabel(param_names[j])
-    fig.tight_layout()
-    if title is not None:
-        fig.suptitle(title)
-    if out is not None:
-        os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
-        fig.savefig(out)
-    if os.environ.get("HCULT_TEST_DEBUG_PLOT", "0") == "1":
-        plt.show()
-    plt.close(fig)
-    return fig
+from .plot import plot_corner as plot_corner

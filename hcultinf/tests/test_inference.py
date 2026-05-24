@@ -16,7 +16,8 @@ import numpy as np
 import pytest
 
 from hcultinf.exp import ExponentialCordCalibrator, exponential_target
-from hcultinf.exp_mcmc import ExponentialCordCalibratorMCMC, plot_corner, _ParamLayout
+from hcultinf.exp_mcmc import ExponentialCordCalibratorMCMC, _ParamLayout
+from hcultinf.plot import plot_corner
 
 from hcultinf.simulation import (
     simulate_calibration_data_samples,
