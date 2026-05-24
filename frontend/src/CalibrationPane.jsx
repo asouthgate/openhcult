@@ -23,7 +23,7 @@ export default function CalibrationPane({ plantFilter, sensorFilter, calibrator,
 
   if (sensorFilter === '_all_') return <div className="empty">Select Combined or a specific sensor to view calibration.</div>
 
-  const { chords_dx, chords_dy, chord_times, scale, nlml, fractional: isFractional } = calibration ?? {}
+  const { chords_dx, chords_dy, chord_times, scale, nlml, fractional: isFractional, sensor_chord_labels, n_sensors, active_sensors } = calibration ?? {}
   const showFrac = showFractional && isFractional
   const swcStats = calibration ? computeSwcStats(calibration, showFrac) : null
   const unitLabel = isFractional ? '' : ' ml'
@@ -70,6 +70,7 @@ export default function CalibrationPane({ plantFilter, sensorFilter, calibrator,
             ['Dose mean', (dy.reduce((a, b) => a + b, 0) / dy.length).toFixed(1) + unitLabel],
             ['SWC range', swcStats ? `${swcStats.estMin.toFixed(1)}–${swcStats.estMax.toFixed(1)}${unitLabel}` : '—'],
             ...(swcStats?.lo != null ? [['95% CI', `${swcStats.lo.toFixed(1)}–${swcStats.hi.toFixed(1)}${unitLabel}`]] : []),
+            ...(n_sensors > 1 ? [['Sensors combined', n_sensors]] : []),
           ]
           return (
             <table className="obs-table full">
@@ -85,7 +86,7 @@ export default function CalibrationPane({ plantFilter, sensorFilter, calibrator,
           const stats = [
             ['SWC range', swcStats ? `${swcStats.estMin.toFixed(1)}–${swcStats.estMax.toFixed(1)}${unitLabel}` : '—'],
             ...(swcStats?.lo != null ? [['95% CI', `${swcStats.lo.toFixed(1)}–${swcStats.hi.toFixed(1)}${unitLabel}`]] : []),
-            ...(calibration.n_sensors ? [['Sensors combined', calibration.n_sensors]] : []),
+            ...(n_sensors > 1 ? [['Sensors combined', n_sensors]] : []),
           ]
           return (
             <table className="obs-table full">
@@ -120,6 +121,7 @@ export default function CalibrationPane({ plantFilter, sensorFilter, calibrator,
           <ScatterPlot
             dx={chords_dx}
             dy={chords_dy}
+            sensorLabels={sensor_chord_labels}
             xLabel="Δsensor"
             yLabel={isFractional ? 'Δfractional' : 'Δml'}
           />

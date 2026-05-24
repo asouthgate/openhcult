@@ -175,6 +175,64 @@ def _to_json_safe(arr):
     return [None if not math.isfinite(v) else v for v in np.asarray(arr).flat]
 
 
+def _build_chord_voltage_matrix(chords_x, sensor_chord_labels, n_sensors):
+    n = len(chords_x)
+    X = np.full((n, n_sensors), np.nan)
+    labels = np.asarray(sensor_chord_labels)
+    for j in range(n_sensors):
+        mask = labels == j
+        X[mask, j] = chords_x[mask]
+    return X
+
+
+def _predict_per_sensor_curves(
+    cal, domain_min, domain_max, active_sensors, return_fractional
+):
+    n_sensors = len(active_sensors)
+    if n_sensors <= 1:
+        return []
+    n_plot = 200
+    curves = []
+    for j in range(n_sensors):
+        x_grid = np.linspace(domain_min, domain_max, n_plot)
+        X = np.full((n_plot, n_sensors), np.nan)
+        X[:, j] = x_grid
+        if return_fractional:
+            mean, ci_low, ci_high = cal.fractional_water_content(X)
+        else:
+            mean, ci_low, ci_high = cal.predict(X)
+        sensor_spec = active_sensors[j]
+        curves.append(
+            {
+                "sensor": sensor_spec["sensor"],
+                "device_address": sensor_spec["device_address"],
+                "x": x_grid,
+                "mean": mean,
+                "ci_low": ci_low,
+                "ci_high": ci_high,
+            }
+        )
+    return curves
+
+
+def _predict_joint_diagonal(cal, n_points, return_fractional):
+    if cal.n_sensors <= 1:
+        return None
+    t = np.linspace(0, 1, n_points)[:, None]
+    diag = cal.xmax - t * (cal.xmax - cal.data_xmin[None, :])
+    diag_x = np.nanmean(diag, axis=1)
+    if return_fractional:
+        diag_mean, diag_ci_low, diag_ci_high = cal.fractional_water_content(diag)
+    else:
+        diag_mean, diag_ci_low, diag_ci_high = cal.predict(diag)
+    return {
+        "x": diag_x,
+        "mean": diag_mean,
+        "ci_low": diag_ci_low,
+        "ci_high": diag_ci_high,
+    }
+
+
 def _validate_estimator(estimator):
     if estimator not in ("exponential", "exp_mcmc"):
         raise HTTPException(
@@ -478,34 +536,57 @@ def water_calibration(p: CalibrationParams = Depends(), conn=Depends(get_db_conn
     sensor_specs = _resolve_sensors(conn, p)
     d = _fetch_cord_data(conn, p.plant, sensor_specs, p)
     cal = _calibrate(d, p)
+    n_sensors = len(d["active_sensors"])
     domain_min = min(
         d["x_arr"].min(), (d["x_arr"] + d["dx_arr"]).min(), d["prior_x"].min()
     )
     domain_max = max(
         d["x_arr"].max(), (d["x_arr"] + d["dx_arr"]).max(), d["prior_x"].max()
     )
-    plot_x = np.linspace(domain_min, domain_max, 500)
-    plot_prior_y = np.interp(plot_x, d["prior_x"], d["prior_y"])
 
-    if (
+    use_fractional = (
         p.return_fractional
         and p.system_capacity_mean is not None
         and p.system_capacity_std is not None
-    ):
-        mean, ci_low, ci_high = cal.fractional_water_content(plot_x)
-        fractional = True
-    else:
-        mean, ci_low, ci_high = cal.predict(plot_x)
-        fractional = False
+    )
 
-    mean_at_chord_starts = cal(d["x_arr"])
+    if n_sensors > 1:
+        chord_X = _build_chord_voltage_matrix(
+            d["x_arr"], d["sensor_chord_labels"], n_sensors
+        )
+        mean_at_chord_starts = cal(chord_X)
+        per_sensor_curves = _predict_per_sensor_curves(
+            cal, domain_min, domain_max, d["active_sensors"], use_fractional
+        )
+        joint_diagonal = _predict_joint_diagonal(cal, 500, use_fractional)
+        plot_x = np.asarray(joint_diagonal["x"])
+        mean = np.asarray(joint_diagonal["mean"])
+        ci_low = np.asarray(joint_diagonal["ci_low"])
+        ci_high = np.asarray(joint_diagonal["ci_high"])
+        plot_prior_x = np.linspace(domain_min, domain_max, 500)
+        plot_prior_y = np.interp(plot_prior_x, d["prior_x"], d["prior_y"])
+    else:
+        chord_X = d["x_arr"]
+        mean_at_chord_starts = cal(chord_X)
+        plot_x = np.linspace(domain_min, domain_max, 500)
+        if use_fractional:
+            mean, ci_low, ci_high = cal.fractional_water_content(plot_x)
+        else:
+            mean, ci_low, ci_high = cal.predict(plot_x)
+        plot_prior_x = plot_x
+        plot_prior_y = np.interp(plot_x, d["prior_x"], d["prior_y"])
+        per_sensor_curves = []
+        joint_diagonal = None
+
+    fractional = use_fractional
 
     swc_after = mean_at_chord_starts + d["dy_arr"]
     estimated_mv_after = np.interp(swc_after, mean[::-1], plot_x[::-1])
     estimated_dx_arr = estimated_mv_after - d["x_arr"]
 
     return {
-        "prior_x": _to_json_safe(plot_x),
+        "curve_x": _to_json_safe(plot_x),
+        "prior_x": _to_json_safe(plot_prior_x),
         "prior_y": _to_json_safe(plot_prior_y),
         "mean": _to_json_safe(mean),
         "ci_low": _to_json_safe(ci_low),
@@ -521,6 +602,20 @@ def water_calibration(p: CalibrationParams = Depends(), conn=Depends(get_db_conn
         "chord_times": d["chord_times"],
         "offset_ms": p.offset_ms,
         "width_ms": p.width_ms,
+        "n_sensors": n_sensors,
+        "sensor_chord_labels": d["sensor_chord_labels"].tolist(),
+        "active_sensors": d["active_sensors"],
+        "per_sensor_curves": [
+            {
+                "sensor": c["sensor"],
+                "device_address": c["device_address"],
+                "x": _to_json_safe(c["x"]),
+                "mean": _to_json_safe(c["mean"]),
+                "ci_low": _to_json_safe(c["ci_low"]),
+                "ci_high": _to_json_safe(c["ci_high"]),
+            }
+            for c in per_sensor_curves
+        ],
     }
 
 

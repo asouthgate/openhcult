@@ -138,10 +138,11 @@ def samples_swc_at(x, scale_s, k_s, f_int_s, data_xmin, xmax):
     data_xmin = np.atleast_1d(data_xmin)
     x = np.asarray(x)
     if x.ndim == 1:
-        assert n_sensors == 1, (
-            f"x is 1D but n_sensors={n_sensors}; "
-            f"provide x as (n_points, n_sensors) array"
-        )
+        if n_sensors > 1:
+            raise ValueError(
+                f"Multi-sensor model (n_sensors={n_sensors}) requires "
+                f"2D input of shape (n_points, {n_sensors})"
+            )
         x = x[:, None]
 
     n_samples = len(scale_s)
@@ -247,13 +248,25 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         self._f_int_s = None
         self._data_xmin = None
 
+    @property
+    def xmax(self):
+        return self._xmax
+
+    @property
+    def data_xmin(self):
+        return self._data_xmin
+
     def _reshape_x(self, x):
         x = np.atleast_1d(np.asarray(x, dtype=float))
         if x.ndim == 1:
             if self.n_sensors == 1:
                 x = x[:, None]
             else:
-                x = np.column_stack([x] * self.n_sensors)
+                raise ValueError(
+                    f"Multi-sensor model (n_sensors={self.n_sensors}) requires "
+                    f"2D input of shape (n_points, {self.n_sensors}); "
+                    f"to exclude a sensor, set its column to NaN"
+                )
         if x.shape[1] < self.n_sensors:
             pad = np.full((x.shape[0], self.n_sensors - x.shape[1]), np.nan)
             x = np.column_stack([x, pad])
@@ -540,6 +553,91 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             scale_s, k_s, f_int_s = scale_s[idx], k_s[idx], f_int_s[idx]
         samples = samples_swc_at(x, scale_s, k_s, f_int_s, self._data_xmin, self._xmax)
         return samples
+
+    def plot(
+        self,
+        priorx,
+        priory,
+        anchors_x,
+        anchors_y,
+        x,
+        dx,
+        dy,
+        pwlprevs=None,
+        true_y=None,
+        out=None,
+        title=None,
+        show_chords_pane=True,
+    ):
+        import matplotlib.pyplot as plt
+        from .plot_style import apply_dark_theme, CLOUD_BLUE, YELLOW, ORANGE
+        from .calibrator import plot_response_curve
+
+        apply_dark_theme()
+        priorx = np.asarray(priorx)
+        x = np.asarray(x)
+        dx = np.asarray(dx)
+        dy = np.asarray(dy)
+        domain_min_x = min(
+            [
+                priorx.min(),
+                anchors_x.min() if len(anchors_x) > 0 else np.inf,
+                x.min() if len(x) > 0 else np.inf,
+                (x + dx).min() if len(dx) > 0 else np.inf,
+            ]
+        )
+        plot_x = np.linspace(domain_min_x, priorx.max(), 500)
+        plot_prior_y = np.interp(plot_x, priorx, priory)
+        plot_true_y = (
+            np.interp(plot_x, priorx, np.asarray(true_y))
+            if true_y is not None
+            else None
+        )
+        if self.n_sensors > 1:
+            X_plot = np.column_stack([plot_x] * self.n_sensors)
+            X_chords = np.column_stack([x] * self.n_sensors)
+        else:
+            X_plot = plot_x
+            X_chords = x
+        mean_at_x = self(X_chords)
+        mean, ci_low, ci_high = self.predict(X_plot)
+        fig = plot_response_curve(
+            plot_x,
+            plot_prior_y,
+            mean,
+            ci_low,
+            ci_high,
+            anchors_x,
+            anchors_y,
+            x,
+            dx,
+            dy,
+            mean_at_x,
+            true_y=plot_true_y,
+            show_chords_pane=show_chords_pane,
+        )
+        if pwlprevs is not None:
+            ax = fig.axes[0]
+            for i, pwlprev in enumerate(pwlprevs):
+                prev_vals = pwlprev(plot_x)
+                ax.plot(
+                    plot_x,
+                    prev_vals - prev_vals.min(),
+                    label=f"prev{i}",
+                    alpha=(i + 1) / (1 + len(pwlprevs)),
+                    color="brown",
+                    linestyle="--",
+                )
+            ax.legend()
+        if out is not None:
+            os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+            fig.savefig(out)
+        if title is not None:
+            fig.suptitle(title)
+        if os.environ.get("HCULT_TEST_DEBUG_PLOT", "0") == "1":
+            plt.show()
+        plt.close(fig)
+        return fig
 
     def _capacity_lognorm_params(self):
         assert (
