@@ -136,7 +136,17 @@ Estimation is performed with the \textit{emcee} \cite{foreman2013emcee} package 
 
 In principle this objective is opposed to EWMA smoothing, and since only two regimes are of interest (fast watering and slow drying), this is used as a convenience.
 
+\subsection{Test system}
+
+The described method was demonstrated by deployment of a system of two capacitive moisture sensors into a single pot with a lime tree, \textit{Citrus × aurantiifolia},
+and monitored over time. Regular watering was undertaken during routine care with doses between 100 ml and 300 ml. The pot soil volume was unknown.
+
 \section{Results}
+
+For the deployment into the Lime tree (\textit{Citrus × aurantiifolia}) test system, Figure \ref{fig:timeseries} gives the inferred SWC time series for each sensor along with
+the combined estimate. Figure \ref{fig:calibration} gives the inferred calibration curves. Both figures demonstrate consistency of combined estimates between both sensors,
+and smaller 95\% HPD intervals for joint estimates over single-sensor estimates, obtained through the averaging scheme described. 
+Figure \ref{fig:corner} gives the corner plot showing the joint posterior distributions, showing no strong coupling between parameters. 
 
 \begin{figure}[!ht]
   \centering
@@ -160,6 +170,9 @@ In principle this objective is opposed to EWMA smoothing, and since only two reg
 \end{figure}
 
 \section{Discussion}
+
+It is critical that methodology designed for calibration is tested against for performance against real data with known SWC values. Although simulated data is presented,
+demonstrating reconstruction of known response functions, future work should apply the method to a range of real soil types and volumes to assess robustness in different systems.
 
 Capacitive moisture sensors are sensitive to positioning in the soil. In order to account for blips and noise in the sensor data, such as from mechanical touch, EWMA smoothing is used.
 Without smoothing, posterior SWC samples are noisy, and during drying, values are both small and fluctuate above and below zero. Although smoothing allows consistent values, such as 
