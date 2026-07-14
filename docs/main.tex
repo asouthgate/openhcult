@@ -13,12 +13,6 @@
 \input{githash}
 
 \title{A Bayesian inference method for estimation of soil water content with low-cost capacitive moisture sensor data}
-\author{%
-\includegraphics[height=1.5cm]{images/teal-no-bg-dark-256.png}\\[6pt]
-Alex Southgate\\
-Biosystemau De Cymru | South Wales Biosystems \\
-\texttt{alex.southgate@biosystemau.cymru}
-}
 \author{
   Alex J. Southgate$^{1,*}$ \\[1em]
   \small $^{1}$Cardiff University, Cardiff, United Kingdom \\
@@ -26,15 +20,12 @@ Biosystemau De Cymru | South Wales Biosystems \\
 }
 \date{\today}
 
-
-\date{\today}
-
 \begin{document}
 \maketitle
 
 \begin{abstract}
 
-Climate change represents a challenge to food security by interfering with the environmental conditions needed for productive plant growth. While technology can be used for partial mitigation, access to technology is inequitable. Low-cost microntrollers, such as the ESP32, have recently lowered the barrier for entry into prototyping smart devices. ESP32s equipped with capacitive moisture sensors have been suggested for low-cost smart plant watering systems. However, measuring moisture in soil is complex, potentially destructive, and requires careful calibration in order to characterise the response curve mapping soil water content to sensor measurements. Here, we developed a Bayesian method for estimating the inverse response curve from capacitive moisture sensor data, known water doses, and prior uncertainty, bypassing the need for destructive gravimetry. This method constitutes the core calibration module of the open-source \textit{OpenHCult} software system for low-cost horticultural automation.
+Climate change represents a challenge to food security by interfering with the environmental conditions needed for productive plant growth. While technology can be used for partial mitigation, access to technology is inequitable. Low-cost microcontrollers, such as the ESP32, have recently lowered the barrier for entry into prototyping smart devices. ESP32s equipped with capacitive moisture sensors have been suggested for low-cost smart plant watering systems. However, measuring moisture in soil is complex, potentially destructive, and requires careful calibration in order to characterise the response curve mapping soil water content to sensor measurements. Here, we developed a Bayesian method for estimating the inverse response curve from capacitive moisture sensor data, known water doses, and prior uncertainty, bypassing the need for destructive gravimetry. This method constitutes the core calibration module of the open-source \textit{OpenHCult} software system for low-cost horticultural automation.
 
 \end{abstract}
 
@@ -72,9 +63,9 @@ For sensor index $i$ and time $t$, let $T_t$ be the total water volume, $Y_{i,t}
 T_t = \int_{\Omega} Y(\omega) d\omega \approx \frac{V}{N} \sum_{i=1}^N Y_{i,t}
 \end{equation}
 
-Since the response function can depend on both soil parameters, environmental factors, and sensor parameters including placement (e.g. how densely packed soil is around the sensor), we assume it is unknown and aim to estimate it. \\
+Since the response function can depend on both soil parameters, environmental factors, and sensor parameters including placement (e.g. how densely packed soil is around the sensor), we assume it is unknown and aim to estimate it.
 
-$\Delta T$, the change in total system water, is measurable for watering events that are recorded, which provides information on the response function. For example, if the inverse response was linear, assuming no noise, the slope $T = Vh^{-1}(X)$ could be reconstructed from $(X_{i, start}, X_{i, end}, \Delta T)$, and the intercept from a single measurement $X_i = h^{-1}(0)$. In practice, the response curve is non-linear, and plants are usually sensitive to water content, tolerating only a narrow range of saturation, so the values $(X_{i,start}, X_{i,end}, \Delta Y_i)$ are drawn from a narrow range of the domain. As such, only a narrow section of the curve $h^{-1}$ can be sampled. \\
+$\Delta T$, the change in total system water, is measurable for watering events that are recorded, which provides information on the response function. For example, if the inverse response was linear, assuming no noise, the slope $T = Vh^{-1}(X)$ could be reconstructed from $(X_{i, start}, X_{i, end}, \Delta T)$, and the intercept from a single measurement $X_i = h^{-1}(0)$. In practice, the response curve is non-linear, and plants are usually sensitive to water content, tolerating only a narrow range of saturation, so the values $(X_{i,start}, X_{i,end}, \Delta Y_i)$ are drawn from a narrow range of the domain. As such, only a narrow section of the curve $h^{-1}$ can be sampled.
 
 \subsubsection{Combining sensor estimates}
 
@@ -152,14 +143,16 @@ exponential shape $k_1 = 5.0$ and $k_2 = 10.0$.
 Each sensor was given its own minimum $X_{min}$, corresponding to saturation: $X_{min,1} = 3.0$, $X_{min,2} = 2.5$.
 A single $X_{max} = 8.5$ value was utilised. 
 Chord data ($N=64$) was simulated with multiplicative zero-mean lognormal noise 
-with variance of $\sigma = 0.2$.
-Inference was run with a burn-in of $400$, with $1000$ samples taken post-burnin.
+with variance of $\sigma = 0.2$. Uninformative end-point only prior curves and a single anchor point at $(X_{max}, 0)$
+was used. Inference was run with a burn-in of $400$, with $1000$ samples taken post-burnin. 
 
 \section{Results}
 
 Figure \ref{fig:cornersim} shows a corner plot for estimated parameters from simulated data with noise.
 At a noise variance $\sigma = 0.2$ and $N=64$, true parameter values fell within 95\% HPD intervals. Importantly, the scale
 factor giving total system water at $X_{min}$ was within 5\% of the true value ($\hat{S} = 284.6$, $S=270$). 
+Appendix Figure \ref{fig:noisedist} shows the noise magnitude as a function of water dose $\Delta SWC$.
+Appendix Figure \ref{fig:traces} shows parameter traces and mixing after burn-in.
 
 
 For the deployment into the Lime tree (\textit{Citrus × aurantiifolia}) test system, Figure \ref{fig:timeseries} gives the inferred SWC time series for each sensor along with
@@ -186,7 +179,7 @@ would be destructive, future work should use gravimetry for validation in a rang
 \begin{figure}[!ht]
   \centering
   \includegraphics[width=0.9\linewidth]{images/real_data_corner.png}
-  \caption{Corner plot from joint MCMC calibration with simulated data. Diagonal panels show marginal distributions for each parameter; lower triangle shows pairwise joint samples.}
+  \caption{Corner plot from joint MCMC calibration with real data. Diagonal panels show marginal distributions for each parameter; lower triangle shows pairwise joint samples.}
   \label{fig:corner}
 \end{figure}
 
@@ -203,7 +196,7 @@ would be destructive, future work should use gravimetry for validation in a rang
 The central concern for future work is to validate across real soil samples with a robust methodology such as gravimetry. In order to demonstrate the central utility of our method,
 future experiments must apply to a range of soil types and plant tolerable SWC ranges, to demonstrate sufficient flexibility and alleviation of the practical difficulty of
 ESP32-based sensor systems.
-It is critical that methodology designed for calibration is tested against for performance against real data with known SWC values. Although simulated data is presented,
+It is critical that methodology designed for calibration is tested for performance against real data with known SWC values. Although simulated data is presented,
 demonstrating reconstruction of known response functions, future work should apply the method to a range of real soil types and volumes to assess robustness in different systems.
 
 The results demonstrated highlight a particular concern on identifiability. For the real data use-case, a prior curve was utilised using manual calibration data. 
@@ -211,7 +204,7 @@ For the simulated data case, a weaker prior was used, and as a result, banana-sh
 Without prior information, chord data, as integral data, cannot inform the intercept, only scale and shape. There are a few resolutions to this. It is possible to utilise a prior,
 or alternatively, to fix the intercept to zero. The simple approach of taking a zero-intercept is reasonable but cuts off the dry-end of the curve. This will have variable impact
 depending on the region of the curve that a given plant is kept in. A second identifiability problem arises when the subset of the domain covered by chords is low. If noise is high,
-then as the section of the domain of x covered by data shrinked, it is expected that it is harder to identify the shape parameter.
+then as the section of the domain of $X$ covered by data shrinks, it is expected that it is harder to identify the shape parameter.
 
 Capacitive moisture sensors are sensitive to positioning in the soil. In order to account for blips and noise in the sensor data, such as from mechanical touch, EWMA smoothing is used.
 Without smoothing, posterior SWC samples are noisy, and during drying, values are both small and fluctuate above and below zero. Although smoothing allows consistent values, such as 
@@ -221,7 +214,7 @@ without this contrasting objective.
 
 The advantages of our proposed methodology include: credible intervals on output SWC time series, without which point estimates are hard to assess; the ability to compute
 derived quantities such as velocity from posterior samples; joint estimation across sensors, so that a network of sensors can contribute to a central estimate; 
-integration of prior information, such as from calibration on similar soil types; demonstrated applicability to cheap ESP32 sensor 
+integration of prior information, such as from calibration on similar soil types; applicability to cheap ESP32 sensor prototypes.
 
 \section{LLM disclaimer}
 
@@ -233,14 +226,14 @@ This paper was written without LLM generation. LLM generation was used for code 
   \centering
   \includegraphics[width=1.0\linewidth]{images/simulation_chord_noise.png}
   \caption{Observed change in soil water content with noise for simulated data versus true change. At $\sigma=0.2$, multiplicative noise used during simulation mostly falls within 25\% of the true value.}
-  \label{fig:timeseries}
+  \label{fig:noisedist}
   \end{figure}
 
 \begin{figure}[!ht]
   \centering
   \includegraphics[width=1.0\linewidth]{images/simulation_traces_joint.png}
   \caption{Traces for shared-sensor parameters during inference on simulated data, showing mixing after burn-in.}
-  \label{fig:timeseries}
+  \label{fig:traces}
   \end{figure}
 
 
