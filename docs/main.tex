@@ -51,7 +51,7 @@ Irregularly spaced sensor data gathered from sensors was smoothed with an expone
 \tilde{X}_{t_i} = e^{-\Delta t/\tau} \tilde{X}_{t_{i-1}} + (1-e^{-\Delta t/\tau}) X_{t_i}
 \]
 
-Smoothed data was used primarily for velocity calculations, as described below.
+This was used to smooth high-frequency noise.
 
 \subsection{Calibration}
 
@@ -65,7 +65,7 @@ T_t = \int_{\Omega} Y(\omega) d\omega \approx \frac{V}{N} \sum_{i=1}^N Y_{i,t}
 
 Since the response function can depend on both soil parameters, environmental factors, and sensor parameters including placement (e.g. how densely packed soil is around the sensor), we assume it is unknown and aim to estimate it.
 
-$\Delta T$, the change in total system water, is measurable for watering events that are recorded, which provides information on the response function. For example, if the inverse response was linear, assuming no noise, the slope $T = Vh^{-1}(X)$ could be reconstructed from $(X_{i, start}, X_{i, end}, \Delta T)$, and the intercept from a single measurement $X_i = h^{-1}(0)$. In practice, the response curve is non-linear, and plants are usually sensitive to water content, tolerating only a narrow range of saturation, so the values $(X_{i,start}, X_{i,end}, \Delta Y_i)$ are drawn from a narrow range of the domain. As such, only a narrow section of the curve $h^{-1}$ can be sampled.
+$\Delta T$, the change in total system water, is measurable for watering events that are recorded, which provides information on the response function. For example, if the inverse response was linear, assuming no noise, $T = Vh^{-1}(X)$ could be reconstructed from $(X_{i, start}, X_{i, end}, \Delta T)$, and the intercept from a single measurement $X_i = h^{-1}(0)$. In practice, the response curve is non-linear, and plants are usually sensitive to water content, tolerating only a narrow range of saturation, so the values $(X_{i,start}, X_{i,end}, \Delta Y_i)$ are drawn from a narrow range of the domain. As such, only a narrow section of the curve $h^{-1}$ can be sampled.
 
 \subsubsection{Combining sensor estimates}
 
@@ -79,14 +79,14 @@ allowing $S$, a global quantity to be estimated jointly, with separate estimates
 
 \subsubsection{Model}
 
-In order to resolve these issues, a parametric form for $h^{-1}$ can be assumed. The sensor response has two plateaus, one at dry (low SWC) and one at wet (high SWC). Different functions may perform better for different subsets of the domain. To model this, we consider two components: an exponential shape with a maximum of $1$, which may differ between sensors, and be informed by both a prior normalized calibration curve and $\Delta T$, and a joint scale, which is informed by $\Delta T$. We use an exponential shape and do not attempt to model the dry end shape, instead using an intercept term. Given that the response function becomes flat at saturation, the inverse response function becomes vertical at full saturation. We do not attempt to extrapolate beyond the measured sensor minimum because small errors in assumed $X_{min}$, which may vary between sensors, can result in large errors in estimated SWC where the curve is nearly vertical. 
+The sensor response has two plateaus, one at dry (low SWC) and one at wet (high SWC). Different functions may perform better for different subsets of the domain. To model this, we consider two components: an exponential shape with a maximum of $1$, which may differ between sensors, and be informed by both a prior normalized calibration curve and $\Delta T$, and a joint scale, which is informed by $\Delta T$. We use an exponential shape and do not attempt to model the dry end shape, instead using an intercept term. Given that the response function becomes flat at saturation, the inverse response function becomes vertical at full saturation. We do not attempt to extrapolate beyond the measured sensor minimum because small errors in assumed $X_{min}$, which may vary between sensors, can result in large errors in estimated SWC where the curve is nearly vertical. We model the inverse mapping from sensor reading to water volume:
 
 \begin{equation}
 \label{eq:invres}
-h^{-1}(X_t) = S \cdot g(X_t) = S \cdot \Big((1-q_{dry})\exp\Big\{-k (1 - u(X_t; x_{wet}, x_{dry})\Big\} + q_{dry}\Big)
+h^{-1}_{vol}(X) = S \cdot g(X) = S \cdot \Big((1-q_{dry})\exp\Big\{-k (1 - u(X; x_{wet}, x_{dry}))\Big\} + q_{dry}\Big)
 \end{equation}
 
-Where $u(X_t)$ is a rescaling of $[x_{wet}, x_{dry}]$ to the interval $[0, 1]$. The shape intercept parameter $q_{dry}$ allows the normalized curve $g(x)$ to be squashed into the interval $[q_{dry}, 1.0]$. The parameter $S$ is equal to the total water volume at the minimum sensor measurement, and can be related to volumetric SWC as:\\
+Where $u(X_t)$ is a linear rescaling of $[x_{wet}, x_{dry}]$ to the interval $[0, 1]$. The shape intercept parameter $q_{dry}$ allows the normalized curve $g(x)$ to be squashed into the interval $[q_{dry}, 1.0]$. The parameter $S$ is equal to the total water volume at the minimum sensor measurement, and can be related to volumetric SWC as:\\
 
 \begin{equation}
 SWC_{xmin} = S / V
@@ -94,13 +94,13 @@ SWC_{xmin} = S / V
 
 \subsubsection{Bayesian estimation}
 
-To combine the chord data $(X_{i, start}, X_{i, end}, \Delta T)$, dry anchor sample $X_i(0) = h^{-1}(T=0)$, prior assumptions on the parametric form of $h^{-1}$, optional prior calibration points, and the unknown scale parameter $S$, we adopt a Bayesian framework. We assume lognormal dosage samples:
+To combine the chord data $(X_{i, start}, X_{i, end}, \Delta T)$, dry anchor sample $X_i(0) = h^{-1}(T=0)$, prior assumptions on the parametric form of $h^{-1}$, optional prior calibration points, and the unknown scale parameter $S$, we adopt a Bayesian framework. We assume lognormal dosage samples. For a single sensor, the response to dose $\Delta T$ is modelled as:
 
 \begin{equation}
-\log(\Delta T) \sim Normal(\log (h^{-1}(X_{i, end}; S, k) - h^{-1}(X_{i, start}; S, k)), \sigma^2)
+\log(\Delta T) \sim Normal(\log (S\cdot g(X_{end}; k) - S\cdot g(X_{start}; k)), \sigma^2)
 \end{equation}
 
-With the target parameters $\theta = (S, k, \sigma^2)$. Priors on the lower bound $x_{wet}$ are taken as uniform on a user-specified interval.
+With the target parameters $\theta = (S, k, \sigma^2, q_{dry})$. Priors on the lower bound $x_{wet}$ are taken as uniform on a user-specified interval.
 
 \begin{table}[ht]
     \centering
@@ -120,13 +120,7 @@ With the target parameters $\theta = (S, k, \sigma^2)$. Priors on the lower boun
     \end{tabularx}
 \end{table}
 
-Estimation is performed with the \textit{emcee} \cite{foreman2013emcee} package in Python. Given posterior samples, volumetric SWC is estimated by Monte Carlo sampling, given the independence of $V$ and calibration model parameters. For each SWC sample, velocity is computed, from which credible intervals can be calculated. In order to accommodate step changes in velocity under watering and drying conditions, as well as small velocities during drying, velocity is assumed to be piecewise-constant, and computed from $\ell_1$ trend filtered \cite{kim2009ell_1} posterior SWC samples, since penalising the acceleration enforces piecewise constant velocity. \textit{cvxpy} \cite{diamond2016cvxpy} was used with objective:
-
-\begin{equation}
-\min_z \Big(||z-SWC||^2_2 + \lambda ||D_2 z||_1\Big)
-\end{equation}
-
-In principle this objective is opposed to EWMA smoothing, and since only two regimes are of interest (fast watering and slow drying), this is used as a convenience.
+Estimation is performed with the \textit{emcee} \cite{foreman2013emcee} package in Python. Given posterior samples, volumetric SWC is estimated by Monte Carlo sampling, given the independence of $V$ and calibration model parameters. 
 
 \subsection{Test system}
 
@@ -136,16 +130,16 @@ of general purpose potting compost was used, comprising 15 values ranging from 8
 
 \subsection{Simulation}
 
-Evaluation was undertaken on a simulated dataset with two sensors. Briefly, given a known modified exponential as in 
-calibration curve shown in Equation \eqref{eq:invres} with scale $S=270$, 
+Evaluation was undertaken on a simulated dataset with two sensors. Briefly, given a known modified exponential 
+response function, as shown in Equation \eqref{eq:invres} with scale $S=270$, 
 fractional intercepts $q_{dry,1} = 0.05$ and $q_{dry,2} = 0.1$,
 exponential shape $k_1 = 5.0$ and $k_2 = 10.0$.
 Each sensor was given its own minimum $X_{min}$, corresponding to saturation: $X_{min,1} = 3.0$, $X_{min,2} = 2.5$.
 A single $X_{max} = 8.5$ value was utilised. 
-Chord data ($N=64$) was simulated with multiplicative zero-mean lognormal noise 
+Chord data ($N=64$) was simulated with multiplicative unit-mean lognormal noise 
 with variance of $\sigma = 0.2$. Uninformative end-point only prior calibration curves and a single anchor point at $(X_{max}, 0)$.
 A $Beta(1,3)$ prior was applied to both $q_{dry}$ shape intercept parameters.
-was used. Inference was run with a burn-in of $400$, with $1000$ samples taken post-burnin.
+Inference was run with a burn-in of $400$, with $1000$ samples taken post-burnin.
 In a second simulation, for exploring identifiability, a run with only beta-distributed prior on $q_{dry}$ was used, without
 anchor points.
 
@@ -156,7 +150,7 @@ At a noise variance $\sigma = 0.2$ and $N=64$, true parameter values fell within
 factor giving total system water at $X_{min}$ was within 5\% of the true value ($\hat{S} = 284.6$, $S=270$). 
 Appendix Figure \ref{fig:noisedist} shows the noise magnitude as a function of water dose $\Delta SWC$.
 Appendix Figure \ref{fig:traces} shows parameter traces and mixing after burn-in.
-As demonstrated in Appendix Figure \ref{fig:cornernoprior}, without anchor points, identifiability of $q_{dry}$ relies
+As demonstrated in Appendix Figure \ref{fig:cornersimnopriors}, without anchor points, identifiability of $q_{dry}$ relies
 on the beta-distributed prior, and banana-shaped joint posteriors are observed, showing dependency between $S$ and both $q_{dry}$ parameters.
 
 
@@ -199,23 +193,18 @@ would be destructive, future work should use gravimetry for validation in a rang
 \section{Discussion}
 
 The central concern for future work is to validate across real soil samples with a robust methodology such as gravimetry. In order to demonstrate the central utility of our method,
-future experiments must apply to a range of soil types and plant tolerable SWC ranges, to demonstrate sufficient flexibility and alleviation of the practical difficulty of
+future experiments must apply to a range of soil types and plant-tolerable SWC ranges, to demonstrate sufficient flexibility and alleviation of the practical difficulty of
 ESP32-based sensor systems.
 It is critical that methodology designed for calibration is tested for performance against real data with known SWC values. Although simulated data is presented,
 demonstrating reconstruction of known response functions, future work should apply the method to a range of real soil types and volumes to assess robustness in different systems.
 
 The results demonstrated highlight a particular concern on identifiability. For the real data use-case, a prior curve was utilised using manual calibration data. 
-For the simulated data case, a weaker prior was used, and as a result, banana-shaped joint posterior distributions are observed for $S$ and $q_{dry}$ for each sensor.
+For the simulated data cases, in the absence of a calibration curve prior, banana-shaped joint posterior distributions are structurally expected for $S$ and $q_{dry}$ for each sensor,
+and can be addressed by addition of an anchor point at the dry end.
 Without prior information, chord data, as integral data, cannot inform the intercept, only scale and shape. There are a few resolutions to this. It is possible to utilise a prior,
 or alternatively, to fix the intercept to zero. The simple approach of taking a zero-intercept is reasonable but cuts off the dry-end of the curve. This will have variable impact
 depending on the region of the curve that a given plant is kept in. A second identifiability problem arises when the subset of the domain covered by chords is low. If noise is high,
 then as the section of the domain of $X$ covered by data shrinks, it is expected that it is harder to identify the shape parameter.
-
-Capacitive moisture sensors are sensitive to positioning in the soil. In order to account for blips and noise in the sensor data, such as from mechanical touch, EWMA smoothing is used.
-Without smoothing, posterior SWC samples are noisy, and during drying, values are both small and fluctuate above and below zero. Although smoothing allows consistent values, such as 
-a small but negative derivative in SWC, in principle this objective is opposed to the $\ell_1$ trend filtering used for discretisation of the velocity since step changes are smoothed out.
-In practice, the $\ell_1$ segmentation is just used to accommodate both high, positive rates during watering and small negative rates during drying. In future, other modelling approaches could be used
-without this contrasting objective. 
 
 The advantages of our proposed methodology include: credible intervals on output SWC time series, without which point estimates are hard to assess; the ability to compute
 derived quantities such as velocity from posterior samples; joint estimation across sensors, so that a network of sensors can contribute to a central estimate; 
