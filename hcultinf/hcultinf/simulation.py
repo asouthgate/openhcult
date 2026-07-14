@@ -47,7 +47,7 @@ def simulate_calibration_data_samples(
     dx = dx[dx < 0]
 
     dy = y(x + dx) - y(x)
-    dy *= np.random.lognormal(0, noise_level, len(dx))
+    dy *= np.random.lognormal(-(noise_level**2) / 2, noise_level, len(dx))
     assert all(dx <= 0), "dx should be negative (decreasing function)"
     assert all(dy >= 0), "dy should be positive (decreasing function)"
     return x, dx, dy

@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import matplotlib.pyplot as plt
 import numpy as np
+from hcultinf.detection import smooth_and_downsample
+from hcultinf.exp_mcmc import _ParamLayout
+
 
 PAPER_COLORS = ["#0072B2", "#E69F00", "#009E73", "#D55E00", "#CC79A7", "#56B4E9"]
 
@@ -24,14 +28,10 @@ PAPER_RC = {
 
 
 def apply_paper_theme():
-    import matplotlib.pyplot as plt
-
     plt.rcParams.update(PAPER_RC)
 
 
-def plot_corner(cal, n_sensors=None, out=None, title=None):
-    import matplotlib.pyplot as plt
-
+def plot_corner(cal, n_sensors=None, out=None, title=None, true_values=None):
     apply_paper_theme()
     if n_sensors is None:
         n_sensors = getattr(cal, "n_sensors", 1)
@@ -48,6 +48,12 @@ def plot_corner(cal, n_sensors=None, out=None, title=None):
             ("$\\sigma^2$", params["sigma2"]),
         ]
         param_colors = [scale_color, sensor_color[0], sensor_color[0], sigma_color]
+        _true_vals_builder = lambda tv: [
+            tv.get("scale"),
+            tv.get("k"),
+            tv.get("f_int"),
+            tv.get("sigma2"),
+        ]
     else:
         param_arrays = [("$S$", params["scale"])]
         param_colors = [scale_color]
@@ -61,6 +67,20 @@ def plot_corner(cal, n_sensors=None, out=None, title=None):
             param_colors.append(sensor_color[i])
         param_arrays.append(("$\\sigma^2$", params["sigma2"]))
         param_colors.append(sigma_color)
+
+        def _true_vals_builder(tv):
+            k_vals = tv.get("k", [])
+            f_vals = tv.get("f_int", [])
+            result = [tv.get("scale")]
+            result.extend(k_vals)
+            result.extend(f_vals)
+            result.append(tv.get("sigma2"))
+            return result
+
+    if true_values is not None:
+        true_vals = _true_vals_builder(true_values)
+    else:
+        true_vals = None
 
     n_params = len(param_arrays)
     names = [p[0] for p in param_arrays]
@@ -84,6 +104,13 @@ def plot_corner(cal, n_sensors=None, out=None, title=None):
                     alpha=0.7,
                 )
                 ax.axvline(np.median(arrays[i]), color="#333333", linewidth=1)
+                if true_vals is not None and true_vals[i] is not None:
+                    ax.axvline(
+                        true_vals[i],
+                        color="#333333",
+                        linewidth=1.5,
+                        linestyle="--",
+                    )
             elif i > j:
                 ax.scatter(
                     arrays[j][::step],
@@ -93,6 +120,13 @@ def plot_corner(cal, n_sensors=None, out=None, title=None):
                     color=param_colors[i],
                     edgecolors="none",
                 )
+                if (
+                    true_vals is not None
+                    and true_vals[j] is not None
+                    and true_vals[i] is not None
+                ):
+                    ax.axvline(true_vals[j], color="#333333", linewidth=0.8, linestyle="--", alpha=0.6)
+                    ax.axhline(true_vals[i], color="#333333", linewidth=0.8, linestyle="--", alpha=0.6)
             else:
                 ax.set_visible(False)
             if j == 0:
@@ -112,8 +146,6 @@ def plot_corner(cal, n_sensors=None, out=None, title=None):
 
 
 def plot_calibration_curves(single_cals, joint_cal, d, out=None):
-    import matplotlib.pyplot as plt
-
     apply_paper_theme()
     n_sensors = d["n_sensors"]
     colors = PAPER_COLORS[:n_sensors] + [PAPER_COLORS[n_sensors % len(PAPER_COLORS)]]
@@ -162,7 +194,7 @@ def plot_calibration_curves(single_cals, joint_cal, d, out=None):
     ax.plot(t, mean_joint, color=colors[-1], label=names[-1], linewidth=1.0)
     ax.fill_between(t, ci_lo_joint, ci_hi_joint, color=colors[-1], alpha=0.15)
 
-    ax.set_xlabel("$t$ (normalised sensor range)")
+    ax.set_xlabel("$u$ (normalised sensor range)")
     ax.set_ylabel("SWC")
     ax.legend()
     fig.tight_layout()
@@ -175,9 +207,140 @@ def plot_calibration_curves(single_cals, joint_cal, d, out=None):
     return fig
 
 
-def plot_timeseries(single_cals, joint_cal, d, out=None):
-    import matplotlib.pyplot as plt
+def plot_calibration_curve_simulated(
+    single_cals,
+    joint_cal,
+    true_fns,
+    xmins,
+    xmax,
+    chords_x,
+    chords_dx,
+    chords_dy,
+    sensor_labels,
+    out=None,
+    title=None,
+):
 
+    apply_paper_theme()
+    n_sensors = len(single_cals)
+    colors = PAPER_COLORS[:n_sensors] + [PAPER_COLORS[n_sensors % len(PAPER_COLORS)]]
+
+    fig, axes = plt.subplots(
+        n_sensors, 1, figsize=(8, 4 * n_sensors), sharex=False
+    )
+    if n_sensors == 1:
+        axes = [axes]
+
+    t_grid = np.linspace(0, 1, 500)
+
+    for i in range(n_sensors):
+        ax = axes[i]
+        xmin_i = float(xmins[i])
+        x_range = xmin_i + t_grid * (xmax - xmin_i)
+
+        x_2d = np.full((len(x_range), n_sensors), np.nan)
+        x_2d[:, i] = x_range
+
+        true_y = np.asarray(true_fns[i](x_range))
+
+        mean_single, ci_lo_s, ci_hi_s = single_cals[i].predict(x_range)
+        mean_joint, ci_lo_j, ci_hi_j = joint_cal.predict(x_2d)
+
+        ax.plot(
+            x_range,
+            true_y,
+            color="#333333",
+            linestyle="--",
+            linewidth=1.5,
+            label="True curve",
+        )
+        ax.plot(
+            x_range,
+            mean_single,
+            color=colors[i],
+            linewidth=1.0,
+            label=f"Sensor {i+1} alone",
+        )
+        ax.fill_between(x_range, ci_lo_s, ci_hi_s, color=colors[i], alpha=0.15)
+        ax.plot(
+            x_range,
+            mean_joint,
+            color=colors[-1],
+            linewidth=1.0,
+            label="Joint",
+        )
+        ax.fill_between(x_range, ci_lo_j, ci_hi_j, color=colors[-1], alpha=0.15)
+
+        mask = np.asarray(sensor_labels) == i
+        c_x = np.asarray(chords_x)[mask]
+        c_dx = np.asarray(chords_dx)[mask]
+        c_dy = np.asarray(chords_dy)[mask]
+        for j in range(len(c_x)):
+            swc_start = float(np.interp(c_x[j], x_range, mean_joint))
+            ax.plot(
+                [c_x[j], c_x[j] + c_dx[j]],
+                [swc_start, swc_start + c_dy[j]],
+                color=colors[i],
+                linewidth=1.0,
+                alpha=0.4,
+                label="chord" if j == 0 and i == 0 else None,
+            )
+
+        ax.set_xlabel(f"Sensor {i+1} reading")
+        ax.set_ylabel("SWC")
+        ax.legend(fontsize=9)
+
+    fig.tight_layout()
+    if title is not None:
+        fig.suptitle(title)
+    if out is not None:
+        import os
+
+        os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+        fig.savefig(out, dpi=300)
+    plt.close(fig)
+    return fig
+
+
+def plot_convergence_error(n_values, error_dict, out=None, title=None):
+    apply_paper_theme()
+    colors = [PAPER_COLORS[0], PAPER_COLORS[1], PAPER_COLORS[2]]
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+
+    for idx, (label, (means, stds)) in enumerate(error_dict.items()):
+        n_vals = np.asarray(n_values)
+        m = np.asarray(means)
+        s = np.asarray(stds)
+        color = colors[idx % len(colors)]
+        ax.errorbar(
+            n_vals,
+            m,
+            yerr=s,
+            color=color,
+            marker="o",
+            capsize=3,
+            label=label,
+            linewidth=1.2,
+        )
+
+    ax.set_xlabel("N (chords per sensor)")
+    ax.set_ylabel("Curve error (MAE)")
+    # ax.set_xscale("log", base=2)
+    ax.legend()
+    fig.tight_layout()
+    if title is not None:
+        fig.suptitle(title)
+    if out is not None:
+        import os
+
+        os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+        fig.savefig(out, dpi=300)
+    plt.close(fig)
+    return fig
+
+
+def plot_timeseries(single_cals, joint_cal, d, out=None):
     apply_paper_theme()
     n_sensors = d["n_sensors"]
     colors = PAPER_COLORS[:n_sensors] + [PAPER_COLORS[n_sensors % len(PAPER_COLORS)]]
@@ -215,9 +378,7 @@ def plot_timeseries(single_cals, joint_cal, d, out=None):
 
 
 def plot_smoothed_voltage(d, out=None):
-    import matplotlib.pyplot as plt
 
-    from hcultinf.detection import smooth_and_downsample
 
     apply_paper_theme()
     n_sensors = d["n_sensors"]
@@ -246,6 +407,137 @@ def plot_smoothed_voltage(d, out=None):
         ax.legend(loc="upper right")
     axes[-1].set_xlabel("Time (hours)")
     fig.tight_layout()
+    if out is not None:
+        import os
+
+        os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+        fig.savefig(out, dpi=300)
+    plt.close(fig)
+    return fig
+
+
+def plot_traces(cal, n_sensors=None, n_burn=None, out=None, title=None):
+
+    apply_paper_theme()
+    if n_sensors is None:
+        n_sensors = getattr(cal, "n_sensors", 1)
+
+    layout = _ParamLayout(n_sensors)
+    chain = cal._chain
+    log_prob = cal._log_prob
+
+    param_names = (
+        ["log_scale"]
+        + [f"k_{i}" for i in range(n_sensors)]
+        + [f"f_int_{i}" for i in range(n_sensors)]
+        + ["log_sigma"]
+    )
+
+    n_params = layout.dim
+    n_rows = n_params + 1
+    fig, axes = plt.subplots(
+        n_rows, 1, figsize=(12, 2.0 * n_rows), sharex=True
+    )
+    if n_rows == 1:
+        axes = [axes]
+
+    for p_idx in range(n_params):
+        ax = axes[p_idx]
+        for w in range(chain.shape[1]):
+            ax.plot(chain[:, w, p_idx], linewidth=0.3, alpha=0.5, color="#333333")
+        if n_burn is not None:
+            ax.axvline(n_burn, color="#999999", linewidth=0.8, linestyle="--")
+        ax.set_ylabel(param_names[p_idx], fontsize=8)
+
+    ax = axes[-1]
+    for w in range(log_prob.shape[1]):
+        ax.plot(log_prob[:, w], linewidth=0.3, alpha=0.5, color="#333333")
+    if n_burn is not None:
+        ax.axvline(n_burn, color="#999999", linewidth=0.8, linestyle="--")
+    ax.set_ylabel("log_prob", fontsize=8)
+    ax.set_xlabel("step")
+
+    fig.tight_layout()
+    if title is not None:
+        fig.suptitle(title)
+    if out is not None:
+        import os
+
+        os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+        fig.savefig(out, dpi=300)
+    plt.close(fig)
+    return fig
+
+
+def plot_chord_noise(
+    chords_x,
+    chords_dx,
+    chords_dy,
+    sensor_labels,
+    true_fns,
+    noise_level,
+    out=None,
+):
+    apply_paper_theme()
+    n_sensors = len(true_fns)
+    colors = PAPER_COLORS[:n_sensors]
+
+    chords_x = np.asarray(chords_x, dtype=float)
+    chords_dx = np.asarray(chords_dx, dtype=float)
+    chords_dy = np.asarray(chords_dy, dtype=float)
+    labels = np.asarray(sensor_labels)
+
+    all_true_dy = []
+    all_obs_dy = []
+    all_lbls = []
+
+    for s in range(n_sensors):
+        mask = labels == s
+        true_dy = true_fns[s](chords_x[mask] + chords_dx[mask]) - true_fns[s](chords_x[mask])
+        all_true_dy.append(true_dy)
+        all_obs_dy.append(chords_dy[mask])
+        all_lbls.extend([s] * np.sum(mask))
+
+    true_dy_all = np.concatenate(all_true_dy)
+    obs_dy_all = np.concatenate(all_obs_dy)
+    lbl_all = np.array(all_lbls)
+
+    fig, ax = plt.subplots(figsize=(6, 5))
+
+    # ax.set_xscale("log")
+    # ax.set_yscale("log")
+
+    ax_min = 1.0
+    ax_max = max(obs_dy_all.max(), true_dy_all.max()) * 1.2
+    ax.plot(
+        [ax_min, ax_max],
+        [ax_min, ax_max],
+        color="#333333",
+        linewidth=0.8,
+        linestyle="--",
+        label="y = mx",
+    )
+
+    for s in range(n_sensors):
+        mask = lbl_all == s
+        ax.scatter(
+            true_dy_all[mask],
+            obs_dy_all[mask],
+            s=24,
+            alpha=0.7,
+            color=colors[s],
+            edgecolors="none",
+            label=f"Sensor {s + 1}",
+        )
+
+    ax.set_xlabel("True $\\Delta$ SWC")
+    ax.set_ylabel("Observed $\\Delta$ SWC")
+    # ax.set_title(
+    #     f"Chord noise (lognormal, $\\sigma$={noise_level})"
+    # )
+    ax.legend()
+    fig.tight_layout()
+
     if out is not None:
         import os
 

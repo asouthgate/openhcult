@@ -56,9 +56,11 @@ def load_calibration_data(
     remap = {old: new for new, old in enumerate(sorted(np.unique(labels)))}
     labels = np.array([remap[l] for l in labels])
 
-    prior_x = np.array(prior["prior_x"])
+    prior_x_raw = np.array(prior["prior_x"])
     prior_y = np.array(prior["prior_y"])
-    xmax = float(max(prior_x.max(), chords_x.max()))
+    xmax = float(max(prior_x_raw.max(), chords_x.max()))
+    data_xmin_val = float(prior_x_raw.min())
+    prior_u = (xmax - prior_x_raw) / (xmax - data_xmin_val)
     anchor_x = np.array([xmax])
     anchor_swc = np.array([0.0])
 
@@ -70,8 +72,9 @@ def load_calibration_data(
         "chords_dy": chords_dy,
         "labels": labels,
         "n_sensors": n_sensors,
-        "prior_x": prior_x,
+        "prior_u": prior_u,
         "prior_y": prior_y,
+        "data_xmin": np.array([data_xmin_val] * n_sensors),
         "xmax": xmax,
         "anchor_x": anchor_x,
         "anchor_swc": anchor_swc,
@@ -94,8 +97,9 @@ def fit_calibrators(d, n_burn=N_BURN, n_steps=N_STEPS):
             d["chords_x"][mask],
             d["chords_dx"][mask],
             d["chords_dy"][mask],
-            d["prior_x"],
-            d["prior_y"],
+            prior_u=d["prior_u"],
+            prior_y=d["prior_y"],
+            data_xmin=d["data_xmin"][:1],
         )
         single_cals.append(cal)
 
@@ -110,8 +114,9 @@ def fit_calibrators(d, n_burn=N_BURN, n_steps=N_STEPS):
         d["chords_x"],
         d["chords_dx"],
         d["chords_dy"],
-        d["prior_x"],
-        d["prior_y"],
+        prior_u=d["prior_u"],
+        prior_y=d["prior_y"],
+        data_xmin=d["data_xmin"],
         sensor_chord_labels=d["labels"],
     )
 

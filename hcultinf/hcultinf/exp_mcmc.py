@@ -300,8 +300,9 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         x_starts,
         delta_x,
         delta_swc,
-        prior_x,
+        prior_u,
         prior_y,
+        data_xmin,
         sensor_chord_labels,
     ):
         assert np.all(
@@ -320,16 +321,18 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         sensor_idx_per_chord = sensor_chord_labels
 
         chord_x_min = np.minimum(x_starts, x_ends)
-        data_xmin_arr = np.full(self.n_sensors, np.inf, dtype=float)
+        data_xmin_arr = np.asarray(data_xmin, dtype=float).copy()
         np.minimum.at(data_xmin_arr, sensor_idx_per_chord, chord_x_min)
         global_anchor_min = x_anchors.min()
-        if len(prior_x) > 0:
-            global_anchor_min = min(global_anchor_min, prior_x.min())
         data_xmin_arr = np.minimum(data_xmin_arr, global_anchor_min)
 
         inv_denom = xmax - data_xmin_arr
-        u_prior = None if len(prior_x) == 0 else (xmax - prior_x) / inv_denom[:, None]
-        u_prior_m1 = None if u_prior is None else u_prior - 1.0
+        prior_u = np.asarray(prior_u, dtype=float)
+        prior_y = np.asarray(prior_y, dtype=float)
+        if len(prior_u) == 0:
+            u_prior_m1 = None
+        else:
+            u_prior_m1 = prior_u[None, :] - 1.0
 
         inv_denom_per_chord = inv_denom[sensor_idx_per_chord]
         u_starts_m1 = (xmax - x_starts) / inv_denom_per_chord - 1.0
@@ -349,8 +352,9 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
                 x_starts[m],
                 delta_x[m],
                 delta_swc[m],
-                prior_x,
+                prior_u,
                 prior_y,
+                np.array([data_xmin_arr[sj]]),
             )
             quick_fits.append(q)
         scale0 = float(np.median([q.scale for q in quick_fits]))
@@ -467,8 +471,9 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         x_starts,
         delta_x,
         delta_swc,
-        prior_x=None,
+        prior_u=None,
         prior_y=None,
+        data_xmin=None,
         sensor_chord_labels=None,
     ):
         if sensor_chord_labels is None:
@@ -477,15 +482,20 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             ), "sensor_chord_labels must be provided if n_sensors > 1"
             sensor_chord_labels = np.array([0] * len(x_starts))
 
-        if prior_x is None:
-            prior_x = []
+        if prior_u is None:
+            prior_u = []
         if prior_y is None:
             prior_y = []
+        if data_xmin is None:
+            data_xmin = np.full(self.n_sensors, np.inf, dtype=float)
+        data_xmin = np.asarray(data_xmin, dtype=float)
+        if data_xmin.ndim == 0:
+            data_xmin = np.full(self.n_sensors, float(data_xmin))
 
         x_starts = np.asarray(x_starts)
         delta_x = np.asarray(delta_x)
         delta_swc = np.asarray(delta_swc)
-        prior_x = np.asarray(prior_x)
+        prior_u = np.asarray(prior_u)
         prior_y = np.asarray(prior_y)
         x_anchors = np.asarray(x_anchors)
         swc_anchors = np.asarray(swc_anchors)
@@ -496,8 +506,9 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
             x_starts,
             delta_x,
             delta_swc,
-            prior_x,
+            prior_u,
             prior_y,
+            data_xmin,
             sensor_chord_labels,
         )
         walker_pos = self._init_walker_pos(initial_estimate)
@@ -556,7 +567,7 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
 
     def plot(
         self,
-        priorx,
+        prioru,
         priory,
         anchors_x,
         anchors_y,
@@ -574,20 +585,27 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         from .calibrator import plot_response_curve
 
         apply_dark_theme()
-        priorx = np.asarray(priorx)
+        prioru = np.asarray(prioru)
         x = np.asarray(x)
         dx = np.asarray(dx)
         dy = np.asarray(dy)
+
+        xmin_ref = float(np.nanmin(self._data_xmin))
+        inv_denom_ref = self._xmax - xmin_ref
+        priorx = self._xmax - prioru * inv_denom_ref
+
         domain_min_x = min(
             [
-                priorx.min(),
+                priorx.min() if len(priorx) > 0 else np.inf,
                 anchors_x.min() if len(anchors_x) > 0 else np.inf,
                 x.min() if len(x) > 0 else np.inf,
                 (x + dx).min() if len(dx) > 0 else np.inf,
             ]
         )
-        plot_x = np.linspace(domain_min_x, priorx.max(), 500)
-        plot_prior_y = np.interp(plot_x, priorx, priory)
+        plot_x = np.linspace(domain_min_x, self._xmax, 500)
+        plot_prior_y = (
+            np.interp(plot_x, priorx, priory) if len(priorx) > 0 else None
+        )
         plot_true_y = (
             np.interp(plot_x, priorx, np.asarray(true_y))
             if true_y is not None

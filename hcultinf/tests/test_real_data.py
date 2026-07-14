@@ -55,7 +55,7 @@ def test_real_data():
     colors = PALETTE[:n_sensors] + [PALETTE[n_sensors]]
     names = [f"Sensor {i+1} (single)" for i in range(n_sensors)] + ["Joint (both)"]
 
-    x_grid = np.linspace(d["prior_x"].min(), d["xmax"], 500)
+    x_grid = np.linspace(float(d["data_xmin"].min()), d["xmax"], 500)
 
     all_cals = [(f"single_{i+1}", single_cals[i], 1) for i in range(n_sensors)] + [
         ("joint", joint_cal, n_sensors)

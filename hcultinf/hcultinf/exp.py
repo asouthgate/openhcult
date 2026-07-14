@@ -26,20 +26,19 @@ class ExponentialCordCalibrator(CordCalibrator):
         return scale * exponential_target(x, k, f_int, self._data_xmin, self._xmax)
 
     def fit(
-        self, x_anchors, swc_anchors, x_starts, delta_x, delta_swc, prior_x, prior_y
+        self, x_anchors, swc_anchors, x_starts, delta_x, delta_swc,
+        prior_u, prior_y, data_xmin,
     ):
         x_anchors = np.asarray(x_anchors)
         swc_anchors = np.asarray(swc_anchors)
         x_starts = np.asarray(x_starts)
         delta_swc = np.asarray(delta_swc)
-        prior_x = np.asarray(prior_x)
-        prior_y = np.asarray(prior_y)
+        prior_u = np.asarray(prior_u, dtype=float)
+        prior_y = np.asarray(prior_y, dtype=float)
         x_ends = x_starts + np.asarray(delta_x)
 
-        candidates = [x_starts.min(), x_ends.min(), x_anchors.min()]
-        if len(prior_x) > 0:
-            candidates.append(prior_x.min())
-        self._data_xmin = float(min(candidates))
+        data_xmin = np.asarray(data_xmin, dtype=float)
+        self._data_xmin = float(np.nanmin(data_xmin))
 
         k0 = 20.0
         y_int0 = 0.1
@@ -57,7 +56,7 @@ class ExponentialCordCalibrator(CordCalibrator):
                         self.target_func(x_ends, s, k, yi)
                         - self.target_func(x_starts, s, k, yi)
                     ),
-                    w * (prior_y - self.target_func(prior_x, s, k, yi) / s),
+                    w * (prior_y - exponential_target_u(prior_u, k, yi)),
                 ]
             )
 
