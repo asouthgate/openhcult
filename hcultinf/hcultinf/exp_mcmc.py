@@ -323,8 +323,9 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         chord_x_min = np.minimum(x_starts, x_ends)
         data_xmin_arr = np.asarray(data_xmin, dtype=float).copy()
         np.minimum.at(data_xmin_arr, sensor_idx_per_chord, chord_x_min)
-        global_anchor_min = x_anchors.min()
-        data_xmin_arr = np.minimum(data_xmin_arr, global_anchor_min)
+        if len(x_anchors) > 0:
+            global_anchor_min = x_anchors.min()
+            data_xmin_arr = np.minimum(data_xmin_arr, global_anchor_min)
 
         inv_denom = xmax - data_xmin_arr
         prior_u = np.asarray(prior_u, dtype=float)

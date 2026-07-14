@@ -44,13 +44,28 @@ DXMIN = 0.2
 DXMAX = 0.5
 NOISE = 0.2
 
-N_VALUES = [4, 8, 16, 32, 64]
+# N_VALUES = [4, 8, 16, 32, 64]
+N_VALUES = [64]
 N_TRIALS = 8
 N_BURN = 400
 N_STEPS = 1000
 
-PRIOR_U = np.array([1.0, 0.0])
-PRIOR_Y = np.array([1.0, 0.0])
+RUN_CONFIGS = [
+    {
+        "name": "with_priors",
+        "prior_u": np.array([1.0, 0.0]),
+        "prior_y": np.array([1.0, 0.0]),
+        "x_anchors": np.array([XMAX]),
+        "swc_anchors": np.array([0.0]),
+    },
+    {
+        "name": "no_priors",
+        "prior_u": np.array([]),
+        "prior_y": np.array([]),
+        "x_anchors": np.array([]),
+        "swc_anchors": np.array([]),
+    },
+]
 
 TRUE_FNS = [
     lambda x: SCALE * exponential_target(x, K_TRUTH[0], F_INT_TRUTH[0], XMINS[0], XMAX),
@@ -71,7 +86,7 @@ def _sim_chords(sensor_idx, n, seed):
     )
 
 
-def _fit_single(sensor_idx, x, dx, dy):
+def _fit_single(sensor_idx, x, dx, dy, cfg):
     cal = ExponentialCordCalibratorMCMC(
         xmax=XMAX,
         n_burn=N_BURN,
@@ -79,19 +94,19 @@ def _fit_single(sensor_idx, x, dx, dy):
         n_sensors=1,
     )
     cal.fit(
-        np.array([XMAX]),
-        np.array([0.0]),
+        cfg["x_anchors"].copy(),
+        cfg["swc_anchors"].copy(),
         x,
         dx,
         dy,
-        prior_u=PRIOR_U,
-        prior_y=PRIOR_Y,
+        prior_u=cfg["prior_u"].copy(),
+        prior_y=cfg["prior_y"].copy(),
         data_xmin=np.array([XMINS[sensor_idx]]),
     )
     return cal
 
 
-def _fit_joint(x0, dx0, dy0, x1, dx1, dy1):
+def _fit_joint(x0, dx0, dy0, x1, dx1, dy1, cfg):
     x_all = np.concatenate([x0, x1])
     dx_all = np.concatenate([dx0, dx1])
     dy_all = np.concatenate([dy0, dy1])
@@ -104,13 +119,13 @@ def _fit_joint(x0, dx0, dy0, x1, dx1, dy1):
         n_sensors=2,
     )
     cal.fit(
-        np.array([XMAX]),
-        np.array([0.0]),
+        cfg["x_anchors"].copy(),
+        cfg["swc_anchors"].copy(),
         x_all,
         dx_all,
         dy_all,
-        prior_u=PRIOR_U,
-        prior_y=PRIOR_Y,
+        prior_u=cfg["prior_u"].copy(),
+        prior_y=cfg["prior_y"].copy(),
         data_xmin=np.array(XMINS),
         sensor_chord_labels=labels,
     )
@@ -142,134 +157,142 @@ def _joint_curve_error(cal):
 
 def generate_figures(output_dir: Path):
     output_dir.mkdir(parents=True, exist_ok=True)
+    all_convergence = {}
 
-    convergence = {
-        "Sensor 1 alone": ([], []),
-        "Sensor 2 alone": ([], []),
-        "Joint": ([], []),
-    }
+    for cfg in RUN_CONFIGS:
+        cfg_name = cfg["name"]
+        print(f"\n{'='*60}")
+        print(f"Config: {cfg_name}")
+        print(f"{'='*60}")
 
-    last_max_n_result = None
+        convergence = {
+            "Sensor 1 alone": ([], []),
+            "Sensor 2 alone": ([], []),
+            "Joint": ([], []),
+        }
 
-    for n in N_VALUES:
-        print(f"N={n} ...")
-        errors = {"Sensor 1 alone": [], "Sensor 2 alone": [], "Joint": []}
+        last_max_n_result = None
 
-        for trial in range(N_TRIALS):
-            seed0 = n * 1000 + trial * 2
-            seed1 = n * 1000 + trial * 2 + 1
+        for n in N_VALUES:
+            print(f"  N={n} ...")
+            errors = {"Sensor 1 alone": [], "Sensor 2 alone": [], "Joint": []}
 
-            # np.random.seed(seed0 + 1)
-            x0, dx0, dy0 = _sim_chords(0, n, seed0)
-            # np.random.seed(seed1)
-            x1, dx1, dy1 = _sim_chords(1, n, seed1)
+            for trial in range(N_TRIALS):
+                seed0 = n * 1000 + trial * 2
+                seed1 = n * 1000 + trial * 2 + 1
 
-            if len(x0) < 2 or len(x1) < 2:
-                print(f"  trial {trial}: too few chords (s0={len(x0)}, s1={len(x1)}), skipping")
-                continue
+                x0, dx0, dy0 = _sim_chords(0, n, seed0)
+                x1, dx1, dy1 = _sim_chords(1, n, seed1)
 
-            cal_s0 = _fit_single(0, x0, dx0, dy0)
-            cal_s1 = _fit_single(1, x1, dx1, dy1)
-            cal_joint = _fit_joint(x0, dx0, dy0, x1, dx1, dy1)
+                if len(x0) < 2 or len(x1) < 2:
+                    print(f"    trial {trial}: too few chords (s0={len(x0)}, s1={len(x1)}), skipping")
+                    continue
 
-            errors["Sensor 1 alone"].append(_curve_error(cal_s0, 0))
-            errors["Sensor 2 alone"].append(_curve_error(cal_s1, 1))
-            errors["Joint"].append(_joint_curve_error(cal_joint))
+                cal_s0 = _fit_single(0, x0, dx0, dy0, cfg)
+                cal_s1 = _fit_single(1, x1, dx1, dy1, cfg)
+                cal_joint = _fit_joint(x0, dx0, dy0, x1, dx1, dy1, cfg)
 
-            if n == N_VALUES[-1]:
-                last_max_n_result = (
-                    cal_s0, cal_s1, cal_joint, x0, dx0, dy0, x1, dx1, dy1
-                )
+                errors["Sensor 1 alone"].append(_curve_error(cal_s0, 0))
+                errors["Sensor 2 alone"].append(_curve_error(cal_s1, 1))
+                errors["Joint"].append(_joint_curve_error(cal_joint))
 
-        for key in convergence:
-            arr = np.array(errors[key])
-            if len(arr) > 0:
-                convergence[key][0].append(float(np.mean(arr)))
-                convergence[key][1].append(float(np.std(arr) / np.sqrt(len(arr))))
-            else:
-                convergence[key][0].append(np.nan)
-                convergence[key][1].append(np.nan)
+                if n == N_VALUES[-1]:
+                    last_max_n_result = (
+                        cal_s0, cal_s1, cal_joint, x0, dx0, dy0, x1, dx1, dy1
+                    )
 
-        print(
-            f"s0={convergence['Sensor 1 alone'][0][-1]:.2f} "
-            f"s1={convergence['Sensor 2 alone'][0][-1]:.2f} "
-            f"joint={convergence['Joint'][0][-1]:.2f}"
+            for key in convergence:
+                arr = np.array(errors[key])
+                if len(arr) > 0:
+                    convergence[key][0].append(float(np.mean(arr)))
+                    convergence[key][1].append(float(np.std(arr) / np.sqrt(len(arr))))
+                else:
+                    convergence[key][0].append(np.nan)
+                    convergence[key][1].append(np.nan)
+
+            print(
+                f"    s0={convergence['Sensor 1 alone'][0][-1]:.2f} "
+                f"s1={convergence['Sensor 2 alone'][0][-1]:.2f} "
+                f"joint={convergence['Joint'][0][-1]:.2f}"
+            )
+
+        all_convergence[cfg_name] = convergence
+
+        cal_s0, cal_s1, cal_joint, x0, dx0, dy0, x1, dx1, dy1 = last_max_n_result
+
+        all_x = np.concatenate([x0, x1])
+        all_dx = np.concatenate([dx0, dx1])
+        all_dy = np.concatenate([dy0, dy1])
+        all_labels = np.array([0] * len(x0) + [1] * len(x1))
+
+        prefix = cfg_name
+
+        print(f"  Generating calibration curve panel ...")
+        plot_calibration_curve_simulated(
+            [cal_s0, cal_s1],
+            cal_joint,
+            TRUE_FNS,
+            XMINS,
+            XMAX,
+            all_x,
+            all_dx,
+            all_dy,
+            all_labels,
+            out=output_dir / f"{prefix}_simulation_calibration.png",
         )
 
-    cal_s0, cal_s1, cal_joint, x0, dx0, dy0, x1, dx1, dy1 = last_max_n_result
-
-    all_x = np.concatenate([x0, x1])
-    all_dx = np.concatenate([dx0, dx1])
-    all_dy = np.concatenate([dy0, dy1])
-    all_labels = np.array([0] * len(x0) + [1] * len(x1))
-
-    print("Generating calibration curve panel ...")
-    plot_calibration_curve_simulated(
-        [cal_s0, cal_s1],
-        cal_joint,
-        TRUE_FNS,
-        XMINS,
-        XMAX,
-        all_x,
-        all_dx,
-        all_dy,
-        all_labels,
-        out=output_dir / "simulation_calibration.png",
-    )
-
-    print("Generating corner plot ...")
-    true_values = {
-        "scale": SCALE,
-        "k": K_TRUTH,
-        "f_int": F_INT_TRUTH,
-        "sigma2": NOISE ** 2,
-    }
-    plot_corner(
-        cal_joint,
-        n_sensors=2,
-        out=output_dir / "simulation_corner.png",
-        true_values=true_values,
-    )
-
-    print("Generating chord noise plot ...")
-    plot_chord_noise(
-        all_x,
-        all_dx,
-        all_dy,
-        all_labels,
-        TRUE_FNS,
-        NOISE,
-        out=output_dir / "simulation_chord_noise.png",
-    )
-
-    print("Generating convergence plot ...")
-    plot_convergence_error(
-        N_VALUES,
-        convergence,
-        out=output_dir / "simulation_convergence.png",
-    )
-
-    print("Generating trace plots ...")
-    for label, cal_obj, ns in [
-        ("single_1", cal_s0, 1),
-        ("single_2", cal_s1, 1),
-        ("joint", cal_joint, 2),
-    ]:
-        plot_traces(
-            cal_obj,
-            n_sensors=ns,
-            n_burn=N_BURN,
-            out=output_dir / f"simulation_traces_{label}.png",
-            title=f"MCMC traces – {label}",
+        print(f"  Generating corner plot ...")
+        true_values = {
+            "scale": SCALE,
+            "k": K_TRUTH,
+            "f_int": F_INT_TRUTH,
+            "sigma2": NOISE ** 2,
+        }
+        plot_corner(
+            cal_joint,
+            n_sensors=2,
+            out=output_dir / f"{prefix}_simulation_corner.png",
+            true_values=true_values,
         )
 
-    params = cal_joint.posterior_params()
-    print("\nJoint posterior means vs true values:")
-    print(f"  scale:   {params['scale'].mean():.1f}  (true {SCALE})")
-    for i in range(2):
-        print(f"  k_{i+1}:     {params['k'][:, i].mean():.2f}  (true {K_TRUTH[i]})")
-        print(f"  f_int_{i+1}: {params['f_int'][:, i].mean():.3f}  (true {F_INT_TRUTH[i]})")
-    print(f"  sigma2:  {params['sigma2'].mean():.4f}  (true {NOISE**2:.4f})")
+        print(f"  Generating chord noise plot ...")
+        plot_chord_noise(
+            all_x,
+            all_dx,
+            all_dy,
+            all_labels,
+            TRUE_FNS,
+            NOISE,
+            out=output_dir / f"{prefix}_simulation_chord_noise.png",
+        )
+
+        print(f"  Generating convergence plot ...")
+        plot_convergence_error(
+            N_VALUES,
+            convergence,
+            out=output_dir / f"{prefix}_simulation_convergence.png",
+        )
+
+        print(f"  Generating trace plots ...")
+        for label, cal_obj, ns in [
+            ("single_1", cal_s0, 1),
+            ("single_2", cal_s1, 1),
+            ("joint", cal_joint, 2),
+        ]:
+            plot_traces(
+                cal_obj,
+                n_sensors=ns,
+                n_burn=N_BURN,
+                out=output_dir / f"{prefix}_simulation_traces_{label}.png",
+            )
+
+        params = cal_joint.posterior_params()
+        print(f"\n  Joint posterior means vs true values ({cfg_name}):")
+        print(f"    scale:   {params['scale'].mean():.1f}  (true {SCALE})")
+        for i in range(2):
+            print(f"    k_{i+1}:     {params['k'][:, i].mean():.2f}  (true {K_TRUTH[i]})")
+            print(f"    f_int_{i+1}: {params['f_int'][:, i].mean():.3f}  (true {F_INT_TRUTH[i]})")
+        print(f"    sigma2:  {params['sigma2'].mean():.4f}  (true {NOISE**2:.4f})")
 
     print(f"\nDone. Figures saved to {output_dir}")
 

@@ -48,7 +48,7 @@ The objective of this work was to introduce an automated system and statistical 
 Irregularly spaced sensor data gathered from sensors was smoothed with an exponential moving average \cite{genccay2001introduction} (or exponentially weighted moving average (EWMA) \cite{zumbach2001operators}), a single-pole low-pass filter \cite{smith1997scientist} with time-weighted coefficients:
 
 \[
-\tilde{X}_{t_i} = e^{-\Delta t/\tau} \tilde{X}_{t_{i-1}} + (1-e^{-\Delta t/\tau}) X_{t_i}
+\tilde{X}_{t_i} = e^{-\Delta t_i/\tau} \tilde{X}_{t_{i-1}} + (1-e^{-\Delta t_i/\tau}) X_{t_i}
 \]
 
 This was used to smooth high-frequency noise.
@@ -69,10 +69,10 @@ $\Delta T$, the change in total system water, is measurable for watering events 
 
 \subsubsection{Combining sensor estimates}
 
-Each sensor has its own local saturation $g_j(x)$, determined by physical heterogeneity. At the same time, the total water content of the container is a global property of the system. Our method estimates, per sensor, the total water content. Given $N$ sensors with voltage measurement vector $\mathbf{x}$. Each inverse sensor response is itself a random variable. We refine our single-sensor model as:
+Each sensor has its own local proportional saturation $g_j(x)$, which gives the proportional water concentration relative to the value at minimum $x$, with shape determined by physical heterogeneity. Each sensor can be used as an independent estimate of water concentration as a proportion of maximum. At the same time, the total water content of the container is a global property of the system. Our method estimates, per sensor, the total water content. Given $N$ sensors with voltage measurement vector $\mathbf{x}$, each inverse sensor response is itself a random variable. We refine our single-sensor model as:
 
 \begin{equation}
-SWC(\mathbf{x}) = S \cdot E[g(\mathbf{x})] \approx \frac{S}{N}\sum_{j=1}^N g_j(x_j)
+T(\mathbf{x}) = S \cdot E[g(\mathbf{x})] \approx \frac{S}{N}\sum_{j=1}^N g_j(x_j)
 \end{equation}
 
 allowing $S$, a global quantity to be estimated jointly, with separate estimates for the local relative saturation functions $g$ per-sensor.
@@ -83,7 +83,7 @@ The sensor response has two plateaus, one at dry (low SWC) and one at wet (high 
 
 \begin{equation}
 \label{eq:invres}
-h^{-1}_{vol}(X) = S \cdot g(X) = S \cdot \Big((1-q_{dry})\exp\Big\{-k (1 - u(X; x_{wet}, x_{dry}))\Big\} + q_{dry}\Big)
+T(X) = S \cdot g(X) = S \cdot \Big((1-q_{dry})\exp\Big\{-k (1 - u(X; x_{wet}, x_{dry}))\Big\} + q_{dry}\Big)
 \end{equation}
 
 Where $u(X_t)$ is a linear rescaling of $[x_{wet}, x_{dry}]$ to the interval $[0, 1]$. The shape intercept parameter $q_{dry}$ allows the normalized curve $g(x)$ to be squashed into the interval $[q_{dry}, 1.0]$. The parameter $S$ is equal to the total water volume at the minimum sensor measurement, and can be related to volumetric SWC as:\\
@@ -100,7 +100,7 @@ To combine the chord data $(X_{i, start}, X_{i, end}, \Delta T)$, dry anchor sam
 \log(\Delta T) \sim Normal(\log (S\cdot g(X_{end}; k) - S\cdot g(X_{start}; k)), \sigma^2)
 \end{equation}
 
-With the target parameters $\theta = (S, k, \sigma^2, q_{dry})$. Priors on the lower bound $x_{wet}$ are taken as uniform on a user-specified interval.
+With the target parameters $\theta = (S, k, \sigma^2, q_{dry})$.
 
 \begin{table}[ht]
     \centering
@@ -137,7 +137,8 @@ exponential shape $k_1 = 5.0$ and $k_2 = 10.0$.
 Each sensor was given its own minimum $X_{min}$, corresponding to saturation: $X_{min,1} = 3.0$, $X_{min,2} = 2.5$.
 A single $X_{max} = 8.5$ value was utilised. 
 Chord data ($N=64$) was simulated with multiplicative unit-mean lognormal noise 
-with variance of $\sigma = 0.2$. Uninformative end-point only prior calibration curves and a single anchor point at $(X_{max}, 0)$.
+with variance of $\sigma = 0.2$. Uninformative end-point only prior calibration curves and a single anchor point at $(X_{max}, 0)$
+were used.
 A $Beta(1,3)$ prior was applied to both $q_{dry}$ shape intercept parameters.
 Inference was run with a burn-in of $400$, with $1000$ samples taken post-burnin.
 In a second simulation, for exploring identifiability, a run with only beta-distributed prior on $q_{dry}$ was used, without
@@ -164,14 +165,14 @@ would be destructive, future work should use gravimetry for validation in a rang
 \begin{figure}[!ht]
   \centering
   \includegraphics[width=1.0\linewidth]{images/real_data_timeseries.png}
-  \caption{Estimated SWC over time from multi-sensor Bayesian calibration. Individual sensor posteriors (thin lines with shaded 95\% CI) and joint posterior (bold line with shaded CI).}
+  \caption{Estimated SWC over time from multi-sensor Bayesian calibration. Single-sensor estimation is shown with the combined sensor estimate. Shaded regions denote the 95\% HPD.}
   \label{fig:timeseries}
   \end{figure}
 
 \begin{figure}[!ht]
   \centering
   \includegraphics[width=0.85\linewidth]{images/real_data_calibration.png}
-  \caption{Calibration (response) curves per sensor and joint calibration, plotted parametrically against normalised sensor range $u \in [0,1]$. Chord segments show the observed watering events. Shading shows 95\% credible intervals.}
+  \caption{Calibration (response) curves per sensor and joint calibration, plotted against normalised sensor range $u \in [0,1]$. Chord segments show the observed watering events. Shading shows 95\% credible intervals.}
   \label{fig:calibration}
 \end{figure}
 
@@ -199,10 +200,10 @@ It is critical that methodology designed for calibration is tested for performan
 demonstrating reconstruction of known response functions, future work should apply the method to a range of real soil types and volumes to assess robustness in different systems.
 
 The results demonstrated highlight a particular concern on identifiability. For the real data use-case, a prior curve was utilised using manual calibration data. 
-For the simulated data cases, in the absence of a calibration curve prior, banana-shaped joint posterior distributions are structurally expected for $S$ and $q_{dry}$ for each sensor,
-and can be addressed by addition of an anchor point at the dry end.
+For the simulated data cases, in the absence of a calibration curve prior, banana-shaped joint posterior distributions are structurally expected for $S$ and $q_{dry}$ for each sensor.
 Without prior information, chord data, as integral data, cannot inform the intercept, only scale and shape. There are a few resolutions to this. It is possible to utilise a prior,
-or alternatively, to fix the intercept to zero. The simple approach of taking a zero-intercept is reasonable but cuts off the dry-end of the curve. This will have variable impact
+ known anchor points (such as a single sensor measurement for dry soil), or to fix the intercept to zero.
+The simple approach of taking a zero-intercept is reasonable but cuts off the dry-end of the curve. This will have variable impact
 depending on the region of the curve that a given plant is kept in. A second identifiability problem arises when the subset of the domain covered by chords is low. If noise is high,
 then as the section of the domain of $X$ covered by data shrinks, it is expected that it is harder to identify the shape parameter.
 
@@ -225,7 +226,7 @@ This paper was written without LLM generation. LLM generation was used for code 
 
 \begin{figure}[!ht]
   \centering
-  \includegraphics[width=1.0\linewidth]{images/simulation_traces_joint.png}
+  \includegraphics[width=1.0\linewidth]{images/with_priors_simulation_traces_joint.png}
   \caption{Traces for shared-sensor parameters during inference on simulated data, showing mixing after burn-in.}
   \label{fig:traces}
   \end{figure}

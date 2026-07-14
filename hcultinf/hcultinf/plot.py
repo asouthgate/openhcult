@@ -427,10 +427,10 @@ def plot_traces(cal, n_sensors=None, n_burn=None, out=None, title=None):
     log_prob = cal._log_prob
 
     param_names = (
-        ["log_scale"]
-        + [f"k_{i}" for i in range(n_sensors)]
-        + [f"f_int_{i}" for i in range(n_sensors)]
-        + ["log_sigma"]
+        ["$\log(S)$"]
+        + [f"$k_{i}$" for i in range(n_sensors)]
+        + ["$q_{dry," + str(i) + "}$" for i in range(n_sensors)]
+        + ["$\log(sigma)$"]
     )
 
     n_params = layout.dim
@@ -464,7 +464,7 @@ def plot_traces(cal, n_sensors=None, n_burn=None, out=None, title=None):
         import os
 
         os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
-        fig.savefig(out, dpi=300)
+        fig.savefig(out, dpi=200)
     plt.close(fig)
     return fig
 
