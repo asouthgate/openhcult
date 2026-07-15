@@ -330,6 +330,16 @@ class ExponentialCordCalibratorMCMC(CordCalibrator):
         inv_denom = xmax - data_xmin_arr
         prior_u = np.asarray(prior_u, dtype=float)
         prior_y = np.asarray(prior_y, dtype=float)
+
+        if len(prior_u) > 0:
+            u_min = float(np.min(prior_u))
+            u_max = float(np.max(prior_u))
+            if u_min < -10.0 or u_max > 10.0:
+                raise ValueError(
+                    f"prior_u out of u-space range: min={u_min:.1f}, max={u_max:.1f}. "
+                    f"Expected values in [0, 1]. "
+                    f"Pass raw voltages to fit() as prior_u in u-space only."
+                )
         if len(prior_u) == 0:
             u_prior_m1 = None
         else:

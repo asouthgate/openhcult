@@ -155,6 +155,20 @@ def _fetch_cord_data(conn, plant_name, sensor_specs, p):
     x_anchors = np.array([sensor_vals.max()])
     swc_anchors = np.array([0.0])
 
+    xmax_est = float(prior_x.max())
+    if all_x:
+        xmax_est = max(xmax_est, float(np.max(all_x)))
+
+    data_xmin_est = float("inf")
+    if all_x:
+        x_ends = np.array(all_x) + np.array(all_dx)
+        chord_x_min = np.minimum(np.array(all_x), x_ends)
+        data_xmin_est = min(data_xmin_est, float(np.min(chord_x_min)))
+    data_xmin_est = min(data_xmin_est, float(x_anchors.min()))
+
+    inv_denom = max(xmax_est - data_xmin_est, 1e-10)
+    u_prior = (xmax_est - prior_x) / inv_denom
+
     return dict(
         x_arr=np.array(all_x),
         dx_arr=np.array(all_dx),
@@ -162,6 +176,7 @@ def _fetch_cord_data(conn, plant_name, sensor_specs, p):
         chord_times=all_chord_times,
         prior_x=prior_x,
         prior_y=prior_y,
+        u_prior=u_prior,
         x_anchors=x_anchors,
         swc_anchors=swc_anchors,
         offset_ms=p.offset_ms,
@@ -267,7 +282,7 @@ def _calibrate(d, p: CalibrationParams):
             d["x_arr"],
             d["dx_arr"],
             d["dy_arr"],
-            d["prior_x"],
+            d["u_prior"],
             d["prior_y"],
             sensor_chord_labels=d["sensor_chord_labels"],
         )
