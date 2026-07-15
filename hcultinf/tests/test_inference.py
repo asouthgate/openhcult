@@ -16,7 +16,8 @@ import numpy as np
 import pytest
 
 from hcultinf.exp import ExponentialCordCalibrator, exponential_target
-from hcultinf.exp_mcmc import ExponentialCordCalibratorMCMC, plot_corner, _ParamLayout
+from hcultinf.exp_mcmc import ExponentialCordCalibratorMCMC, _ParamLayout
+from hcultinf.plot import plot_corner
 
 from hcultinf.simulation import (
     simulate_calibration_data_samples,
@@ -34,17 +35,20 @@ TEST_XMIN = 3.0
 
 TEST_POWER_FUNCTION = lambda x: 10.0 * power_function(x, 5.0, 0.0, TEST_XMIN, TEST_XMAX)
 
+TEST_PRIOR_U = np.array([1.0, 0.0])
+TEST_PRIOR_Y = np.array([1.0, 0.0])
+TEST_DATA_XMIN = np.array([TEST_XMIN])
+
 
 def _get_mixed_prior_decreasing(xmin, xmax, p):
-    priorx = np.linspace(xmin, xmax, 1000)
-    linear_prior_y = np.interp(priorx, [TEST_XMIN, TEST_XMAX], [1.0, 0.0])
-    fn_vals = TEST_POWER_FUNCTION(priorx)
+    prior_u = np.linspace(1.0, 0.0, 1000)
+    linear_prior_y = np.interp(prior_u, [1.0, 0.0], [1.0, 0.0])
+    fn_vals = TEST_POWER_FUNCTION(xmin + prior_u * (xmax - xmin))
     normalized_fn = (fn_vals - fn_vals.min()) / (fn_vals.max() - fn_vals.min())
     priory = linear_prior_y * p + normalized_fn * (1 - p)
-    return priorx, priory
+    return prior_u, priory
 
 
-TEST_POWER_FUNCTION = lambda x: 10.0 * power_function(x, 5.0, 0.0, TEST_XMIN, TEST_XMAX)
 TEST_EXPONENTIAL_FUNCTION = lambda x: 10.0 * exponential_target(
     x, k=20.0, f_int=0.0, xmin=TEST_XMIN, xmax=TEST_XMAX
 )
@@ -76,8 +80,8 @@ def test_convergence_in_n_bad_prior(estimator_func_pair):
     anchorx = np.array([TEST_XMAX])
     anchory = np.array([0.0])
     for n in [4, 64]:
-        priorx_pts = np.array([TEST_XMIN, TEST_XMAX])
-        priory_pts = np.array([1.0, 0.0])
+        prior_u_pts = TEST_PRIOR_U
+        priory_pts = TEST_PRIOR_Y
         errs = []
         for _ in range(10):
             x, dx, dy = simulate_calibration_data_samples(
@@ -97,8 +101,9 @@ def test_convergence_in_n_bad_prior(estimator_func_pair):
                 x,
                 dx,
                 dy,
-                priorx_pts,
-                priory_pts,
+                prior_u=prior_u_pts,
+                prior_y=priory_pts,
+                data_xmin=TEST_DATA_XMIN,
             )
             pwlx = np.linspace(TEST_XMIN, TEST_XMAX, 1000)
             _curve_error = np.mean(np.abs(test_function(pwlx) - pwl(pwlx)))
@@ -109,9 +114,10 @@ def test_convergence_in_n_bad_prior(estimator_func_pair):
 
     if not _NO_PLOTS:
         plot_x = np.linspace(TEST_XMIN * 0.75, TEST_XMAX, 500)
-        plot_y = np.interp(plot_x, priorx_pts, priory_pts)
+        plot_u = (TEST_XMAX - plot_x) / (TEST_XMAX - TEST_XMIN)
+        plot_y = np.interp(plot_u, TEST_PRIOR_U, TEST_PRIOR_Y)
         last_pwl.plot(
-            plot_x,
+            plot_u,
             plot_y,
             anchorx,
             anchory,
@@ -138,10 +144,12 @@ def test_realistic():
     x = np.array(d["chords_x"])
     dx = np.array(d["chords_dx"])
     dy = np.array(d["chords_dy"])
-    prior_x = np.array(d["prior_x"])
+    prior_x_raw = np.array(d["prior_x"])
     prior_y = np.array(d["prior_y"])
 
     xmax = 2009.0
+    data_xmin = float(prior_x_raw.min())
+    prior_u = (xmax - prior_x_raw) / (xmax - data_xmin)
     anchor_x = np.array([xmax])
     anchor_swc = np.array([0.0])
 
@@ -150,11 +158,15 @@ def test_realistic():
         n_burn=250,
         n_steps=400,
     )
-    cal = estimator.fit(anchor_x, anchor_swc, x, dx, dy, prior_x, prior_y)
+    cal = estimator.fit(
+        anchor_x, anchor_swc, x, dx, dy,
+        prior_u=prior_u, prior_y=prior_y,
+        data_xmin=np.array([data_xmin]),
+    )
 
     if not _NO_PLOTS:
         cal.plot(
-            prior_x,
+            prior_u,
             prior_y,
             anchor_x,
             anchor_swc,
@@ -166,7 +178,7 @@ def test_realistic():
             show_chords_pane=False,
         )
 
-    mean, ci_low, ci_high = cal.predict(prior_x)
+    mean, ci_low, ci_high = cal.predict(prior_x_raw)
     EST_SWC = 800.0
     assert np.abs(max(mean) - EST_SWC) <= 150
     assert all(np.abs(ci_low - mean) <= 750)
@@ -193,7 +205,7 @@ def test_unbiasedness(estimator):
     """Mean prediction across trials should match the true curve pointwise."""
     R = 50
     n = 30
-    priorx, priory = _get_mixed_prior_decreasing(TEST_XMIN, TEST_XMAX, 0.5)
+    prior_u, priory = _get_mixed_prior_decreasing(TEST_XMIN, TEST_XMAX, 0.5)
     eval_x = np.linspace(TEST_XMIN, TEST_XMAX, 200)
     true_y = TEST_POWER_FUNCTION(eval_x)
 
@@ -211,7 +223,8 @@ def test_unbiasedness(estimator):
         )
 
         pwl = estimator.fit(
-            np.array([TEST_XMAX]), np.array([0.0]), x, dx, dy, priorx, priory
+            np.array([TEST_XMAX]), np.array([0.0]), x, dx, dy,
+            prior_u=prior_u, prior_y=priory, data_xmin=TEST_DATA_XMIN,
         )
         mean = pwl(eval_x)
         estimates[i] = mean
@@ -279,8 +292,9 @@ def _fit_mcmc(n=30, seed=None):
         x,
         dx,
         dy,
-        np.array([TEST_XMIN, TEST_XMAX]),
-        np.array([1.0, 0.0]),
+        prior_u=TEST_PRIOR_U,
+        prior_y=TEST_PRIOR_Y,
+        data_xmin=TEST_DATA_XMIN,
     )
     assert np.all(np.isfinite(cal(np.linspace(TEST_XMIN, TEST_XMAX, 10))))
     assert np.all(cal(np.linspace(TEST_XMIN, TEST_XMAX, 10)) >= 0)
@@ -313,8 +327,9 @@ def test_postprocess_discards_burnin_correctly():
         x,
         dx,
         dy,
-        np.array([TEST_XMIN, TEST_XMAX]),
-        np.array([1.0, 0.0]),
+        prior_u=TEST_PRIOR_U,
+        prior_y=TEST_PRIOR_Y,
+        data_xmin=TEST_DATA_XMIN,
     )
     layout_dim = _ParamLayout(1).dim
     assert (
@@ -408,8 +423,9 @@ def test_multi_sensor_happy_path():
         x_starts,
         delta_x,
         delta_swc,
-        np.array([TEST_XMAX]),
-        np.array([0.0]),
+        prior_u=np.array([0.0]),
+        prior_y=np.array([0.0]),
+        data_xmin=np.array([DATA_XMIN_0, DATA_XMIN_1]),
         sensor_chord_labels=sensor_chord_labels,
     )
 
@@ -421,8 +437,9 @@ def test_multi_sensor_happy_path():
         x0,
         dx0,
         dy0,
-        np.array([TEST_XMAX]),
-        np.array([0.0]),
+        prior_u=np.array([0.0]),
+        prior_y=np.array([0.0]),
+        data_xmin=np.array([DATA_XMIN_0]),
     )
     cal_s1 = ExponentialCordCalibratorMCMC(**est_kw).fit(
         np.array([TEST_XMAX]),
@@ -430,8 +447,9 @@ def test_multi_sensor_happy_path():
         x1,
         dx1,
         dy1,
-        np.array([TEST_XMAX]),
-        np.array([0.0]),
+        prior_u=np.array([0.0]),
+        prior_y=np.array([0.0]),
+        data_xmin=np.array([DATA_XMIN_1]),
     )
     print("Sensor 0 MAP scale:", float(cal_s0.posterior_params()["scale"].mean()))
     print("Sensor 1 MAP scale:", float(cal_s1.posterior_params()["scale"].mean()))
@@ -466,7 +484,7 @@ def test_multi_sensor_happy_path():
 
     if not _NO_PLOTS:
         cal.plot(
-            np.array([TEST_XMIN, TEST_XMAX]),
+            np.array([1.0, 0.0]),
             np.array([1.0, 0.0]),
             np.array([TEST_XMAX]),
             np.array([0.0]),

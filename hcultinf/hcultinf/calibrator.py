@@ -52,7 +52,7 @@ class CordCalibrator(ABC):
 
     def plot(
         self,
-        priorx,
+        prioru,
         priory,
         anchors_x,
         anchors_y,
@@ -68,22 +68,46 @@ class CordCalibrator(ABC):
         import matplotlib.pyplot as plt
 
         apply_dark_theme()
-        priorx = np.asarray(priorx)
+        prioru = np.asarray(prioru)
+        x = np.asarray(x)
+        dx = np.asarray(dx)
+        dy = np.asarray(dy)
+
+        xmin_ref = getattr(self, "_data_xmin", None)
+        if xmin_ref is None:
+            xmin_ref = min(
+                np.asarray(x).min(),
+                (np.asarray(x) + np.asarray(dx)).min(),
+                np.asarray(anchors_x).min(),
+            )
+        xmax_ref = getattr(self, "_xmax", None)
+        if xmax_ref is None:
+            xmax_ref = float(np.asarray(anchors_x).max())
+        inv_denom_ref = xmax_ref - xmin_ref
+        priorx = xmax_ref - prioru * inv_denom_ref
+
         domain_min_x = min(
             [
-                priorx.min(),
+                priorx.min() if len(priorx) > 0 else np.inf,
                 anchors_x.min() if len(anchors_x) > 0 else np.inf,
                 x.min() if len(x) > 0 else np.inf,
                 (x + dx).min() if len(dx) > 0 else np.inf,
             ]
         )
-        plot_x = np.linspace(domain_min_x, priorx.max(), 500)
-        plot_prior_y = np.interp(plot_x, priorx, priory)
-        plot_true_y = (
-            np.interp(plot_x, priorx, np.asarray(true_y))
-            if true_y is not None
-            else None
+        plot_x = np.linspace(domain_min_x, xmax_ref, 500)
+        plot_prior_y = (
+            np.interp(plot_x, priorx, priory) if len(priorx) > 0 else None
         )
+        if true_y is not None:
+            true_y = np.asarray(true_y)
+            if len(priorx) > 0:
+                plot_true_y = np.interp(plot_x, priorx, true_y)
+            elif len(true_y) == len(plot_x):
+                plot_true_y = true_y
+            else:
+                plot_true_y = None
+        else:
+            plot_true_y = None
         mean_at_x = self(x)
         mean, ci_low, ci_high = self.predict(plot_x)
         fig = plot_response_curve(
@@ -162,8 +186,9 @@ def plot_response_curve(
     else:
         fig, ax = plt.subplots(1, 1, figsize=(10, 6))
 
-    x_margin = (prior_x.max() - prior_x.min()) * 0.08
-    ax.set_xlim(prior_x.min() - x_margin, prior_x.max() + x_margin)
+    if prior_x is not None and len(prior_x) > 0:
+        x_margin = (prior_x.max() - prior_x.min()) * 0.08
+        ax.set_xlim(prior_x.min() - x_margin, prior_x.max() + x_margin)
 
     for i in range(len(dx)):
         start_y = mean_at_x[i]
@@ -184,13 +209,14 @@ def plot_response_curve(
 
     ax.scatter(anchors_x, anchors_y, label="anchors", color=ORANGE)
     gp_range = mean.max() - mean.min()
-    ax.plot(
-        prior_x,
-        prior_y * gp_range,
-        label="rescaled prior",
-        linestyle="--",
-        color=ORANGE,
-    )
+    if prior_y is not None:
+        ax.plot(
+            prior_x,
+            prior_y * gp_range,
+            label="rescaled prior",
+            linestyle="--",
+            color=ORANGE,
+        )
     ax.fill_between(
         prior_x, ci_low, ci_high, color=CLOUD_BLUE, alpha=0.2, label="95% CI"
     )
